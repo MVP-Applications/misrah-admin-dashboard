@@ -23,7 +23,11 @@ import {
 } from 'lucide-react';
 
 // Types
-import { Property, Banner, Category, EliteHost, User as UserType, UserRole } from './types';
+import { Property, Banner, Category, EliteHost, User as UserType } from './types';
+import type { AdminUser } from './features/auth/types';
+
+// Auth
+import { AuthProvider, useAuth } from './features/auth/AuthContext';
 
 // Constants & Mock Data
 import {
@@ -355,9 +359,35 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
   );
 };
 
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+// Temporary bridge: the real backend has no `avatar` field and a DB-driven
+// roleIds model (see GET/POST /admin/roles), while every existing view in
+// this app still types its `user` prop as the legacy `User` shape below.
+// Rather than refactor ~15 view components under a deadline, we adapt the
+// real AdminUser into that legacy shape here. `role` is hardcoded to 'admin'
+// because everyone who authenticates via /admin/auth/login is an admin-panel
+// user — it is NOT derived from roleIds and must NOT be used for real
+// authorization decisions (those must happen server-side).
+// TODO: once the Roles API is integrated, derive real role/permissions from
+// `roleIds` instead of hardcoding this, and consider folding this adapter
+// away in favor of using AdminUser directly across views.
+function toLegacyUser(admin: AdminUser): UserType {
+  return {
+    id: admin.id,
+    name: admin.name,
+    email: admin.email,
+    role: 'admin',
+    avatar: `https://i.pravatar.cc/150?u=${admin.id}`,
+  };
+}
+
+const BootstrappingScreen = () => (
+  <div className="min-h-screen bg-primary flex items-center justify-center">
+    <div className="w-10 h-10 border-4 border-white/10 border-t-accent rounded-full animate-spin" />
+  </div>
+);
+
+function AppRoutes() {
+  const { status, user, logout } = useAuth();
 
   // App State
   const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
@@ -373,31 +403,21 @@ export default function App() {
     setProperties(prev => prev.filter(p => p.id !== id));
   };
 
-  const handleLogin = (role: UserRole) => {
-    setCurrentUser({
-      id: role === 'admin' ? 'admin1' : 'm1',
-      name: role === 'admin' ? 'Nasser Al Kaabi' : 'Ahmed Rashid',
-      email: role === 'admin' ? 'admin@misrah.ae' : 'ahmed@misrah.ae',
-      role: role,
-      avatar: role === 'admin' ? 'https://i.pravatar.cc/150?u=admin' : 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80',
-      verificationStatus: role === 'admin' ? 'Approved' : 'Unverified',
-      verificationData: {
-        phone: '+971 50 123 4567',
-      }
-    });
-    setIsAuthenticated(true);
-  };
+  if (status === 'bootstrapping') {
+    return <BootstrappingScreen />;
+  }
 
+  const isAuthenticated = status === 'authenticated';
+  const currentUser = user ? toLegacyUser(user) : null;
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
+    void logout();
   };
 
   return (
     <Routes>
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginView onLogin={handleLogin} />}
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginView />}
       />
       <Route
         path="/"
@@ -426,5 +446,13 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   );
 }
