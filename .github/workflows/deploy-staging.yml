@@ -31,8 +31,8 @@ jobs:
         with:
           switches: -avzr --delete
           path: dist/
-          remote_path: /var/www/misrah-staging
+          remote_path: /home/mvp-server/misrah-admin-dashboard-staging
           remote_host: ${{ secrets.STAGING_HOST }}
           remote_user: ${{ secrets.STAGING_USER }}
           remote_key: ${{ secrets.STAGING_SSH_KEY }}
-          remote_port: 22
+          remote_port: ${{ secrets.STAGING_PORT }}
