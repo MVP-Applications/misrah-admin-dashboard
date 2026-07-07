@@ -113,6 +113,28 @@ anything else — into a flat `ApiError { statusCode, message, error? }` (see
 value from `apiClient` is already this shape** — don't re-parse `error.response.data`
 anywhere else.
 
+## Local mock login (dev-only)
+
+Working locally without a real `VITE_API_KEY` is otherwise impossible — the backend
+rejects every request without it, including login, so there's no way to reach the real
+API at all until you have the real key.
+
+`LoginView` shows an extra "Dev: skip login" button that calls `useAuth().loginWithMock()`
+instead of the real `login()`. It fakes an authenticated session with a hardcoded
+`AdminUser` entirely in memory — no network call, and it never touches `tokenStorage`,
+so it doesn't persist across a reload and can't be mistaken for a real session.
+
+Gating is a **runtime hostname check** (`isLocalhost()` in `src/config/env.ts`, checking
+`window.location.hostname === 'localhost' | '127.0.0.1'`), not a build-time env var. This
+is deliberate: an env-var flag (e.g. `VITE_MOCK_AUTH=true`) could get copied into a
+staging/prod `.env` by mistake and silently ship a login bypass. A hostname check can't —
+it only ever evaluates true when the page is actually being served from someone's own
+machine. `loginWithMock()` re-checks `isLocalhost()` itself before doing anything, so even
+a stray call to it from elsewhere is a no-op off localhost.
+
+Safe to delete once real login is fully verified end-to-end with a real key — but also
+harmless to leave, since it can't activate anywhere but localhost.
+
 ## Env vars
 
 | Var | Purpose | Where read |

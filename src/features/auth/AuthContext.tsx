@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setOnSessionExpired } from '../../api/client';
+import { isLocalhost } from '../../config/env';
 import * as authApi from './api';
 import * as tokenStorage from './tokenStorage';
 import type { AdminUser } from './types';
@@ -11,7 +12,25 @@ interface AuthContextValue {
   user: AdminUser | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Dev-only escape hatch for working on the UI before a real x-api-key is
+   * available — bypasses the API entirely and fakes a session. No-ops unless
+   * isLocalhost() is true, so it can never activate on a deployed build even
+   * if env vars are misconfigured. Doesn't touch tokenStorage, so it never
+   * persists across a reload and can't be confused with a real session.
+   * TODO: safe to delete once real login is fully verified end-to-end, though
+   * harmless to leave since it's hostname-gated.
+   */
+  loginWithMock: () => void;
 }
+
+// Fixed fake admin used only by loginWithMock() — never sent to or received
+// from the API.
+const MOCK_ADMIN_USER: AdminUser = {
+  id: 'mock-admin-id',
+  email: 'mock-admin@localhost.dev',
+  name: 'Mock Admin (localhost only)',
+};
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -85,9 +104,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
+  const loginWithMock = useCallback(() => {
+    if (!isLocalhost()) return;
+    setUser(MOCK_ADMIN_USER);
+    setStatus('authenticated');
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, logout }),
-    [status, user, login, logout],
+    () => ({ status, user, login, logout, loginWithMock }),
+    [status, user, login, logout, loginWithMock],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

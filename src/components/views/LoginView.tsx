@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Shield, ArrowRight, Loader2 } from 'lucide-react';
+import { Shield, ArrowRight, Loader2, Code2 } from 'lucide-react';
+import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
 
 export const LoginView = () => {
-  const { login } = useAuth();
+  const { login, loginWithMock } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -112,6 +113,17 @@ export const LoginView = () => {
              )}
            </div>
         </form>
+
+        {isLocalhost() && (
+          <button
+            type="button"
+            onClick={loginWithMock}
+            className="mt-6 w-full flex items-center justify-center gap-2 text-[9px] font-black text-white/50 hover:text-white/80 uppercase tracking-[2px] border border-dashed border-white/20 rounded-2xl py-3 transition-colors"
+          >
+            <Code2 size={12} />
+            Dev: skip login (localhost only)
+          </button>
+        )}
 
         <p className="mt-12 text-[9px] font-bold text-white/30 uppercase tracking-[2px]">Secure encrypted connection active · Production protocol v2.4</p>
       </div>

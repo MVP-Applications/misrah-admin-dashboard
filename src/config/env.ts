@@ -20,3 +20,11 @@ export const env = {
   API_BASE_URL: apiBaseUrl ?? '',
   API_KEY: apiKey ?? '',
 } as const;
+
+// Runtime check (not a build-time env flag) — deliberately so that dev-only
+// affordances gated on this (e.g. the mock login in features/auth) can never
+// activate just because a build got deployed with the wrong env vars. It only
+// ever returns true when the page is actually being served from localhost.
+export function isLocalhost(): boolean {
+  return typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+}
