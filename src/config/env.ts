@@ -7,13 +7,15 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 const apiKey = import.meta.env.VITE_API_KEY;
 
-if (import.meta.env.DEV) {
-  if (!apiBaseUrl) {
-    console.error('[env] VITE_API_BASE_URL is not set — API calls will fail. Check your .env file against .env.example.');
-  }
-  if (!apiKey) {
-    console.error('[env] VITE_API_KEY is not set — every API call will be rejected with 401 "API Key is missing". Check your .env file against .env.example.');
-  }
+// Deliberately NOT gated to import.meta.env.DEV: a staging build once shipped with
+// this var unset (a CI workflow that never injected it) and produced a confusing,
+// silent-in-the-app 405 from nginx instead of ever surfacing this message — because
+// the warning only fired in dev. Missing env vars must be loud in every build.
+if (!apiBaseUrl) {
+  console.error('[env] VITE_API_BASE_URL is not set — API calls will fail. Check your .env file against .env.example, or (for a CI build) the workflow\'s env: block.');
+}
+if (!apiKey) {
+  console.error('[env] VITE_API_KEY is not set — every API call will be rejected with 401 "API Key is missing". Check your .env file against .env.example, or (for a CI build) the workflow\'s env: block.');
 }
 
 export const env = {

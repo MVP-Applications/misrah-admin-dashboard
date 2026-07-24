@@ -155,6 +155,11 @@ Mirror the `auth`/`bookings` features:
 
 ## Bookings: how it actually works
 
+**For the full booking domain — status lifecycle, every endpoint (consumer/host + admin),
+pricing/refund logic, and known backend gaps — see
+`../misra-api-nest/docs/booking/BOOKING_FLOW.md`.** This section only covers what's
+specifically relevant to how the React app integrates with it.
+
 - `BookingsView.tsx` wires up the list, detail view, and cancel against real endpoints.
   **Reschedule ("Manage") required a backend change — see below.** Message is a
   deliberate stub (a real Chat module exists in the backend but wiring it up is a
@@ -275,8 +280,33 @@ harmless to leave, since it can't activate anywhere but localhost.
 | `VITE_API_BASE_URL` | Backend base URL | `src/config/env.ts` |
 | `VITE_API_KEY` | `x-api-key` header value (not secret, see above) | `src/config/env.ts` |
 
+**These MUST be injected wherever `npm run build` runs — including CI.** Vite only reads
+them from `.env`/`.env.production` files or actual process env vars at build time; there
+is no runtime fallback once the bundle is built. `.env` is (correctly) gitignored, so a
+CI workflow that doesn't explicitly set them ships a build with `API_BASE_URL: ''` —
+axios then resolves every request against the page's own origin instead of the real API.
+This actually happened: `deploy-staging.yml` didn't set them, so the deployed staging
+site's login request went to `https://misrah-staging.mvp-apps.ae/admin/auth/login`
+(itself — a static file host) instead of the real API, and nginx returned a `405` for a
+`POST` to a non-static path. Fixed by adding an `env:` block to that workflow's build
+step. The `env.ts` warning for this is also deliberately **not** gated to
+`import.meta.env.DEV` anymore, for the same reason — it used to only fire in dev, so this
+exact misconfiguration produced zero diagnostic output in the actual broken deployment.
+
 ## Known Gaps / TODO
 
+- **The staging deploy is still blocked after the CI env-var fix, by a separate issue:**
+  the `x-api-key`'s origin allowlist (`ApiKeyGuard` in the backend, `authorizedOrigins` on
+  the `ApiKey` Mongo document) does not include `https://misrah-staging.mvp-apps.ae` —
+  confirmed live (`401 "Request origin is not authorized"` even with a valid key). That
+  allowlist is only populated once, at key-creation time, from `WEB_AUTHORIZED_ORIGINS`
+  (`misra-api-nest/src/database/seeds/api-key.seeder.ts`) — the key already in use was
+  seeded before this origin existed, so updating the env var and reseeding won't
+  retroactively fix it, and the seeder's `reseed()` deletes ALL existing keys (would break
+  every other environment currently using this key, including local dev). This needs a
+  targeted database update (conceptually: add the origin to that one document's
+  `authorizedOrigins` array) by whoever has DB access — not something to script/run
+  against a live database without deliberately deciding to.
 - **`/admin/auth/login` and `/admin/auth/autologin`'s inner response shapes are
   CONFIRMED** (both `{ access_token, refresh_token, user: { id, email, userType,
   userMode?, notificationSettings? } }` — note the key is `user`, not `admin`, and there's
