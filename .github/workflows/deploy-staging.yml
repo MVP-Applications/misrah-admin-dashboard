@@ -27,13 +27,13 @@ jobs:
         env:
           # Same API host used for local dev (https://misra-test.mvp-apps.ae) — there is
           # no separate staging API, confirmed with the project owner. VITE_API_KEY is
-          # not treated as a secret at runtime (it ends up in the public JS bundle
-          # either way — see API_INTEGRATION.md), but is still read from a GitHub
-          # Actions secret rather than committed here. Add a repo secret named
-          # VITE_API_KEY with the same value used in your local .env before this
-          # workflow can build a working staging deploy.
+          # read from a repository VARIABLE (not a Secret) — it's not sensitive at
+          # runtime (it ends up in the public JS bundle either way, see
+          # API_INTEGRATION.md), so GitHub's own plaintext `vars` store is the
+          # semantically correct place for it, not the encrypted `secrets` store.
+          # Set at: repo Settings → Secrets and variables → Actions → Variables tab.
           VITE_API_BASE_URL: https://misra-test.mvp-apps.ae
-          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+          VITE_API_KEY: ${{ vars.VITE_API_KEY }}
         run: npm run build
 
       - name: Deploy over SSH
