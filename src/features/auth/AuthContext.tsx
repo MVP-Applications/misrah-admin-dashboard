@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { setOnSessionExpired } from '../../api/client';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { getRefreshedAccessToken, setOnSessionExpired } from '../../api/client';
 import { isLocalhost } from '../../config/env';
 import * as authApi from './api';
 import * as tokenStorage from './tokenStorage';
@@ -29,7 +29,7 @@ interface AuthContextValue {
 const MOCK_ADMIN_USER: AdminUser = {
   id: 'mock-admin-id',
   email: 'mock-admin@localhost.dev',
-  name: 'Mock Admin (localhost only)',
+  userType: 'admin',
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -37,38 +37,58 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('bootstrapping');
   const [user, setUser] = useState<AdminUser | null>(null);
+  const hasBootstrapped = useRef(false);
 
   // Rehydrate the session on load using the persisted refresh token — this is
   // what lets a page reload keep the admin logged in instead of always
   // bouncing to /login.
+  //
+  // hasBootstrapped guards against React StrictMode's dev-mode double-invoke
+  // of effects on mount: without it, this fired two concurrent refreshes with
+  // the same (single-use, rotating) refresh token on every page load, and
+  // whichever lost the race threw and wiped out the session the winner had
+  // just established — that WAS the "refresh the page and I'm logged out"
+  // bug. Also routes through the shared getRefreshedAccessToken (api/client.ts)
+  // instead of calling authApi.refreshToken() independently, so this and the
+  // 401-retry interceptor can never race each other either.
+  //
+  // Deliberately no isMounted/cleanup guard on the async work below: with
+  // hasBootstrapped ensuring this only ever runs once, an isMounted flag set
+  // by the effect's cleanup would actually break things — StrictMode runs
+  // that cleanup synchronously right after the first invocation, well before
+  // the bootstrap() promise resolves, which would flip isMounted to false and
+  // silently swallow the eventual setStatus/setUser calls (the app would sit
+  // on the loading spinner forever). AuthProvider wraps the whole app and is
+  // never genuinely unmounted while it's running, so there's no real
+  // set-state-after-unmount risk here to guard against.
   useEffect(() => {
-    let isMounted = true;
+    if (hasBootstrapped.current) return;
+    hasBootstrapped.current = true;
 
     async function bootstrap() {
       const storedRefreshToken = tokenStorage.getRefreshToken();
       if (!storedRefreshToken) {
-        if (isMounted) setStatus('unauthenticated');
+        setStatus('unauthenticated');
         return;
       }
       try {
-        const refreshed = await authApi.refreshToken({ refresh_token: storedRefreshToken });
-        tokenStorage.setAccessToken(refreshed.access_token);
-        tokenStorage.setRefreshToken(refreshed.refresh_token);
-        const admin = await authApi.autologin();
-        if (isMounted) {
-          setUser(admin);
-          setStatus('authenticated');
-        }
+        await getRefreshedAccessToken();
+        const response = await authApi.autologin();
+        // autologin mints its own fresh token pair (confirmed live, different
+        // JWTs than the /refresh call right before it) — persist these, not
+        // just the ones getRefreshedAccessToken already stored, or the next
+        // reload's /refresh call would use an already-superseded token.
+        tokenStorage.setAccessToken(response.access_token);
+        tokenStorage.setRefreshToken(response.refresh_token);
+        setUser(response.user);
+        setStatus('authenticated');
       } catch {
         tokenStorage.clearAll();
-        if (isMounted) setStatus('unauthenticated');
+        setStatus('unauthenticated');
       }
     }
 
     bootstrap();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   // Lets a silent refresh failure anywhere in the app (triggered from
@@ -85,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await authApi.login({ email, password });
     tokenStorage.setAccessToken(response.access_token);
     tokenStorage.setRefreshToken(response.refresh_token);
-    setUser(response.admin);
+    setUser(response.user);
     setStatus('authenticated');
   }, []);
 
