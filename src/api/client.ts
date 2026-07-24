@@ -1,8 +1,9 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { env } from '../config/env';
+import { assertResponseShape } from './assertShape';
 import { API_ENDPOINTS } from './endpoints';
 import * as tokenStorage from '../features/auth/tokenStorage';
-import type { ApiError, ApiErrorResponse } from './types';
+import type { ApiError, ApiErrorResponse, ApiSuccessEnvelope } from './types';
 
 // The one axios instance every feature's api.ts should use. Never construct
 // axios directly elsewhere — see API_INTEGRATION.md.
@@ -63,17 +64,30 @@ async function refreshAccessToken(): Promise<string> {
     { refresh_token },
     { headers: { 'x-api-key': env.API_KEY, 'Content-Type': 'application/json' } },
   );
-  // UNCONFIRMED shape — see features/auth/types.ts.
-  const { access_token, refresh_token: newRefreshToken } = response.data as {
+  // Confirmed live: success responses are wrapped in { success, message, data,
+  // timestamp, responseTime } — unwrap .data. Inner field names are inferred
+  // from login's CONFIRMED shape (same token-pair fields), not yet
+  // independently confirmed for this endpoint — assertResponseShape throws
+  // with the real body logged if that inference is wrong, instead of writing
+  // "undefined" into token storage.
+  const envelope = response.data as ApiSuccessEnvelope<{ access_token?: string; refresh_token?: string }>;
+  const { access_token, refresh_token: newRefreshToken } = assertResponseShape<{
     access_token: string;
     refresh_token: string;
-  };
+  }>('refresh', envelope.data, ['access_token', 'refresh_token']);
   tokenStorage.setAccessToken(access_token);
   tokenStorage.setRefreshToken(newRefreshToken);
   return access_token;
 }
 
-function getRefreshedAccessToken(): Promise<string> {
+// Exported so AuthContext's bootstrap effect shares this same dedup instead of
+// running its own independent refresh call. That independent-call setup used
+// to be the actual bug behind "refresh the page and I'm logged out": React
+// StrictMode double-invokes effects on mount in dev, so bootstrap fired two
+// concurrent refreshes with the same (single-use, rotating) refresh token —
+// the second one always failed and wiped out the session the first had just
+// established. Routing both callers through this one dedup fixes that.
+export function getRefreshedAccessToken(): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = refreshAccessToken().finally(() => {
       refreshPromise = null;

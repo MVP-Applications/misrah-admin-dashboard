@@ -14,32 +14,35 @@ export interface LogoutRequest {
 }
 
 // ---------------------------------------------------------------------------
-// UNCONFIRMED — the OpenAPI spec documents no response schema for login,
-// refresh, or autologin. These shapes are a best-effort placeholder based on
-// the request DTOs' naming convention (snake_case token fields) and the
-// CreateAdminUserDto fields. `api.ts` runtime-checks responses against this
-// shape in dev mode and warns loudly on mismatch.
-//
-// Once you have a real response body (Postman capture or from the backend
-// team), update this file to match, then remove this comment block.
-// See API_INTEGRATION.md → "Known Gaps" for the full checklist.
+// CONFIRMED for login and autologin (captured from real responses); refresh's
+// shape is inferred from these, not independently confirmed. `api.ts`
+// runtime-checks responses against this shape and throws loudly on mismatch.
+// See API_INTEGRATION.md → "Known Gaps".
 // ---------------------------------------------------------------------------
 
 // Real role model is DB-driven (see GET/POST /admin/roles) — not the old
 // hardcoded 'admin' | 'manager' union in ../../types.ts. Kept minimal here
 // until the Roles API is integrated; App.tsx adapts this into the legacy
-// `User` shape as a temporary bridge.
+// `User` shape as a temporary bridge. No `name` field — the API doesn't
+// return one, so displaying a name must derive it from `email`.
 export interface AdminUser {
   id: string;
   email: string;
-  name: string;
-  roleIds?: string[];
+  userType: string;
+  // Seen on a real payload but not required — optional so a missing/renamed
+  // field here never breaks login. Not currently used anywhere in the UI.
+  userMode?: string;
+  notificationSettings?: {
+    bookingUpdates?: boolean;
+    stayReminders?: boolean;
+    promotions?: boolean;
+  };
 }
 
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
-  admin: AdminUser;
+  user: AdminUser;
 }
 
 export interface RefreshResponse {
@@ -47,4 +50,15 @@ export interface RefreshResponse {
   refresh_token: string;
 }
 
-export type AutologinResponse = AdminUser;
+// CONFIRMED live: autologin is NOT just an AdminUser — it returns the same
+// token-pair-plus-user shape as login/refresh, and mints a genuinely new
+// access_token/refresh_token pair on every call (not an echo of the input).
+// AuthContext's bootstrap must persist these, not just read `.user` — the
+// refresh token used to reach this call is superseded the moment this
+// response comes back, so skipping the persist here would silently break the
+// *next* reload's /refresh call the same way the earlier race bug did.
+export interface AutologinResponse {
+  access_token: string;
+  refresh_token: string;
+  user: AdminUser;
+}

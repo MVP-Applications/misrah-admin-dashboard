@@ -1,42 +1,23 @@
 import { apiClient } from '../../api/client';
+import { assertResponseShape } from '../../api/assertShape';
 import { API_ENDPOINTS } from '../../api/endpoints';
-import type {
-  AdminUser,
-  AutologinResponse,
-  LoginRequest,
-  LoginResponse,
-  LogoutRequest,
-  RefreshRequest,
-  RefreshResponse,
-} from './types';
+import type { ApiSuccessEnvelope } from '../../api/types';
+import type { AutologinResponse, LoginRequest, LoginResponse, LogoutRequest } from './types';
 
-// Dev-only guard against the UNCONFIRMED response shapes in ./types.ts — warns
-// with the exact field(s) missing instead of letting a real login silently
-// produce `undefined` deep in the UI. Safe to delete once shapes are confirmed.
-function warnIfShapeMismatch(label: string, data: unknown, requiredFields: string[]): void {
-  if (!import.meta.env.DEV) return;
-  const missing = requiredFields.filter((field) => !data || typeof data !== 'object' || !(field in data));
-  if (missing.length > 0) {
-    console.warn(
-      `[auth] ${label} response is missing expected field(s): ${missing.join(', ')}. ` +
-        `The response shape in src/features/auth/types.ts is UNCONFIRMED (placeholder). ` +
-        `Update that file and this file's warnIfShapeMismatch call once you have a real payload. ` +
-        `See API_INTEGRATION.md → "Known Gaps". Actual response:`,
-      data,
-    );
-  }
-}
+// Confirmed live: every success response is wrapped in { success, message,
+// data, timestamp, responseTime } — unwrap .data before validating the inner
+// shape. Both login's and autologin's inner shapes are confirmed.
+//
+// No refreshToken() here on purpose — the one canonical refresh implementation
+// lives in api/client.ts's getRefreshedAccessToken(), shared by both the
+// 401-retry interceptor and AuthContext's bootstrap. A second, non-deduped
+// implementation here is exactly what caused the "refresh the page and I'm
+// logged out" bug (two concurrent refreshes racing against a single-use
+// rotating token) — don't reintroduce it. See API_INTEGRATION.md.
 
 export async function login(payload: LoginRequest): Promise<LoginResponse> {
-  const { data } = await apiClient.post<LoginResponse>(API_ENDPOINTS.admin.auth.login, payload);
-  warnIfShapeMismatch('login', data, ['access_token', 'refresh_token', 'admin']);
-  return data;
-}
-
-export async function refreshToken(payload: RefreshRequest): Promise<RefreshResponse> {
-  const { data } = await apiClient.post<RefreshResponse>(API_ENDPOINTS.admin.auth.refresh, payload);
-  warnIfShapeMismatch('refresh', data, ['access_token', 'refresh_token']);
-  return data;
+  const { data } = await apiClient.post<ApiSuccessEnvelope<LoginResponse>>(API_ENDPOINTS.admin.auth.login, payload);
+  return assertResponseShape('login', data.data, ['access_token', 'refresh_token', 'user']);
 }
 
 export async function logout(payload: LogoutRequest): Promise<void> {
@@ -44,7 +25,6 @@ export async function logout(payload: LogoutRequest): Promise<void> {
 }
 
 export async function autologin(): Promise<AutologinResponse> {
-  const { data } = await apiClient.get<AdminUser>(API_ENDPOINTS.admin.auth.autologin);
-  warnIfShapeMismatch('autologin', data, ['id', 'email']);
-  return data;
+  const { data } = await apiClient.get<ApiSuccessEnvelope<AutologinResponse>>(API_ENDPOINTS.admin.auth.autologin);
+  return assertResponseShape('autologin', data.data, ['access_token', 'refresh_token', 'user']);
 }

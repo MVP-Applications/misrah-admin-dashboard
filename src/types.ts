@@ -72,5 +72,11 @@ export interface Booking {
   checkOut: string;
   guests: number;
   total: number;
-  status: 'Hosting' | 'Arriving Soon' | 'Confirmed' | 'Past' | 'Cancelled';
+  // 'Pending' added after checking the real backend schema (a raw booking
+  // status value with no dedicated query-filter enum entry server-side, but
+  // real and reachable). 'Arriving Soon' is never derived from real data —
+  // the backend has no concept of it separate from 'Confirmed' without an
+  // arbitrary client-side day threshold — kept in the union only so existing
+  // Badge styling code doesn't need to change.
+  status: 'Hosting' | 'Arriving Soon' | 'Confirmed' | 'Pending' | 'Past' | 'Cancelled';
 }

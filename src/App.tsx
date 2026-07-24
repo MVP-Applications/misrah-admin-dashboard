@@ -373,7 +373,8 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
 function toLegacyUser(admin: AdminUser): UserType {
   return {
     id: admin.id,
-    name: admin.name,
+    // The API returns no display name — derive one from the email local-part.
+    name: admin.email.split('@')[0],
     email: admin.email,
     role: 'admin',
     avatar: `https://i.pravatar.cc/150?u=${admin.id}`,
