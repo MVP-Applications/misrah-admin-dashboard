@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  X, 
-  ChevronRight, 
-  Minus, 
-  Plus, 
-  Home, 
-  Building2, 
-  Building as BuildingIcon, 
-  Maximize, 
-  Wifi, 
-  Wind, 
-  Tv, 
-  Coffee, 
+import {
+  X,
+  ChevronRight,
+  Minus,
+  Plus,
+  Home,
+  Building2,
+  Building as BuildingIcon,
+  Maximize,
+  Wifi,
+  Wind,
+  Tv,
+  Coffee,
   Waves,
   Upload,
   ArrowUpRight,
@@ -24,22 +24,40 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday } from 'date-fns';
-import { Property } from '../../../types';
+import { User } from '../../../types';
 import { Badge } from '../../ui/Badge';
+import { listActiveCities, uploadFile } from '../../../features/properties/api';
+import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
+
+const CATEGORY_TO_PROPERTY_TYPE: Record<string, CreatePropertyRequest['propertyType']> = {
+  Villa: 'VILLA',
+  Apartment: 'APARTMENT',
+  Studio: 'STUDIO',
+  Penthouse: 'PENTHOUSE',
+};
 
 interface AddListingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (newProp: Omit<Property, 'id' | 'rating' | 'reviews' | 'active' | 'hostId'>) => void;
-  user: any;
+  onAdd: (payload: CreatePropertyRequest) => Promise<void>;
+  user: User;
 }
 
 export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModalProps) => {
   const [step, setStep] = useState(0);
+  const [cities, setCities] = useState<CityListItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [verificationFiles, setVerificationFiles] = useState<{
+    emiratesId?: File;
+    propertyDoc?: File;
+    tradeLicense?: File;
+  }>({});
   const [formData, setFormData] = useState({
     name: '',
-    city: 'Dubai',
-    type: 'City',
+    cityId: '',
+    cityName: '',
     category: '',
     price: '550',
     priceWeekday: '450',
@@ -69,10 +87,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
   useEffect(() => {
     if (isOpen) {
       setStep(0);
+      setSubmitError(null);
+      setImageFile(null);
+      setVerificationFiles({});
       setFormData({
         name: '',
-        city: 'Dubai',
-        type: 'City',
+        cityId: '',
+        cityName: '',
         category: '',
         price: '550',
         priceWeekday: '450',
@@ -97,6 +118,10 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
         },
       });
       setCurrentMonth(new Date());
+      listActiveCities().then(list => {
+        setCities(list);
+        setFormData(prev => (prev.cityId ? prev : { ...prev, cityId: list[0]?._id ?? '', cityName: list[0]?.name ?? '' }));
+      });
     }
   }, [isOpen, user]);
 
@@ -122,24 +147,53 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     setStep(s => s - 1);
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    onAdd({
-      ...formData,
-      price: Number(formData.price),
-      beds: Number(formData.beds),
-      baths: Number(formData.baths),
-      isFeatured: false, // Default for new properties
-      hostName: 'Current User', // In a real app, this would be user.name
-    });
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const imageId = imageFile ? (await uploadFile(imageFile)).id : undefined;
+      const documentEntries = await Promise.all(
+        (Object.entries(verificationFiles) as Array<[string, File | undefined]>)
+          .filter((entry): entry is [string, File] => Boolean(entry[1]))
+          .map(async ([type, file]) => ({ type, fileId: (await uploadFile(file)).id })),
+      );
+
+      await onAdd({
+        userId: user.id,
+        title: formData.name,
+        description: formData.description,
+        propertyType: CATEGORY_TO_PROPERTY_TYPE[formData.category] ?? 'APARTMENT',
+        maxAdults: formData.guests,
+        bedrooms: formData.bedrooms,
+        beds: formData.beds,
+        bathrooms: formData.baths,
+        pets: { allowed: false, maxPets: 0 },
+        amenities: formData.amenities,
+        documents: documentEntries,
+        images: imageId ? [imageId] : [],
+        pricing: {
+          basePrice: Number(formData.price),
+          weekdayPrice: Number(formData.priceWeekday),
+          weekendPrice: Number(formData.priceWeekend),
+          currency: 'AED',
+        },
+        cityId: formData.cityId || undefined,
+      });
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create listing. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleFileSelect = (field: string, fileName: string) => {
+  const handleFileSelect = (field: 'emiratesId' | 'propertyDoc' | 'tradeLicense', file: File) => {
+    setVerificationFiles(prev => ({ ...prev, [field]: file }));
     setFormData(prev => ({
       ...prev,
       verifications: {
         ...prev.verifications,
-        [field]: fileName
+        [field]: file.name
       }
     }));
   };
@@ -147,12 +201,22 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setImageFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setFormData(prev => ({ ...prev, image: event.target?.result as string }));
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const toggleAmenity = (id: string) => {
+    setFormData(prev => ({
+      ...prev,
+      amenities: prev.amenities.includes(id)
+        ? prev.amenities.filter(a => a !== id)
+        : [...prev.amenities, id],
+    }));
   };
 
   const categories = [
@@ -175,7 +239,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     <div className="flex items-center justify-between p-4 bg-surface rounded-2xl border border-border-misrah">
       <span className="text-sm font-bold text-primary">{label}</span>
       <div className="flex items-center gap-4">
-        <button 
+        <button
           type="button"
           onClick={() => onChange(Math.max(1, value - 1))}
           className="w-8 h-8 rounded-full border border-border-misrah flex items-center justify-center hover:bg-white transition-colors"
@@ -183,7 +247,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
           <Minus size={14} />
         </button>
         <span className="w-4 text-center font-black italic">{value}</span>
-        <button 
+        <button
           type="button"
           onClick={() => onChange(value + 1)}
           className="w-8 h-8 rounded-full border border-border-misrah flex items-center justify-center hover:bg-white transition-colors"
@@ -196,14 +260,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
         className="absolute inset-0 bg-primary/60 backdrop-blur-sm"
       />
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="bg-white rounded-[48px] w-full max-w-5xl min-h-[700px] relative z-10 shadow-luxury overflow-hidden flex flex-col md:flex-row"
@@ -230,12 +294,12 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                 { step: 4, label: 'Strategic Narrative', icon: FileText },
                 { step: 5, label: 'Security Protocols', icon: ShieldCheck }
               ].map((item) => (
-                <div 
+                <div
                   key={item.step}
                   className={`flex items-center gap-4 transition-all duration-500 ${step >= item.step ? 'opacity-100' : 'opacity-30'}`}
                 >
                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-all duration-500
-                    ${step === item.step ? 'bg-accent border-accent text-primary scale-110 shadow-lg shadow-accent/20' : 
+                    ${step === item.step ? 'bg-accent border-accent text-primary scale-110 shadow-lg shadow-accent/20' :
                       step > item.step ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-transparent border-white/20 text-white'}`}
                   >
                     {step > item.step ? <Check size={14} /> : <item.icon size={14} />}
@@ -295,22 +359,17 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                   <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Where is it<br />located?</h2>
                 </div>
                 <div className="space-y-3">
-                  {[
-                    { id: 'Dubai', label: 'DUBAI' },
-                    { id: 'Abu Dhabi', label: 'ABU DHABI' },
-                    { id: 'Sharjah', label: 'SHARJAH' },
-                    { id: 'RAK', label: 'RAS AL KHAIMAH' }
-                  ].map(city => (
+                  {cities.map(city => (
                     <button
-                      key={city.id}
-                      onClick={() => setFormData({...formData, city: city.id})}
+                      key={city._id}
+                      onClick={() => setFormData({ ...formData, cityId: city._id, cityName: city.name })}
                       className={`w-full px-8 py-5 rounded-[32px] border text-xs font-black tracking-[1px] transition-all flex items-center justify-between group
-                        ${formData.city === city.id 
-                          ? 'bg-primary text-accent border-primary shadow-lg shadow-primary/10' 
+                        ${formData.cityId === city._id
+                          ? 'bg-primary text-accent border-primary shadow-lg shadow-primary/10'
                           : 'bg-[#FCFAF8]/50 border-[#F2E8DF] text-[#D4C3B5] hover:border-accent hover:text-accent'}`}
                     >
-                      <span className="flex-1 text-center">{city.label}</span>
-                      <ChevronRight size={16} className={formData.city === city.id ? 'text-accent' : 'text-[#F2E8DF] group-hover:text-accent'} />
+                      <span className="flex-1 text-center">{city.name.toUpperCase()}</span>
+                      <ChevronRight size={16} className={formData.cityId === city._id ? 'text-accent' : 'text-[#F2E8DF] group-hover:text-accent'} />
                     </button>
                   ))}
                 </div>
@@ -354,8 +413,8 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                             onClick={() => setFormData({ ...formData, availabilityDate: day.toISOString() })}
                             className={`aspect-square w-10 mx-auto rounded-[14px] flex items-center justify-center text-xs transition-all relative
                               ${!isCurrentMonth ? 'text-muted-text/10 pointer-events-none' : ''}
-                              ${isSelected 
-                                ? 'bg-[#F8F3F0] text-[#1A2B47] font-black' 
+                              ${isSelected
+                                ? 'bg-[#F8F3F0] text-[#1A2B47] font-black'
                                 : 'text-[#1A2B47] font-bold hover:bg-[#F8F3F0]/50'}
                               ${isTodayDate && !isSelected ? 'font-black scale-110' : ''}
                             `}
@@ -378,7 +437,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                         <p className="text-muted-text text-xs uppercase tracking-widest font-black mt-2">Upload high-resolution property imagery</p>
                     </div>
 
-                    <div 
+                    <div
                         onClick={() => photoInputRef.current?.click()}
                         className="group relative w-full h-80 rounded-[40px] border-2 border-dashed border-[#F2E8DF] overflow-hidden flex flex-col items-center justify-center gap-4 transition-all hover:bg-surface cursor-pointer"
                     >
@@ -401,6 +460,25 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                     <div className="grid grid-cols-2 gap-4">
                         <Counter label="Bedrooms" value={formData.bedrooms} onChange={(v: number) => setFormData({...formData, bedrooms: v})} />
                         <Counter label="Max Guests" value={formData.guests} onChange={(v: number) => setFormData({...formData, guests: v})} />
+                        <Counter label="Beds" value={formData.beds} onChange={(v: number) => setFormData({...formData, beds: v})} />
+                        <Counter label="Baths" value={formData.baths} onChange={(v: number) => setFormData({...formData, baths: v})} />
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Amenities</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {amenitiesList.map(a => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => toggleAmenity(a.id)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all
+                              ${formData.amenities.includes(a.id) ? 'bg-accent/10 border-accent text-primary' : 'border-border-misrah text-muted-text hover:border-accent'}`}
+                          >
+                            <a.icon size={14} /> {a.id}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                 </motion.div>
             )}
@@ -414,7 +492,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                 </div>
 
                 <div className="space-y-4">
-                  <textarea 
+                  <textarea
                     value={formData.description}
                     onChange={e => setFormData({ ...formData, description: e.target.value })}
                     placeholder="This high-synchronization asset offers..."
@@ -423,7 +501,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                   />
                   <div className="flex flex-wrap gap-2">
                     {['Luxury High-Rise', 'Beachfront Sanctuary', 'Desert Escape', 'Urban Modular'].map(tag => (
-                      <button 
+                      <button
                         key={tag}
                         onClick={() => setFormData({ ...formData, description: formData.description + ' ' + tag })}
                         className="px-4 py-2 border border-border-misrah rounded-full text-[9px] font-black uppercase tracking-widest text-[#D4C3B5] hover:border-accent hover:text-accent transition-all"
@@ -450,7 +528,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
                       <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Identity Verification</h4>
-                      <div 
+                      <div
                         onClick={() => idRef.current?.click()}
                         className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
                           ${formData.verifications.emiratesId ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
@@ -476,7 +554,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
                     <div className="space-y-4">
                       <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Property Authentication</h4>
-                      <div 
+                      <div
                         onClick={() => propertyDocRef.current?.click()}
                         className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
                           ${formData.verifications.propertyDoc ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
@@ -488,7 +566,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                         <p className="text-[9px] font-bold text-muted-text uppercase tracking-[1px]">Or Management Authorization</p>
                       </div>
 
-                      <div 
+                      <div
                         onClick={() => licenseRef.current?.click()}
                         className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
                           ${formData.verifications.tradeLicense ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
@@ -502,9 +580,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                     </div>
                   </div>
 
-                  <input ref={idRef} type="file" className="hidden" onChange={(e) => handleFileSelect('emiratesId', e.target.files?.[0]?.name || '')} />
-                  <input ref={propertyDocRef} type="file" className="hidden" onChange={(e) => handleFileSelect('propertyDoc', e.target.files?.[0]?.name || '')} />
-                  <input ref={licenseRef} type="file" className="hidden" onChange={(e) => handleFileSelect('tradeLicense', e.target.files?.[0]?.name || '')} />
+                  <input ref={idRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('emiratesId', f); }} />
+                  <input ref={propertyDocRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('propertyDoc', f); }} />
+                  <input ref={licenseRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('tradeLicense', f); }} />
 
                   {user.verificationStatus === 'Rejected' && user.rejectionReason && (
                     <div className="p-6 bg-danger/5 border border-danger/20 rounded-[32px] flex items-start gap-4">
@@ -512,6 +590,16 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                       <div>
                         <p className="text-[10px] font-black text-danger uppercase tracking-[2px]">Verification Synchronization Failure</p>
                         <p className="text-xs font-bold text-danger mt-1">"{user.rejectionReason}"</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {submitError && (
+                    <div className="p-6 bg-danger/5 border border-danger/20 rounded-[32px] flex items-start gap-4">
+                      <AlertCircle size={20} className="text-danger shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-black text-danger uppercase tracking-[2px]">Sync Failed</p>
+                        <p className="text-xs font-bold text-danger mt-1">{submitError}</p>
                       </div>
                     </div>
                   )}
@@ -528,21 +616,22 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
         <div className="p-8 pt-0 flex gap-4 w-full">
             {step > 0 && (
-                <button 
+                <button
                   onClick={handleBack}
                   className="flex-1 py-5 rounded-[28px] border border-[#F2E8DF] text-[10px] font-black uppercase tracking-[2px] text-primary hover:bg-surface transition-all"
                 >
                   Back
                 </button>
             )}
-            <button 
+            <button
+              disabled={submitting}
               onClick={() => {
                 if (step === 5) handleSubmit();
                 else handleNext();
               }}
-              className="flex-[2] py-5 rounded-[28px] bg-primary text-accent text-[10px] font-black uppercase tracking-[2px] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+              className="flex-[2] py-5 rounded-[28px] bg-primary text-accent text-[10px] font-black uppercase tracking-[2px] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
             >
-              {step === 5 ? 'Confirm & Sync' : 'Proceed'}
+              {step === 5 ? (submitting ? 'Syncing…' : 'Confirm & Sync') : 'Proceed'}
             </button>
         </div>
       </div>

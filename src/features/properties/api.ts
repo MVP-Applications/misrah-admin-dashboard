@@ -1,0 +1,87 @@
+import { apiClient } from '../../api/client';
+import { assertResponseShape } from '../../api/assertShape';
+import { API_ENDPOINTS } from '../../api/endpoints';
+import type { ApiSuccessEnvelope } from '../../api/types';
+import type {
+  ApiPropertyListItem,
+  CityListItem,
+  CreatePropertyRequest,
+  ListPropertiesParams,
+  ListPropertiesResponse,
+  UpdatePropertyRequest,
+  UploadedFileResult,
+} from './types';
+
+// GET /admin/properties — confirmed live before this feature module existed.
+export async function listAdminProperties(params: ListPropertiesParams = {}): Promise<ListPropertiesResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<ListPropertiesResponse>>(API_ENDPOINTS.properties.adminAll, {
+    params,
+  });
+  return assertResponseShape('list properties', data.data, ['data', 'meta']);
+}
+
+// GET /admin/properties/{id} — added to the backend by this project, requires
+// deploy to misra-test before this will work. See API_INTEGRATION.md → "Properties".
+export async function getAdminPropertyById(id: string): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<ApiPropertyListItem>>(API_ENDPOINTS.properties.adminById(id));
+  return assertResponseShape('property detail', data.data, ['_id', 'title', 'status', 'pricing']);
+}
+
+// POST /admin/properties — added to the backend by this project, requires
+// deploy to misra-test before this will work.
+export async function createAdminProperty(payload: CreatePropertyRequest): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<ApiPropertyListItem>>(API_ENDPOINTS.properties.adminAll, payload);
+  return assertResponseShape('create property', data.data, ['_id', 'title', 'status']);
+}
+
+// PATCH /admin/properties/{id} — added to the backend by this project, requires
+// deploy to misra-test before this will work. Also used for the active/inactive
+// toggle (body { isActive }) — deliberately NOT the ownership-checked
+// updateIsActive() service method, since an admin isn't the property's owner.
+export async function updateAdminProperty(id: string, payload: UpdatePropertyRequest): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.patch<ApiSuccessEnvelope<ApiPropertyListItem>>(
+    API_ENDPOINTS.properties.adminById(id),
+    payload,
+  );
+  return assertResponseShape('update property', data.data, ['_id', 'title', 'status']);
+}
+
+// DELETE /admin/properties/{id} — added to the backend by this project, requires
+// deploy to misra-test before this will work. Soft delete (sets deletedAt).
+export async function deleteAdminProperty(id: string): Promise<void> {
+  await apiClient.delete(API_ENDPOINTS.properties.adminById(id));
+}
+
+// PATCH /admin/properties/{id}/approve — confirmed live before this feature
+// module existed.
+export async function approveAdminProperty(id: string): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.patch<ApiSuccessEnvelope<ApiPropertyListItem>>(API_ENDPOINTS.properties.adminApprove(id));
+  return assertResponseShape('approve property', data.data, ['_id', 'status']);
+}
+
+// PATCH /admin/properties/{id}/reject — confirmed live before this feature
+// module existed.
+export async function rejectAdminProperty(id: string, reason?: string): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.patch<ApiSuccessEnvelope<ApiPropertyListItem>>(API_ENDPOINTS.properties.adminReject(id), {
+    reason,
+  });
+  return assertResponseShape('reject property', data.data, ['_id', 'status']);
+}
+
+// POST /files/upload — brand-new integration for this dashboard, not yet
+// exercised against a live response. See API_INTEGRATION.md → "Properties".
+export async function uploadFile(file: File): Promise<UploadedFileResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await apiClient.post<ApiSuccessEnvelope<UploadedFileResult>>(API_ENDPOINTS.files.upload, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return assertResponseShape('file upload', data.data, ['id', 'url']);
+}
+
+// GET /city/active/list — used to populate a real city picker instead of a
+// hardcoded city-name list.
+export async function listActiveCities(): Promise<CityListItem[]> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<CityListItem[]>>(API_ENDPOINTS.cities.activeList);
+  return data.data;
+}

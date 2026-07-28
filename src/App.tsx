@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 
 // Types
-import { Property, Banner, Category, EliteHost, User as UserType } from './types';
+import { Banner, Category, EliteHost, User as UserType } from './types';
 import type { AdminUser } from './features/auth/types';
 
 // Auth
@@ -31,7 +31,6 @@ import { AuthProvider, useAuth } from './features/auth/AuthContext';
 
 // Constants & Mock Data
 import {
-  INITIAL_PROPERTIES,
   INITIAL_BANNERS,
   INITIAL_CATEGORIES,
   INITIAL_ELITE_HOSTS
@@ -391,18 +390,9 @@ function AppRoutes() {
   const { status, user, logout } = useAuth();
 
   // App State
-  const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
   const [banners, setBanners] = useState<Banner[]>(INITIAL_BANNERS);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [eliteHosts, setEliteHosts] = useState<EliteHost[]>(INITIAL_ELITE_HOSTS);
-
-  const updateProperty = (id: string, updates: Partial<Property>) => {
-    setProperties(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-  };
-
-  const deleteProperty = (id: string) => {
-    setProperties(prev => prev.filter(p => p.id !== id));
-  };
 
   if (status === 'bootstrapping') {
     return <BootstrappingScreen />;
@@ -429,14 +419,14 @@ function AppRoutes() {
         }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardView user={currentUser!} properties={properties} />} />
+        <Route path="dashboard" element={<DashboardView user={currentUser!} />} />
         <Route path="bookings" element={<BookingsView user={currentUser!} />} />
-        <Route path="listings" element={<PropertiesView user={currentUser!} properties={properties} setProperties={setProperties} />} />
-        <Route path="listings/:id" element={<PropertyDetailRoute properties={properties} updateProperty={updateProperty} deleteProperty={deleteProperty} user={currentUser!} />} />
+        <Route path="listings" element={<PropertiesView user={currentUser!} />} />
+        <Route path="listings/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/categories" element={<CategoriesModule categories={categories} setCategories={setCategories} />} />
         <Route path="admin/banners" element={<BannersModule banners={banners} setBanners={setBanners} />} />
-        <Route path="admin/hosting" element={<HostingModule user={currentUser!} properties={properties} setProperties={setProperties} />} />
-        <Route path="admin/hosting/:id" element={<PropertyDetailRoute properties={properties} updateProperty={updateProperty} deleteProperty={deleteProperty} user={currentUser!} />} />
+        <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
+        <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule eliteHosts={eliteHosts} setEliteHosts={setEliteHosts} />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />

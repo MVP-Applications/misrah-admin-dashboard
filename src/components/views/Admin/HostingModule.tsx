@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Calendar, MapPin, Plus } from 'lucide-react';
@@ -6,24 +6,34 @@ import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { AddListingModal } from '../Properties/AddListingModal';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
+import { listAdminProperties } from '../../../features/properties/api';
+import { apiPropertyToViewModel } from '../../../features/properties/mappers';
+import type { CreatePropertyRequest } from '../../../features/properties/types';
 
 interface HostingModuleProps {
-  properties: Property[];
-  setProperties: React.Dispatch<React.SetStateAction<Property[]>>;
   user: User;
 }
 
-export const HostingModule = ({ properties, setProperties, user }: HostingModuleProps) => {
+export const HostingModule = ({ user }: HostingModuleProps) => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const { addProperty, updateProperty } = usePropertyActions(properties, setProperties, user);
+  const refetch = useCallback(() => {
+    setLoading(true);
+    listAdminProperties({ status: filter.toLowerCase() as 'pending' | 'approved' | 'rejected', limit: 100 })
+      .then(res => setFilteredProperties(res.data.map(apiPropertyToViewModel)))
+      .finally(() => setLoading(false));
+  }, [filter]);
 
-  const filteredProperties = properties.filter(p => p.status === filter);
+  useEffect(() => { refetch(); }, [refetch]);
 
-  const handleAddProperty = (newProp: Omit<Property, 'id' | 'rating' | 'reviews' | 'active' | 'hostId'>) => {
-    addProperty(newProp);
+  const { addProperty, handleApprove } = usePropertyActions(refetch);
+
+  const handleAddProperty = async (payload: CreatePropertyRequest) => {
+    await addProperty(payload);
     setIsModalOpen(false);
   };
 
@@ -61,8 +71,12 @@ export const HostingModule = ({ properties, setProperties, user }: HostingModule
           <div className="w-24 h-24 bg-surface rounded-[40px] flex items-center justify-center mx-auto mb-8 text-[#D4C3B5] ring-8 ring-surface/50">
             <Check size={40} />
           </div>
-          <h3 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">Queue Synchronized</h3>
-          <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-3">{filter} moderation list is fully audited</p>
+          <h3 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">
+            {loading ? 'Synchronizing…' : 'Queue Synchronized'}
+          </h3>
+          <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-3">
+            {loading ? 'Loading moderation queue' : `${filter} moderation list is fully audited`}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -120,7 +134,7 @@ export const HostingModule = ({ properties, setProperties, user }: HostingModule
                          <button 
                           onClick={(e) => {
                             e.stopPropagation();
-                            updateProperty(property.id, { status: 'Approved', active: true });
+                            handleApprove(property.id);
                           }}
                           className="w-12 h-12 flex items-center justify-center bg-success/10 text-success rounded-2xl hover:bg-success hover:text-white transition-all shadow-sm border border-success/10"
                          >

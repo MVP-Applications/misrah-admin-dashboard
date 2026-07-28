@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck } from 'lucide-react';
@@ -6,6 +6,9 @@ import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
+import { listAdminProperties, listActiveCities } from '../../../features/properties/api';
+import { apiPropertyToViewModel } from '../../../features/properties/mappers';
+import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
 
 interface RejectionModalProps {
   isOpen: boolean;
@@ -94,16 +97,27 @@ const RejectionModal = ({ isOpen, onClose, onConfirm, propertyName }: RejectionM
 };
 
 interface PropertiesViewProps {
-  properties: Property[];
-  setProperties: React.Dispatch<React.SetStateAction<Property[]>>;
   user: User;
 }
 
-export const PropertiesView = ({ properties, setProperties, user }: PropertiesViewProps) => {
+export const PropertiesView = ({ user }: PropertiesViewProps) => {
   const navigate = useNavigate();
-  const [cityFilter, setCityFilter] = useState('All');
+  const [cities, setCities] = useState<CityListItem[]>([]);
+  const [selectedCityId, setSelectedCityId] = useState<string | null>(null);
   const [isRequestsView, setIsRequestsView] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refetch = useCallback(() => {
+    setLoading(true);
+    listAdminProperties({ limit: 100, cityId: selectedCityId ?? undefined })
+      .then(res => setProperties(res.data.map(apiPropertyToViewModel)))
+      .finally(() => setLoading(false));
+  }, [selectedCityId]);
+
+  useEffect(() => { refetch(); }, [refetch]);
+  useEffect(() => { listActiveCities().then(setCities); }, []);
 
   const {
     addProperty,
@@ -112,10 +126,8 @@ export const PropertiesView = ({ properties, setProperties, user }: PropertiesVi
     openRejectModal,
     closeRejectModal,
     confirmRejection
-  } = usePropertyActions(properties, setProperties, user);
+  } = usePropertyActions(refetch);
 
-  const cities = ['All', 'Dubai', 'Abu Dhabi', 'RAK'];
-  
   const { approvedListings, pendingRequests } = useMemo(() => {
     let approved = properties.filter(p => p.status === 'Approved');
     let requests = properties.filter(p => !p.status || p.status === 'Pending' || p.status === 'Rejected');
@@ -125,16 +137,11 @@ export const PropertiesView = ({ properties, setProperties, user }: PropertiesVi
       requests = requests.filter(p => p.hostId === user.id);
     }
 
-    if (cityFilter !== 'All') {
-      approved = approved.filter(p => p.city === cityFilter);
-      requests = requests.filter(p => p.city === cityFilter);
-    }
-
     return { approvedListings: approved, pendingRequests: requests };
-  }, [properties, cityFilter, user]);
+  }, [properties, user]);
 
-  const handleAddProperty = (newProp: Omit<Property, 'id' | 'rating' | 'reviews' | 'active' | 'hostId'>) => {
-    addProperty(newProp);
+  const handleAddProperty = async (payload: CreatePropertyRequest) => {
+    await addProperty(payload);
     setIsModalOpen(false);
   };
 
@@ -151,29 +158,34 @@ export const PropertiesView = ({ properties, setProperties, user }: PropertiesVi
               : 'Managing your curated luxury retreats'}
           </p>
         </div>
-        {user.role !== 'admin' && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-primary text-accent px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:opacity-90 transition-all flex items-center gap-2 shadow-lg"
-          >
-            <Plus size={18} />
-            <span>Create Listing</span>
-          </button>
-        )}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-primary text-accent px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:opacity-90 transition-all flex items-center gap-2 shadow-lg"
+        >
+          <Plus size={18} />
+          <span>Create Listing</span>
+        </button>
       </header>
 
       <div className="flex flex-col gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="text-[9px] font-black uppercase tracking-[2px] text-muted-text/60 mr-2">Geography:</span>
+            <button
+              onClick={() => { setSelectedCityId(null); setIsRequestsView(false); }}
+              className={`px-6 py-2 rounded-xl text-[10px] font-black tracking-wider uppercase border transition-all shrink-0
+                ${!isRequestsView && selectedCityId === null ? 'bg-primary text-accent border-primary shadow-sm' : 'bg-[#FCFAF8] text-muted-text border-transparent hover:border-accent'}`}
+            >
+              All
+            </button>
             {cities.map(c => (
-              <button 
-                key={c}
-                onClick={() => { setCityFilter(c); setIsRequestsView(false); }}
+              <button
+                key={c._id}
+                onClick={() => { setSelectedCityId(c._id); setIsRequestsView(false); }}
                 className={`px-6 py-2 rounded-xl text-[10px] font-black tracking-wider uppercase border transition-all shrink-0
-                  ${!isRequestsView && cityFilter === c ? 'bg-primary text-accent border-primary shadow-sm' : 'bg-[#FCFAF8] text-muted-text border-transparent hover:border-accent'}`}
+                  ${!isRequestsView && selectedCityId === c._id ? 'bg-primary text-accent border-primary shadow-sm' : 'bg-[#FCFAF8] text-muted-text border-transparent hover:border-accent'}`}
               >
-                {c}
+                {c.name}
               </button>
             ))}
           </div>
@@ -197,6 +209,10 @@ export const PropertiesView = ({ properties, setProperties, user }: PropertiesVi
           )}
         </div>
       </div>
+
+      {loading && properties.length === 0 && (
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50 py-10 text-center">Loading assets…</p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         <AnimatePresence mode="popLayout">
@@ -311,17 +327,15 @@ export const PropertiesView = ({ properties, setProperties, user }: PropertiesVi
           })}
         </AnimatePresence>
 
-        {user.role !== 'admin' && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="h-full min-h-[280px] bg-white/50 border-2 border-dashed border-border-misrah rounded-2xl flex flex-col items-center justify-center gap-3 text-muted-text hover:text-accent hover:border-accent transition-all group"
-          >
-            <div className="w-12 h-12 rounded-full bg-white border border-border-misrah flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Plus size={24} />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-widest">Add New Listing</span>
-          </button>
-        )}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="h-full min-h-[280px] bg-white/50 border-2 border-dashed border-border-misrah rounded-2xl flex flex-col items-center justify-center gap-3 text-muted-text hover:text-accent hover:border-accent transition-all group"
+        >
+          <div className="w-12 h-12 rounded-full bg-white border border-border-misrah flex items-center justify-center group-hover:scale-110 transition-transform">
+            <Plus size={24} />
+          </div>
+          <span className="text-xs font-bold uppercase tracking-widest">Add New Listing</span>
+        </button>
       </div>
 
       <AddListingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddProperty} user={user} />

@@ -228,6 +228,62 @@ specifically relevant to how the React app integrates with it.
   the backend has no such distinction without an arbitrary "N days out" threshold that
   wasn't worth inventing.
 
+## Properties: how it actually works
+
+- Wired up via `src/features/properties/` (`api.ts`/`types.ts`/`mappers.ts`), backing
+  `DashboardView` (counts only), `Properties/index.tsx` (Listings browse), `HostingModule.tsx`
+  (Hosting Requests moderation queue), `PropertyDetailRoute.tsx`/`PropertyDetailView.tsx`
+  (single-property view/edit/delete), and `AddListingModal.tsx` (create). All of it replaced
+  what used to be `INITIAL_PROPERTIES` mock data shared as one `useState` in `App.tsx`.
+- **Read, approve, reject were already live** (`GET /admin/properties`,
+  `PATCH /admin/properties/{id}/approve`, `PATCH /admin/properties/{id}/reject`) — these work
+  today with no backend deploy needed.
+- **Create, update, delete, and get-one are NEW backend routes added by this project**
+  (`POST/PATCH/DELETE /admin/properties`, `GET /admin/properties/{id}`, plus three new
+  permissions `PROPERTY_CREATE`/`PROPERTY_UPDATE`/`PROPERTY_DELETE` in
+  `misra-api-nest/src/common/enums/permission.enum.ts` and routes in
+  `admin-property.controller.ts`) — **not yet deployed to `misra-test`**. Until deployed,
+  creating/editing/deleting a listing or toggling active/inactive will 404 from the frontend;
+  read/approve/reject keep working. A Super Admin's `Permission.ALL` bypasses the new
+  permissions automatically (see `PermissionsGuard`) — no role/permission database change is
+  needed once deployed, only for non-Super-Admin roles.
+- **Active/inactive toggle deliberately does NOT use `updateIsActive()`.** That existing
+  service method filters by `{_id, userId}` (ownership-checked) and would 404 for any
+  property an admin doesn't own. The admin route instead goes through the generic
+  `PATCH /admin/properties/{id}` (`update()`), which has no such filter.
+- **Pagination shape is `{ data, meta: { total, page, limit, totalPages } }`** — confirmed
+  from `property.service.ts`'s `findAllForAdmin`, which wraps a `PaginatedDataDto` result into
+  this `meta`-nested shape. This is a DIFFERENT field naming than `bookings`' flat
+  `{ data, currentPage, totalCount, totalPages }` — don't copy one convention into the other.
+- **Mapper layer, not a type change.** `src/types.ts`'s flat `Property` interface (`name`,
+  `image`, `price`, `hostName`, capitalized `status`, etc.) was kept as-is; `mappers.ts`'s
+  `apiPropertyToViewModel()` translates the real nested/lowercase backend shape into it, so
+  every card/list/detail renderer kept working unchanged. Consequence: `type` on the
+  view-model is populated from the backend's real `propertyType` (`APARTMENT`/`STUDIO`/
+  `VILLA`/`PENTHOUSE`) — it no longer means the mock data's made-up "vibe" category
+  (`City`/`Beach`/`Desert`/`Mountain`), which has no backend equivalent at all.
+- **Single image only.** `images[0].fullUrl` maps to the view-model's single `image` field;
+  create/edit upload exactly one image. Multi-image gallery support is an explicit,
+  deliberate follow-up, not an oversight — see the plan this was built from.
+- **File upload (`POST /files/upload`) is a brand-new integration for this dashboard** — no
+  prior feature to point to, and not yet exercised against a live response. Used by
+  `AddListingModal` for the property image and the emiratesId/propertyDoc/tradeLicense
+  verification documents (each becomes a `documents[].fileId` entry) before the create call.
+- **City picker (`GET /city/active/list`) replaces the old hardcoded
+  Dubai/Abu Dhabi/Sharjah/RAK button list** in `AddListingModal`, storing a real `cityId`
+  rather than a display string. `Properties/index.tsx`'s geography filter does the same.
+- **`PropertyDetailView`'s edit form (`handleSave`) is NOT fully round-tripped.** Its `city`/
+  `type` fields are still a hardcoded Dubai/Abu Dhabi/RAK/Sharjah + City/Beach/Desert/Mountain
+  picker with no real `cityId` — `viewModelPartialToUpdateRequest()` in `mappers.ts`
+  deliberately drops those two fields rather than guessing a mapping. Editing city/type in
+  that view has no backend effect; only name/description/beds/baths/price round-trip.
+- **`usePropertyActions.ts`'s `updateProperty()` routes by shape, not call site** — it's
+  called with three different partial shapes (approve/reject: small `{status, ...}` object;
+  active-toggle: `{active}` only; full edit-form save: the entire property, which still
+  includes `status`). It disambiguates using `'status' in updates && keys.length <= 3` for
+  the approve/reject case specifically so a full-form save (many keys, includes the
+  property's current status) doesn't get misrouted into an approve/reject call.
+
 ## Error handling
 
 Confirmed live: any error response comes back as
@@ -334,14 +390,9 @@ exact misconfiguration produced zero diagnostic output in the actual broken depl
   **This is not real authorization** — it only affects which sidebar renders and which
   endpoint gets called. Don't build permission checks on top of it; real authorization has
   to happen server-side (expect and handle 403s) until the Roles API is wired in.
-- **Hosting Requests (property moderation) is not currently integrated.** It was at one
-  point, using `GET /property/all` + `PATCH /property/{id}/status` (only an `isActive`
-  toggle — no real Pending/Approved/Rejected field existed in the API at the time). The
-  live Swagger spec has since gained an `admin/property` tag that wasn't there before and
-  may resolve that gap — worth re-checking the backend source
-  (`../misra-api-nest/src/modules/property`) before rebuilding this, the same way
-  `admin/bookings` turned out to already exist despite not being in the first Swagger
-  fetch of this project.
+- **Properties (Hosting Requests, Listings, create/edit/delete) are now integrated** — see
+  "Properties: how it actually works" above. Create/update/delete/get-one need a backend
+  deploy before they'll work; read/approve/reject already work.
 - **Single environment only.** `VITE_API_BASE_URL` points at `misra-test` only. To add
   staging/production: introduce a `VITE_APP_ENV` var and branch on it inside
   `src/config/env.ts` — that's the only file that should need to change.
@@ -354,9 +405,12 @@ exact misconfiguration produced zero diagnostic output in the actual broken depl
 
 Auth uses plain `useState`/`useEffect` in a Context because it's global session state
 with imperative actions (login/logout), not a typical "fetch and cache" concern. Bookings
-uses plain `useState`/`useEffect` inside the view itself, since it's just "fetch a page of
-data for this screen." For more screens like this (properties, reviews — still hardcoded
-mock data in `src/constants.ts`), consider introducing a proper data-fetching library
-(e.g. TanStack Query) on top of the same `apiClient` rather than hand-rolling loading/
-error/refetch state per view — but that's a deliberate addition to discuss, not something
-to bring in silently as a side effect of one feature.
+and Properties both use plain `useState`/`useEffect` inside each view itself, since it's
+just "fetch a page of data for this screen" — each view fetches independently with no
+shared cache, so e.g. approving a property in the Hosting queue doesn't live-update an
+already-mounted Listings view (it refetches on its own next mount/filter change). For more
+screens like this (reviews — still hardcoded mock data in `src/constants.ts`), consider
+introducing a proper data-fetching library (e.g. TanStack Query) on top of the same
+`apiClient` rather than hand-rolling loading/error/refetch state per view — but that's a
+deliberate addition to discuss, not something to bring in silently as a side effect of one
+feature.

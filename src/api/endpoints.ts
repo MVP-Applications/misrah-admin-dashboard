@@ -30,4 +30,22 @@ export const API_ENDPOINTS = {
     // for when that's wired up.
     hostAll: '/booking/host',
   },
+  properties: {
+    // GET/PATCH/POST/DELETE all confirmed to exist in misra-api-nest source
+    // (AdminPropertyController). GET .../:id/approve and .../:id/reject were
+    // already live before this project touched them. adminAll (POST), adminById
+    // (GET one/PATCH/DELETE) were added to the backend by this project — not yet
+    // deployed to misra-test. See API_INTEGRATION.md → "Properties".
+    adminAll: '/admin/properties',
+    adminById: (id: string) => `/admin/properties/${id}`,
+    adminApprove: (id: string) => `/admin/properties/${id}/approve`,
+    adminReject: (id: string) => `/admin/properties/${id}/reject`,
+  },
+  files: {
+    upload: '/files/upload',
+    uploadMultiple: '/files/upload-multiple',
+  },
+  cities: {
+    activeList: '/city/active/list',
+  },
 } as const;

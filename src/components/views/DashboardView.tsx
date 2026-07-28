@@ -1,21 +1,27 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { format } from 'date-fns';
 import { Banknote, Home, ArrowUpRight, ShieldCheck, Star, MessageSquare, Calendar } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
-import { Property, User } from '../../types';
+import { User } from '../../types';
 import { BOOKINGS } from '../../constants';
+import { listAdminProperties } from '../../features/properties/api';
 
 interface DashboardViewProps {
-  properties: Property[];
   user: User;
 }
 
-export const DashboardView = ({ properties, user }: DashboardViewProps) => {
+export const DashboardView = ({ user }: DashboardViewProps) => {
   const navigate = useNavigate();
-  const pendingCount = properties.filter(p => !p.status || p.status === 'Pending').length;
+  const [pendingCount, setPendingCount] = useState(0);
+  const [approvedCount, setApprovedCount] = useState(0);
+
+  useEffect(() => {
+    listAdminProperties({ status: 'pending', limit: 1 }).then(r => setPendingCount(r.meta.total));
+    listAdminProperties({ status: 'approved', limit: 1 }).then(r => setApprovedCount(r.meta.total));
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -88,9 +94,9 @@ export const DashboardView = ({ properties, user }: DashboardViewProps) => {
           onClick={() => navigate('/earnings')}
         />
         <StatCard 
-          label={user.role === 'admin' ? "Inventory Scope" : "Property Volume"} 
-          value={properties.filter(p => p.status === 'Approved').length.toString()} 
-          change={`${properties.filter(p => p.status === 'Pending').length} pending audit`} 
+          label={user.role === 'admin' ? "Inventory Scope" : "Property Volume"}
+          value={approvedCount.toString()}
+          change={`${pendingCount} pending audit`}
           icon={Home} 
           onClick={() => navigate('/listings')}
         />
