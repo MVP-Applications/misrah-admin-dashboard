@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
 import type {
   ApiPropertyListItem,
+  AssignHostRequest,
   CityListItem,
   CreatePropertyRequest,
   ListPropertiesParams,
@@ -50,6 +51,20 @@ export async function updateAdminProperty(id: string, payload: UpdatePropertyReq
 // deploy to misra-test before this will work. Soft delete (sets deletedAt).
 export async function deleteAdminProperty(id: string): Promise<void> {
   await apiClient.delete(API_ENDPOINTS.properties.adminById(id));
+}
+
+// PATCH /admin/properties/{id}/assign-host — added to the backend by this
+// project, requires deploy to misra-test before this will work. Attaches/
+// replaces the host on an already-created property (used by "Reassign Node").
+// Unlike createAdminProperty, the backend throws a 400 if the submitted
+// email/phone already belongs to a user instead of silently merging — see
+// AssignHostRequest in features/properties/types.ts.
+export async function assignPropertyHost(id: string, payload: AssignHostRequest): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.patch<ApiSuccessEnvelope<ApiPropertyListItem>>(
+    API_ENDPOINTS.properties.adminAssignHost(id),
+    payload,
+  );
+  return assertResponseShape('assign host', data.data, ['_id', 'title', 'status']);
 }
 
 // PATCH /admin/properties/{id}/approve — confirmed live before this feature

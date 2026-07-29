@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { Property } from '../types';
 import {
   approveAdminProperty,
+  assignPropertyHost,
   createAdminProperty,
   deleteAdminProperty,
   rejectAdminProperty,
   updateAdminProperty,
 } from '../features/properties/api';
-import { viewModelPartialToUpdateRequest } from '../features/properties/mappers';
-import type { CreatePropertyRequest } from '../features/properties/types';
+import { hostAssignmentToAssignHostRequest, viewModelPartialToUpdateRequest } from '../features/properties/mappers';
+import type { CreatePropertyRequest, HostAssignmentSelection } from '../features/properties/types';
 
 // API-backed now — every action hits the real /admin/properties endpoints
 // and then calls `refetch` so the caller's list/detail reloads from the
@@ -56,6 +57,11 @@ export const usePropertyActions = (refetch: () => void) => {
     refetch();
   };
 
+  const assignHost = async (id: string, selection: Exclude<HostAssignmentSelection, { mode: 'admin' }>) => {
+    await assignPropertyHost(id, hostAssignmentToAssignHostRequest(selection));
+    refetch();
+  };
+
   const handleApprove = (id: string) => updateProperty(id, { status: 'Approved' });
 
   const openRejectModal = (property: Property) => {
@@ -82,6 +88,7 @@ export const usePropertyActions = (refetch: () => void) => {
     addProperty,
     updateProperty,
     deleteProperty,
+    assignHost,
     handleApprove,
     rejectionModal,
     openRejectModal,

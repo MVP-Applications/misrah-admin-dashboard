@@ -40,6 +40,12 @@ export const API_ENDPOINTS = {
     adminById: (id: string) => `/admin/properties/${id}`,
     adminApprove: (id: string) => `/admin/properties/${id}/approve`,
     adminReject: (id: string) => `/admin/properties/${id}/reject`,
+    // Attach/replace the host on an existing property — same "hostId OR new
+    // host details" shape as create's onboarding fields, but assign-host
+    // throws a 400 (rather than silently merging) if the submitted
+    // email/phone already belongs to a user. See AssignHostDto in
+    // misra-api-nest/src/modules/property/dto/assign-host.dto.ts.
+    adminAssignHost: (id: string) => `/admin/properties/${id}/assign-host`,
   },
   categories: {
     // No /admin/ prefix — unlike bookings/properties, "admin" here just means

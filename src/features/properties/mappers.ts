@@ -1,5 +1,5 @@
 import type { Property } from '../../types';
-import type { ApiPropertyListItem, UpdatePropertyRequest } from './types';
+import type { ApiPropertyListItem, AssignHostRequest, CreatePropertyRequest, HostAssignmentSelection, UpdatePropertyRequest } from './types';
 
 const FALLBACK_IMAGE_URL = '/asets/AdobeStock_46380625.webp';
 
@@ -53,4 +53,45 @@ export function viewModelPartialToUpdateRequest(updates: Partial<Property>): Upd
     payload.pricing = { basePrice: updates.price, weekdayPrice: updates.price, weekendPrice: updates.price };
   }
   return payload;
+}
+
+// AddListingModal's Ownership step produces a HostAssignmentSelection;
+// this is what actually gets spread into the create-property payload — the
+// backend resolves 'existing'/'new' into a host user itself (see
+// AdminPropertyController.create()), 'admin' means send neither field at all.
+export function hostAssignmentToCreateFields(selection: HostAssignmentSelection): Partial<CreatePropertyRequest> {
+  switch (selection.mode) {
+    case 'existing':
+      return { userId: selection.userId };
+    case 'new':
+      return {
+        name: selection.name,
+        nationalId: selection.nationalId,
+        phoneNumber: selection.phoneNumber,
+        email: selection.email,
+        residentialAddress: selection.residentialAddress,
+      };
+    case 'admin':
+      return {};
+  }
+}
+
+// Same selection shape, but for PATCH .../assign-host — ReassignHostModal
+// never offers the 'admin' tab (no backend operation to un-assign a host),
+// so that case can't reach here.
+export function hostAssignmentToAssignHostRequest(
+  selection: Exclude<HostAssignmentSelection, { mode: 'admin' }>,
+): AssignHostRequest {
+  switch (selection.mode) {
+    case 'existing':
+      return { hostId: selection.userId };
+    case 'new':
+      return {
+        name: selection.name,
+        nationalId: selection.nationalId,
+        phoneNumber: selection.phoneNumber,
+        email: selection.email,
+        residentialAddress: selection.residentialAddress,
+      };
+  }
 }

@@ -30,7 +30,10 @@ export interface Property {
   baths: number;
   image: string;
   active: boolean;
-  hostId: string;
+  // Optional — a property onboarded via the "Admin" (unassigned) path has no
+  // host at all. See PropertyDetailView's Partner Node card for how this
+  // renders ("Managed by Admin" instead of a host profile).
+  hostId?: string;
   hostName?: string;
   description?: string;
   isFeatured: boolean;

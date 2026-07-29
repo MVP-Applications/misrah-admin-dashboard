@@ -22,7 +22,11 @@ export type ApiPropertyStatus = 'pending' | 'approved' | 'rejected';
 
 export interface ApiPropertyListItem {
   _id: string;
-  userId: string;
+  // Optional on the wire — a property created via the "Admin" onboarding
+  // path (no host onboarded) has no userId at all (property.schema.ts:
+  // `userId?: Types.ObjectId`). Not just an edge case: this is the real
+  // "unassigned, managed by admin" state.
+  userId?: string;
   cityId?: string;
   address?: string;
   latitude?: number;
@@ -65,7 +69,19 @@ export interface ListPropertiesResponse {
 }
 
 export interface CreatePropertyRequest {
-  userId: string;
+  // Exactly one onboarding path applies per AdminCreatePropertyDto: pass
+  // userId to list on behalf of an existing host; pass email/phoneNumber
+  // (+ optional name/nationalId/residentialAddress) to find-or-create that
+  // host; pass neither for an unassigned, admin-managed listing. See
+  // hostAssignmentToCreateFields() in mappers.ts for how a
+  // HostAssignmentSelection becomes these fields. No `password` field —
+  // deliberately not collected anywhere in this UI.
+  userId?: string;
+  email?: string;
+  phoneNumber?: string;
+  name?: string;
+  nationalId?: string;
+  residentialAddress?: string;
   title: string;
   description: string;
   propertyType: 'APARTMENT' | 'STUDIO' | 'VILLA' | 'PENTHOUSE';
@@ -84,11 +100,41 @@ export interface CreatePropertyRequest {
   isActive?: boolean;
 }
 
-export type UpdatePropertyRequest = Partial<Omit<CreatePropertyRequest, 'userId'>>;
+export type UpdatePropertyRequest = Partial<
+  Omit<CreatePropertyRequest, 'userId' | 'email' | 'phoneNumber' | 'name' | 'nationalId' | 'residentialAddress'>
+>;
 
 export interface RejectPropertyRequest {
   reason?: string;
 }
+
+// Mirrors AssignHostDto (misra-api-nest/src/modules/property/dto/assign-host.dto.ts).
+// No `password` field — same decision as CreatePropertyRequest's onboarding
+// fields above.
+export interface AssignHostRequest {
+  hostId?: string;
+  name?: string;
+  nationalId?: string;
+  phoneNumber?: string;
+  email?: string;
+  residentialAddress?: string;
+}
+
+// Normalized value HostAssignmentPicker emits — 'admin' (unassigned) is only
+// ever offered during creation, never for assign-host (there is no backend
+// operation to un-assign a host), so hostAssignmentToAssignHostRequest()
+// in mappers.ts never has to handle it.
+export type HostAssignmentSelection =
+  | { mode: 'existing'; userId: string; label: string }
+  | {
+      mode: 'new';
+      name: string;
+      nationalId: string;
+      phoneNumber: string;
+      email: string;
+      residentialAddress: string;
+    }
+  | { mode: 'admin' };
 
 export interface UploadedFileResult {
   id: string;
