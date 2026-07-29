@@ -265,25 +265,34 @@ export const BannersModule = () => {
                   <span className="text-[9px] font-black uppercase tracking-widest text-[#D4C3B5] relative z-10">Upload Banner Creative</span>
                   <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
                 </div>
-                <input
-                  value={formData.titleEn}
-                  onChange={e => setFormData({ ...formData, titleEn: e.target.value })}
-                  placeholder="Creative Title (English)"
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                />
-                <input
-                  value={formData.titleAr}
-                  onChange={e => setFormData({ ...formData, titleAr: e.target.value })}
-                  placeholder="Creative Title (Arabic)"
-                  dir="rtl"
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                />
-                <input
-                  value={formData.link}
-                  onChange={e => setFormData({ ...formData, link: e.target.value })}
-                  placeholder="Action Redirect (e.g., /promo/summer)"
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                />
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Creative Title (English)</label>
+                  <input
+                    value={formData.titleEn}
+                    onChange={e => setFormData({ ...formData, titleEn: e.target.value })}
+                    placeholder="e.g. Summer Escape"
+                    className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Creative Title (Arabic)</label>
+                  <input
+                    value={formData.titleAr}
+                    onChange={e => setFormData({ ...formData, titleAr: e.target.value })}
+                    placeholder="هروب الصيف"
+                    dir="rtl"
+                    className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Action Redirect</label>
+                  <input
+                    value={formData.link}
+                    onChange={e => setFormData({ ...formData, link: e.target.value })}
+                    placeholder="e.g. /promo/summer"
+                    className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
+                  />
+                </div>
 
                 {saveError && (
                   <p className="text-[10px] font-black text-danger uppercase tracking-widest text-center">{saveError}</p>
