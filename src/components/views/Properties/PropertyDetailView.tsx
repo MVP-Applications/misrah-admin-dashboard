@@ -1,35 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { 
-  ChevronLeft, 
-  X, 
-  Check, 
-  Trash2, 
-  Settings, 
-  Save, 
-  FileText, 
-  ShieldCheck, 
-  CheckCircle2, 
+import {
+  ChevronLeft,
+  X,
+  Check,
+  Trash2,
+  Settings,
+  Save,
+  FileText,
+  ShieldCheck,
+  CheckCircle2,
   ArrowUpRight,
   MoreVertical,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
+import type { HostAssignmentSelection } from '../../../features/properties/types';
+import { ReassignHostModal } from './ReassignHostModal';
 
 interface PropertyDetailViewProps {
   property: Property;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<Property>) => void;
   onDelete: (id: string) => void;
+  onAssignHost: (id: string, selection: Exclude<HostAssignmentSelection, { mode: 'admin' }>) => Promise<void>;
   user: User;
 }
 
-export const PropertyDetailView = ({ 
-  property, 
-  onClose, 
-  onUpdate, 
+export const PropertyDetailView = ({
+  property,
+  onClose,
+  onUpdate,
   onDelete,
+  onAssignHost,
   user
 }: PropertyDetailViewProps) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -37,6 +42,7 @@ export const PropertyDetailView = ({
   const [rejectionReason, setRejectionReason] = useState('');
   const [formData, setFormData] = useState({ ...property });
   const [showSecondaryMenu, setShowSecondaryMenu] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
 
   useEffect(() => {
     setFormData({ ...property });
@@ -423,23 +429,57 @@ export const PropertyDetailView = ({
             {/* Host Section */}
             <div className="space-y-6">
               <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Partner Node</h4>
-              <div className="p-8 bg-white border border-border-misrah rounded-[40px] shadow-sm space-y-8">
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-24 h-24 rounded-[32px] bg-accent/20 flex items-center justify-center text-accent font-black text-4xl mb-6 shadow-luxury">
-                    {property.hostName?.charAt(0) || 'H'}
+              {property.hostId ? (
+                <div className="p-8 bg-white border border-border-misrah rounded-[40px] shadow-sm space-y-8">
+                  <div className="flex flex-col items-center text-center">
+                    <div className="w-24 h-24 rounded-[32px] bg-accent/20 flex items-center justify-center text-accent font-black text-4xl mb-6 shadow-luxury">
+                      {property.hostName?.charAt(0) || 'H'}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-black text-accent uppercase tracking-[4px]">Elite Contributor</div>
+                      <h3 className="text-2xl font-black italic text-primary uppercase leading-tight tracking-tight">{property.hostName || 'Premier Host'}</h3>
+                      <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-2">{property.hostId.toUpperCase()}</div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-black text-accent uppercase tracking-[4px]">Elite Contributor</div>
-                    <h3 className="text-2xl font-black italic text-primary uppercase leading-tight tracking-tight">{property.hostName || 'Premier Host'}</h3>
-                    <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-2">{property.hostId.toUpperCase()}</div>
+
+                  <div className="pt-8 border-t border-border-misrah flex flex-col gap-3">
+                    <button className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg">Verify Node Profile</button>
+                    <button
+                      onClick={() => setShowReassignModal(true)}
+                      className="w-full py-4 bg-white border border-border-misrah text-primary rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:bg-surface transition-all flex items-center justify-center gap-2"
+                    >
+                      <RefreshCw size={14} /> Reassign Node
+                    </button>
                   </div>
                 </div>
-                
-                <div className="pt-8 border-t border-border-misrah flex flex-col gap-3">
-                  <button className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg">Verify Node Profile</button>
-                  <button className="w-full py-4 bg-white border border-border-misrah text-primary rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:bg-surface transition-all">Direct Intel Uplink</button>
+              ) : (
+                <div className="p-8 bg-white border border-border-misrah rounded-[40px] shadow-sm space-y-6">
+                  <span className="inline-block px-3 py-1 rounded-full bg-primary/5 text-primary text-[9px] font-black uppercase tracking-[2px]">
+                    System Assignment Node
+                  </span>
+                  <div>
+                    <h3 className="text-xl font-black italic text-primary uppercase">Managed by Admin</h3>
+                    <p className="text-xs text-muted-text font-medium mt-1">This listing is marked as unassigned. No owner has been linked yet.</p>
+                  </div>
+                  <div className="p-6 rounded-2xl bg-surface border border-border-misrah flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <ShieldCheck size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-primary">Managed by Admin</p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-accent bg-accent/10 px-2 py-0.5 rounded-full">
+                        Unassigned · Admin Managed
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowReassignModal(true)}
+                    className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw size={14} /> Reassign Node
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Performance Node */}
@@ -470,6 +510,14 @@ export const PropertyDetailView = ({
           </div>
         </div>
       </div>
+
+      {showReassignModal && (
+        <ReassignHostModal
+          property={property}
+          onClose={() => setShowReassignModal(false)}
+          onAssign={onAssignHost}
+        />
+      )}
     </motion.div>
   );
 };

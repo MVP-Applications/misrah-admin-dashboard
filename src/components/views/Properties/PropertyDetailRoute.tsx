@@ -28,7 +28,7 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  const { updateProperty, deleteProperty } = usePropertyActions(refetch);
+  const { updateProperty, deleteProperty, assignHost } = usePropertyActions(refetch);
 
   if (loading && !property) {
     return (
@@ -62,6 +62,7 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
         deleteProperty(id);
         navigate(-1);
       }}
+      onAssignHost={assignHost}
       user={user}
     />
   );

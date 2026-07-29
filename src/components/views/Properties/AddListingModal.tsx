@@ -21,13 +21,16 @@ import {
   FileText,
   ShieldCheck,
   Check,
-  AlertCircle
+  AlertCircle,
+  Users
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday } from 'date-fns';
 import { User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { listActiveCities, uploadFile } from '../../../features/properties/api';
-import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
+import { hostAssignmentToCreateFields } from '../../../features/properties/mappers';
+import type { CityListItem, CreatePropertyRequest, HostAssignmentSelection } from '../../../features/properties/types';
+import { HostAssignmentPicker } from './HostAssignmentPicker';
 
 const CATEGORY_TO_PROPERTY_TYPE: Record<string, CreatePropertyRequest['propertyType']> = {
   Villa: 'VILLA',
@@ -45,6 +48,7 @@ interface AddListingModalProps {
 
 export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModalProps) => {
   const [step, setStep] = useState(0);
+  const [ownerSelection, setOwnerSelection] = useState<HostAssignmentSelection | undefined>(undefined);
   const [cities, setCities] = useState<CityListItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -87,6 +91,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
   useEffect(() => {
     if (isOpen) {
       setStep(0);
+      setOwnerSelection(undefined);
       setSubmitError(null);
       setImageFile(null);
       setVerificationFiles({});
@@ -133,15 +138,15 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
   if (!isOpen) return null;
 
   const handleNext = () => {
-    if (step === 0 && user.verificationStatus !== 'Approved' && user.role !== 'admin') {
-      setStep(5); // Jump to verification if not approved
+    if (step === 1 && user.verificationStatus !== 'Approved' && user.role !== 'admin') {
+      setStep(6); // Jump to verification if not approved
       return;
     }
     setStep(s => s + 1);
   };
   const handleBack = () => {
-    if (step === 5 && user.verificationStatus !== 'Approved' && user.role !== 'admin') {
-      setStep(0);
+    if (step === 6 && user.verificationStatus !== 'Approved' && user.role !== 'admin') {
+      setStep(1);
       return;
     }
     setStep(s => s - 1);
@@ -149,6 +154,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (!ownerSelection) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -160,7 +166,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
       );
 
       await onAdd({
-        userId: user.id,
+        ...hostAssignmentToCreateFields(ownerSelection),
         title: formData.name,
         description: formData.description,
         propertyType: CATEGORY_TO_PROPERTY_TYPE[formData.category] ?? 'APARTMENT',
@@ -287,12 +293,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
             <div className="space-y-8">
               {[
-                { step: 0, label: 'Asset Taxonomy', icon: Building2 },
-                { step: 1, label: 'Geography Index', icon: MapPin },
-                { step: 2, label: 'Time Synchronization', icon: Calendar },
-                { step: 3, label: 'Visual Inventory', icon: Upload },
-                { step: 4, label: 'Strategic Narrative', icon: FileText },
-                { step: 5, label: 'Security Protocols', icon: ShieldCheck }
+                { step: 0, label: 'Ownership Node', icon: Users },
+                { step: 1, label: 'Asset Taxonomy', icon: Building2 },
+                { step: 2, label: 'Geography Index', icon: MapPin },
+                { step: 3, label: 'Time Synchronization', icon: Calendar },
+                { step: 4, label: 'Visual Inventory', icon: Upload },
+                { step: 5, label: 'Strategic Narrative', icon: FileText },
+                { step: 6, label: 'Security Protocols', icon: ShieldCheck }
               ].map((item) => (
                 <div
                   key={item.step}
@@ -324,9 +331,20 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
         <div className="flex-1 flex flex-col bg-[#FCFAF8]/30">
           <div className="flex-1 p-12 overflow-y-auto scrollbar-hide max-h-[80vh]">
             <AnimatePresence mode="wait">
-            {/* Step 0: Category */}
+            {/* Step 0: Ownership */}
             {step === 0 && (
-              <motion.div key="step0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+              <motion.div key="step-owner" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div>
+                  <h2 className="text-2xl font-black italic text-primary">Who owns this property?</h2>
+                  <p className="text-muted-text text-sm mt-1">Link an existing owner, register a new one, or list it as admin-managed</p>
+                </div>
+                <HostAssignmentPicker value={ownerSelection} onChange={setOwnerSelection} allowUnassigned />
+              </motion.div>
+            )}
+
+            {/* Step 1: Category */}
+            {step === 1 && (
+              <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-black italic text-primary">What kind of place is it?</h2>
                   <p className="text-muted-text text-sm mt-1">Choose the category that best describes your property</p>
@@ -352,9 +370,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
               </motion.div>
             )}
 
-            {/* Step 1: Location */}
-            {step === 1 && (
-              <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+            {/* Step 2: Location */}
+            {step === 2 && (
+              <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
                 <div>
                   <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Where is it<br />located?</h2>
                 </div>
@@ -376,14 +394,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
               </motion.div>
             )}
 
-            {/* Step 2: Availability Calendar */}
-            {step === 2 && (
-              <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+            {/* Step 3: Availability Calendar */}
+            {step === 3 && (
+              <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                 <div className="flex flex-col items-center gap-4 mb-8">
                   <div className="bg-[#FCFAF8] border border-[#F2E8DF] px-6 py-2 rounded-full flex items-center gap-3">
                     <span className="text-[10px] font-black italic text-[#1A2B47] uppercase tracking-[1px]">Setup</span>
                     <div className="w-[1px] h-3 bg-[#D4C3B5]" />
-                    <span className="text-[10px] font-bold text-[#D4C3B5] uppercase tracking-[1px]">Step 3</span>
+                    <span className="text-[10px] font-bold text-[#D4C3B5] uppercase tracking-[1px]">Step 4</span>
                   </div>
                 </div>
 
@@ -429,9 +447,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
               </motion.div>
             )}
 
-            {/* Step 3: Photos (Finalizing the form logic) */}
-            {step === 3 && (
-                <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+            {/* Step 4: Photos (Finalizing the form logic) */}
+            {step === 4 && (
+                <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
                      <div>
                         <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Visual<br />Inventory</h2>
                         <p className="text-muted-text text-xs uppercase tracking-widest font-black mt-2">Upload high-resolution property imagery</p>
@@ -483,9 +501,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                 </motion.div>
             )}
 
-            {/* Step 4: Description */}
-            {step === 4 && (
-              <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+            {/* Step 5: Description */}
+            {step === 5 && (
+              <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
                 <div>
                   <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Strategic<br />Narrative</h2>
                   <p className="text-muted-text text-xs uppercase tracking-widest font-black mt-2">Describe the architectural and lifestyle nodes</p>
@@ -514,9 +532,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
               </motion.div>
             )}
 
-            {/* Step 5: Verification */}
-             {step === 5 && (
-                <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+            {/* Step 6: Verification */}
+             {step === 6 && (
+                <motion.div key="step6" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
                   <div>
                     <div className="flex items-center gap-3 mb-2">
                       <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Host<br />Verification</h2>
@@ -624,14 +642,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                 </button>
             )}
             <button
-              disabled={submitting}
+              disabled={submitting || (step === 0 && !ownerSelection)}
               onClick={() => {
-                if (step === 5) handleSubmit();
+                if (step === 6) handleSubmit();
                 else handleNext();
               }}
               className="flex-[2] py-5 rounded-[28px] bg-primary text-accent text-[10px] font-black uppercase tracking-[2px] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
             >
-              {step === 5 ? (submitting ? 'Syncing…' : 'Confirm & Sync') : 'Proceed'}
+              {step === 6 ? (submitting ? 'Syncing…' : 'Confirm & Sync') : 'Proceed'}
             </button>
         </div>
       </div>
