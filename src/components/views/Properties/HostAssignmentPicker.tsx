@@ -22,7 +22,7 @@ interface HostAssignmentPickerProps {
 
 type Tab = 'existing' | 'new' | 'admin';
 
-const emptyNewOwner = { name: '', nationalId: '', phoneNumber: '', email: '', residentialAddress: '' };
+const emptyNewOwner = { name: '', nationalId: '', phoneNumber: '', email: '', residentialAddress: '', password: '' };
 
 export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initialSearch }: HostAssignmentPickerProps) => {
   const [tab, setTab] = useState<Tab>(value?.mode ?? 'existing');
@@ -37,6 +37,7 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
           phoneNumber: value.phoneNumber,
           email: value.email,
           residentialAddress: value.residentialAddress,
+          password: value.password ?? '',
         }
       : emptyNewOwner,
   );
@@ -61,12 +62,20 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
     onChange({ mode: 'existing', userId: u._id, label: u.name || u.email || u._id });
   };
 
+  // password is optional — the backend (AdminCreatePropertyDto/AssignHostDto)
+  // only requires >= 6 chars when one is actually provided.
+  const passwordError = newOwner.password && newOwner.password.length < 6 ? 'Must be at least 6 characters' : undefined;
   const newOwnerValid =
-    newOwner.name.trim() && newOwner.nationalId.trim() && newOwner.phoneNumber.trim() && newOwner.email.trim() && newOwner.residentialAddress.trim();
+    newOwner.name.trim() &&
+    newOwner.nationalId.trim() &&
+    newOwner.phoneNumber.trim() &&
+    newOwner.email.trim() &&
+    newOwner.residentialAddress.trim() &&
+    !passwordError;
 
   const registerNewOwner = () => {
     if (!newOwnerValid) return;
-    onChange({ mode: 'new', ...newOwner });
+    onChange({ mode: 'new', ...newOwner, password: newOwner.password.trim() || undefined });
   };
 
   const selectAdmin = () => onChange({ mode: 'admin' });
@@ -184,6 +193,15 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
             placeholder="e.g. Villa 14, Al Safa 2, Dubai, UAE"
             onChange={(v) => setNewOwner((p) => ({ ...p, residentialAddress: v }))}
           />
+          <Field
+            label="Password"
+            type="password"
+            value={newOwner.password}
+            placeholder="Leave blank to set up later"
+            hint="Optional — lets this owner log in immediately instead of waiting on a password reset."
+            error={passwordError}
+            onChange={(v) => setNewOwner((p) => ({ ...p, password: v }))}
+          />
           <button
             type="button"
             disabled={!newOwnerValid}
@@ -243,12 +261,18 @@ const Field = ({
   value,
   placeholder,
   required,
+  type = 'text',
+  hint,
+  error,
   onChange,
 }: {
   label: string;
   value: string;
   placeholder: string;
   required?: boolean;
+  type?: string;
+  hint?: string;
+  error?: string;
   onChange: (v: string) => void;
 }) => (
   <div className="space-y-2">
@@ -256,10 +280,17 @@ const Field = ({
       {label} {required && <span className="text-accent">*</span>}
     </label>
     <input
+      type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-surface border border-border-misrah rounded-2xl px-5 py-3 text-xs font-bold outline-none focus:border-accent transition-all"
+      className={`w-full bg-surface border rounded-2xl px-5 py-3 text-xs font-bold outline-none transition-all
+        ${error ? 'border-danger focus:border-danger' : 'border-border-misrah focus:border-accent'}`}
     />
+    {error ? (
+      <p className="text-[9px] font-bold text-danger px-1">{error}</p>
+    ) : hint ? (
+      <p className="text-[9px] font-medium text-muted-text/60 px-1">{hint}</p>
+    ) : null}
   </div>
 );

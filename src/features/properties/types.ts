@@ -71,17 +71,19 @@ export interface ListPropertiesResponse {
 export interface CreatePropertyRequest {
   // Exactly one onboarding path applies per AdminCreatePropertyDto: pass
   // userId to list on behalf of an existing host; pass email/phoneNumber
-  // (+ optional name/nationalId/residentialAddress) to find-or-create that
-  // host; pass neither for an unassigned, admin-managed listing. See
+  // (+ optional name/nationalId/residentialAddress/password) to find-or-create
+  // that host; pass neither for an unassigned, admin-managed listing. See
   // hostAssignmentToCreateFields() in mappers.ts for how a
-  // HostAssignmentSelection becomes these fields. No `password` field —
-  // deliberately not collected anywhere in this UI.
+  // HostAssignmentSelection becomes these fields. `password` is optional —
+  // when omitted, the new host has no way to log in until the (currently
+  // unimplemented) forgot/reset-password flow ships.
   userId?: string;
   email?: string;
   phoneNumber?: string;
   name?: string;
   nationalId?: string;
   residentialAddress?: string;
+  password?: string;
   title: string;
   description: string;
   propertyType: 'APARTMENT' | 'STUDIO' | 'VILLA' | 'PENTHOUSE';
@@ -101,7 +103,7 @@ export interface CreatePropertyRequest {
 }
 
 export type UpdatePropertyRequest = Partial<
-  Omit<CreatePropertyRequest, 'userId' | 'email' | 'phoneNumber' | 'name' | 'nationalId' | 'residentialAddress'>
+  Omit<CreatePropertyRequest, 'userId' | 'email' | 'phoneNumber' | 'name' | 'nationalId' | 'residentialAddress' | 'password'>
 >;
 
 export interface RejectPropertyRequest {
@@ -109,8 +111,6 @@ export interface RejectPropertyRequest {
 }
 
 // Mirrors AssignHostDto (misra-api-nest/src/modules/property/dto/assign-host.dto.ts).
-// No `password` field — same decision as CreatePropertyRequest's onboarding
-// fields above.
 export interface AssignHostRequest {
   hostId?: string;
   name?: string;
@@ -118,12 +118,15 @@ export interface AssignHostRequest {
   phoneNumber?: string;
   email?: string;
   residentialAddress?: string;
+  password?: string;
 }
 
 // Normalized value HostAssignmentPicker emits — 'admin' (unassigned) is only
 // ever offered during creation, never for assign-host (there is no backend
 // operation to un-assign a host), so hostAssignmentToAssignHostRequest()
-// in mappers.ts never has to handle it.
+// in mappers.ts never has to handle it. `password` is optional and, when
+// provided, must be >= 6 chars (backend's MinLength) — HostAssignmentPicker
+// enforces that client-side and only includes the field at all when non-empty.
 export type HostAssignmentSelection =
   | { mode: 'existing'; userId: string; label: string }
   | {
@@ -133,6 +136,7 @@ export type HostAssignmentSelection =
       phoneNumber: string;
       email: string;
       residentialAddress: string;
+      password?: string;
     }
   | { mode: 'admin' };
 

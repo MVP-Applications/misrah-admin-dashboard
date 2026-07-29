@@ -70,6 +70,7 @@ export function hostAssignmentToCreateFields(selection: HostAssignmentSelection)
         phoneNumber: selection.phoneNumber,
         email: selection.email,
         residentialAddress: selection.residentialAddress,
+        ...(selection.password ? { password: selection.password } : {}),
       };
     case 'admin':
       return {};
@@ -92,6 +93,7 @@ export function hostAssignmentToAssignHostRequest(
         phoneNumber: selection.phoneNumber,
         email: selection.email,
         residentialAddress: selection.residentialAddress,
+        ...(selection.password ? { password: selection.password } : {}),
       };
   }
 }

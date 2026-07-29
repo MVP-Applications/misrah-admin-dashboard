@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Loader2, TriangleAlert, Search } from 'lucide-react';
 import { Property } from '../../../types';
-import { hostAssignmentToAssignHostRequest } from '../../../features/properties/mappers';
 import type { HostAssignmentSelection } from '../../../features/properties/types';
 import type { ApiError } from '../../../api/types';
 import { HostAssignmentPicker } from './HostAssignmentPicker';
