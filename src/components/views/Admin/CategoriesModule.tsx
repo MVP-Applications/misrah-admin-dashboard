@@ -14,12 +14,11 @@ import { ManageCategoryPropertiesModal } from './ManageCategoryPropertiesModal';
 
 // Confirmed from misra-api-nest/src/database/seeds/property-category.seeder.ts:
 // every real seeded category's iconName is a lowercase, hyphenated slug of
-// name.en ('City' -> 'city', 'Beach' -> 'beach'). Used as a live default while
-// typing the English name, purely for convenience — the field itself is a
-// normal editable input and whatever value is in it at save time is what gets
-// sent. See API_INTEGRATION.md → "Categories" for why this is a convention
-// match rather than an enforced contract (no backend validation beyond
-// non-empty string; presumably an icon-asset lookup key on the mobile side).
+// name.en ('City' -> 'city', 'Beach' -> 'beach'). Derived automatically from
+// the English name at save time — no manual entry. See API_INTEGRATION.md →
+// "Categories" for why this is a convention match rather than an enforced
+// contract (no backend validation beyond non-empty string; presumably an
+// icon-asset lookup key on the mobile side).
 function slugifyIconName(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -27,11 +26,10 @@ function slugifyIconName(name: string): string {
 interface CategoryFormState {
   nameEn: string;
   nameAr: string;
-  iconName: string;
   iconUrl: string;
 }
 
-const EMPTY_FORM: CategoryFormState = { nameEn: '', nameAr: '', iconName: '', iconUrl: '' };
+const EMPTY_FORM: CategoryFormState = { nameEn: '', nameAr: '', iconUrl: '' };
 
 export const CategoriesModule = () => {
   const [categories, setCategories] = useState<ApiCategory[]>([]);
@@ -41,10 +39,6 @@ export const CategoriesModule = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ApiCategory | null>(null);
   const [formData, setFormData] = useState<CategoryFormState>(EMPTY_FORM);
-  // Once the admin directly edits Icon Name, stop overwriting it from the
-  // English name field — it's a real editable field, this is just a
-  // convenience default for the common case of a new category.
-  const [isIconNameTouched, setIsIconNameTouched] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -76,32 +70,15 @@ export const CategoriesModule = () => {
   const handleAddItem = () => {
     setEditingItem(null);
     setFormData(EMPTY_FORM);
-    setIsIconNameTouched(false);
     setSaveError(null);
     setIsModalOpen(true);
   };
 
   const handleEditItem = (item: ApiCategory) => {
     setEditingItem(item);
-    setFormData({ nameEn: item.name.en, nameAr: item.name.ar, iconName: item.iconName, iconUrl: item.iconUrl ?? '' });
-    // Editing an existing category — it already has a real iconName, so don't
-    // let typing in the name field silently overwrite it.
-    setIsIconNameTouched(true);
+    setFormData({ nameEn: item.name.en, nameAr: item.name.ar, iconUrl: item.iconUrl ?? '' });
     setSaveError(null);
     setIsModalOpen(true);
-  };
-
-  const handleNameEnChange = (value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      nameEn: value,
-      iconName: isIconNameTouched ? prev.iconName : slugifyIconName(value),
-    }));
-  };
-
-  const handleIconNameChange = (value: string) => {
-    setIsIconNameTouched(true);
-    setFormData(prev => ({ ...prev, iconName: value }));
   };
 
   const handleDelete = async (id: string) => {
@@ -151,8 +128,9 @@ export const CategoriesModule = () => {
       setSaveError('English and Arabic names are both required.');
       return;
     }
-    if (!formData.iconName.trim()) {
-      setSaveError('Icon name is required.');
+    const iconName = slugifyIconName(formData.nameEn);
+    if (!iconName) {
+      setSaveError('English name must contain at least one letter or number.');
       return;
     }
     setIsSaving(true);
@@ -161,13 +139,13 @@ export const CategoriesModule = () => {
       if (editingItem) {
         await updateCategory(editingItem._id, {
           name: { en: formData.nameEn.trim(), ar: formData.nameAr.trim() },
-          iconName: formData.iconName.trim(),
+          iconName,
           iconUrl: formData.iconUrl || undefined,
         });
       } else {
         await createCategory({
           name: { en: formData.nameEn.trim(), ar: formData.nameAr.trim() },
-          iconName: formData.iconName.trim(),
+          iconName,
           iconUrl: formData.iconUrl || undefined,
           displayOrder: categories.length,
           isActive: true,
@@ -300,29 +278,27 @@ export const CategoriesModule = () => {
                   <span className="text-[9px] font-black uppercase tracking-widest text-[#D4C3B5] relative z-10">Upload Category Icon</span>
                   <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
                 </div>
-                <input
-                  value={formData.nameEn}
-                  onChange={e => handleNameEnChange(e.target.value)}
-                  placeholder="Category Name (English)"
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                />
-                <input
-                  value={formData.nameAr}
-                  onChange={e => setFormData({ ...formData, nameAr: e.target.value })}
-                  placeholder="Category Name (Arabic)"
-                  dir="rtl"
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                />
                 <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Category Name (English)</label>
                   <input
-                    value={formData.iconName}
-                    onChange={e => handleIconNameChange(e.target.value)}
-                    placeholder="Icon Name (e.g. city, beach, mountain)"
+                    value={formData.nameEn}
+                    onChange={e => setFormData({ ...formData, nameEn: e.target.value })}
+                    placeholder="e.g. City"
                     className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
                   />
                   <p className="text-[9px] font-bold text-muted-text/50 uppercase tracking-widest px-1">
-                    Pre-filled from the English name — edit freely, this is what mobile looks up the icon by.
+                    This also becomes the icon lookup key on mobile (e.g. "City" → "city").
                   </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Category Name (Arabic)</label>
+                  <input
+                    value={formData.nameAr}
+                    onChange={e => setFormData({ ...formData, nameAr: e.target.value })}
+                    placeholder="مدينة"
+                    dir="rtl"
+                    className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
+                  />
                 </div>
 
                 {saveError && (
