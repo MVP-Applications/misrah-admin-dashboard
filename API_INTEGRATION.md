@@ -44,6 +44,28 @@ src/
     bookings/
       types.ts            — request/response types (list only, for now)
       api.ts               — plain functions calling apiClient (no React)
+    properties/
+      types.ts            — request/response types
+      api.ts               — plain functions calling apiClient (no React)
+      mappers.ts            — ApiPropertyListItem <-> legacy Property view-model
+    categories/
+      types.ts            — request/response types
+      api.ts               — plain functions calling apiClient (no React)
+    banners/
+      types.ts            — request/response types
+      api.ts               — plain functions calling apiClient (no React)
+    homePageListings/
+      types.ts            — request/response types (backs Elite Nodes)
+      api.ts               — plain functions calling apiClient (no React)
+    adminUsers/
+      types.ts            — request/response types (GET /admin/users, PATCH consumer)
+      api.ts               — plain functions calling apiClient (no React)
+    reviews/
+      types.ts            — request/response types (admin moderation)
+      api.ts               — plain functions calling apiClient (no React)
+    auditLogs/
+      types.ts            — request/response types (backs Notifications/Activity Feed)
+      api.ts               — plain functions calling apiClient (no React)
 ```
 
 ## The rules
@@ -187,11 +209,11 @@ specifically relevant to how the React app integrates with it.
   ~150 lines of pricing/currency/availability logic. Verified with `tsc --noEmit` in the
   backend repo — zero errors introduced (pre-existing, unrelated errors in
   `booking-receipt.service.ts` and `test/chat.e2e-spec.ts` are not from this change).
-  **This backend change is not deployed to `misra-test` yet** — it only exists in the
-  local `misra-api-nest` checkout. `PATCH /admin/bookings/{id}/reschedule` will 404 from
-  the frontend until someone builds and deploys that backend. The reschedule calendar in
-  `BookingsView.tsx` is real (actual month grid, click-to-select check-in/check-out range,
-  guest counts pulled from the real booking) and will work as soon as that deploy happens.
+  **Confirmed deployed and live on `misra-test`** (verified directly: a valid
+  origin/key request to it returns a plain JWT `"Unauthorized"`, not a 404). The
+  reschedule calendar in `BookingsView.tsx` is real (actual month grid, click-to-select
+  check-in/check-out range, guest counts pulled from the real booking) and works
+  end-to-end.
 - **Two real list endpoints exist**: `/booking/host` (host-scoped, "bookings for the logged-in
   host") and `/admin/bookings` (platform-wide, requires `Permission.ADMIN_READ`, backed by
   a dedicated `AdminBookingController` in the backend source). This app calls
@@ -238,15 +260,15 @@ specifically relevant to how the React app integrates with it.
 - **Read, approve, reject were already live** (`GET /admin/properties`,
   `PATCH /admin/properties/{id}/approve`, `PATCH /admin/properties/{id}/reject`) — these work
   today with no backend deploy needed.
-- **Create, update, delete, and get-one are NEW backend routes added by this project**
+- **Create, update, delete, and get-one were NEW backend routes added by this project**
   (`POST/PATCH/DELETE /admin/properties`, `GET /admin/properties/{id}`, plus three new
   permissions `PROPERTY_CREATE`/`PROPERTY_UPDATE`/`PROPERTY_DELETE` in
   `misra-api-nest/src/common/enums/permission.enum.ts` and routes in
-  `admin-property.controller.ts`) — **not yet deployed to `misra-test`**. Until deployed,
-  creating/editing/deleting a listing or toggling active/inactive will 404 from the frontend;
-  read/approve/reject keep working. A Super Admin's `Permission.ALL` bypasses the new
-  permissions automatically (see `PermissionsGuard`) — no role/permission database change is
-  needed once deployed, only for non-Super-Admin roles.
+  `admin-property.controller.ts`) — **confirmed deployed and live on `misra-test`**
+  (verified directly: hitting them with a valid origin/key returns a plain JWT
+  `"Unauthorized"`, not a 404). A Super Admin's `Permission.ALL` bypasses the new
+  permissions automatically (see `PermissionsGuard`) — no role/permission database change
+  is needed, only for non-Super-Admin roles that should get these permissions explicitly.
 - **Active/inactive toggle deliberately does NOT use `updateIsActive()`.** That existing
   service method filters by `{_id, userId}` (ownership-checked) and would 404 for any
   property an admin doesn't own. The admin route instead goes through the generic
@@ -283,6 +305,190 @@ specifically relevant to how the React app integrates with it.
   includes `status`). It disambiguates using `'status' in updates && keys.length <= 3` for
   the approve/reject case specifically so a full-form save (many keys, includes the
   property's current status) doesn't get misrouted into an approve/reject call.
+
+## Categories: how it actually works
+
+- `CategoriesModule.tsx` (route `/admin/categories`) is fully wired against
+  `PropertyCategoryController` in the backend (`misra-api-nest/src/modules/property-category/`).
+  Nothing was added to the backend for this — every route already existed.
+- **"Admin" here means something different than for bookings/properties** — there's no
+  `/admin/` prefix. `PropertyCategoryController` puts its admin CRUD routes at the plain
+  base path (`/property-categories`, guarded by `@UseGuards(AuthGuard('jwt'))` on the whole
+  controller) and its consumer-facing routes at `/property-categories/traveller/*`
+  (explicitly `@Public()`, on the *same* controller). Confirmed from the guard placement in
+  source, not guessed from the URL shape — this one would've been easy to get backwards.
+- **The Swagger `@ApiOkResponse` examples on this controller are misleading** — they show a
+  `{ message, data }` shape as if the whole thing is nested inside the envelope's `data`
+  (i.e. `response.data.data`). Checked every service method body: they all return the raw
+  Mongoose document directly (e.g. `create()` just returns
+  `this.propertyCategoryRepo.create(...)`), so the real wire shape is the same single-level
+  envelope as everywhere else in this app (`response.data` **is** the category, `message` at
+  the top level is just the generic `'Success'`, not the specific per-action text shown in
+  the docs).
+- **`iconName` is a separate concept from `iconUrl`, and it's required.** `iconUrl` is the
+  uploaded image URL (via the same `POST /files/upload` the properties feature already
+  uses). `iconName` is a short string that — per
+  `misra-api-nest/src/database/seeds/property-category.seeder.ts` — is, for every real
+  seeded category, a lowercase slug of the English name (`'City' → 'city'`, `'Beach' →
+  'beach'`). Nothing on the backend validates it beyond "non-empty string"; it's presumably
+  looked up as a static icon asset name by the mobile app, which this project has no
+  visibility into. It's a normal editable text input in `CategoriesModule.tsx`,
+  pre-filled live from `slugifyIconName(nameEn)` as a convenience default while creating a
+  category — `handleIconNameChange` marks it "touched" the moment the admin edits it
+  directly, which stops the auto-fill from overwriting whatever they typed; editing an
+  existing category marks it touched immediately too, so opening the edit form never
+  silently rewrites a category's existing iconName as you tweak its display name.
+  **Caveat**: a brand-new category type has
+  no guarantee the mobile app actually has an icon asset matching its auto-derived slug —
+  that's a mobile/design coordination question this dashboard can't resolve or enforce.
+- **Property-to-category assignment** (`ManageCategoryPropertiesModal.tsx`) uses
+  `POST`/`DELETE /property-categories/{id}/properties` (body `{ propertyIds: string[] }`,
+  `$addToSet`/`$pull` server-side — safe to call with an already-assigned/unassigned id).
+  There's no server-side "search properties not yet in category X" endpoint, so the modal
+  fetches one page of up to 200 properties via the existing `listAdminProperties()` and
+  filters client-side for both the assigned list and the add-search box — same
+  simplification `HostingModule` uses for its own fetch limit. Won't surface every property
+  on a catalog larger than that.
+- `isActive` has its own dedicated `PATCH /property-categories/{id}/toggle-active` (a flip,
+  not a settable value) — controls whether the category shows on the traveler home screen.
+  Wired to a toggle pill on each category card; inactive categories render at reduced
+  opacity in the admin grid so they're still visible/manageable.
+- `displayOrder` is required by the API but has no reordering UI in this pass — new
+  categories are auto-appended (`categories.length`), existing ones keep whatever order they
+  already have. Manual drag-to-reorder is a separate, not-yet-built feature.
+
+## Banners: how it actually works
+
+- **Entirely new backend module we added ourselves** — no `Banner` concept existed
+  anywhere in `misra-api-nest` before. Mirrors `PropertyCategoryController`'s shape and
+  conventions exactly (`src/modules/banner/`): localized `title: { en, ar }`, `imageUrl`,
+  `link`, `displayOrder`, `isActive`, soft delete via `deletedAt`, `auditPlugin` applied
+  (`entityType: 'Banner'`), `BannerRepository extends BaseRepository<BannerDocument>`.
+- Routes: `POST/GET /banners`, `GET/PATCH/DELETE /banners/{id}`, `PATCH
+  /banners/{id}/toggle-active` — same plain-JWT-guard-no-`/admin/`-prefix pattern as
+  categories (not a coincidence; matched on purpose for consistency). Public
+  `GET /banners/traveller/active` (`@Public()`) for whatever consumer surface eventually
+  needs it — nothing in this dashboard calls that route, it exists for parity with the
+  category module's traveler routes.
+- Requires a backend deploy before any of it works — this is a brand-new module, not an
+  addition to something already live.
+- `BannersModule.tsx` follows the exact same loading/error/save-state pattern as
+  `CategoriesModule.tsx` (Loader2 spinners, TriangleAlert error banners, disabled buttons +
+  inline spinners during in-flight actions). Image upload reuses `uploadFile()` from
+  `features/properties/api.ts` — no new upload code needed.
+
+## Elite Nodes (Elite Hosts): how it actually works
+
+- **No new backend concept** — "Elite Hosts" is the seeded HOST-type row in the existing,
+  already-live `home-page-listing` module (`misra-api-nest/src/modules/home-page-listing/`).
+  That module models generic "curated home-screen sections" via a `catalogueType: 'PROPERTY'
+  | 'HOST' | 'NONE'` field; this dashboard finds the section where `catalogueType === 'HOST'`
+  and treats its `hostIds` array as the elite-hosts roster. If that seeded section is ever
+  deleted, `EliteNodesModule.tsx` shows an explicit "no Elite Hosts section configured"
+  empty state rather than guessing or fabricating one.
+- **Three data sources are combined, on purpose, because none of them alone is enough:**
+  1. `GET /home-page-listings` (admin) — finds the HOST section and its raw, unpopulated
+     `hostIds`. This is the only source of truth for *which* hosts are in the section.
+  2. `GET /home-page-listings/traveller/all` (public, but called from the admin app
+     deliberately) — the only endpoint that resolves those `hostIds` into rich, computed
+     objects (`profileImage`, `totalProperties`, `avgRating`, `totalReviews`). **It silently
+     omits inactive/suspended hosts** — no flag, they're just absent from the array — so it
+     can't be the only source either.
+  3. `GET /admin/users?userType=consumer&limit=200` — the only source for `isActive` (the
+     public endpoint never exposes it at all) and `isSuperHost`, and backs the "add existing
+     host" search picker in `ManageEliteHostsModal.tsx`. Same `limit=200` client-side-filter
+     simplification as `ManageCategoryPropertiesModal.tsx` — doesn't scale past that many
+     users; revisit if the user base grows.
+  `EliteNodesModule.tsx`'s `buildEnrichedHosts()` merges all three: rich stats come from
+  the traveller/all lookup when present (`null` in the UI otherwise, shown as "—", never
+  fabricated), but `isActive`/`isSuperHost` **always** come from the admin/users lookup,
+  never from the public endpoint.
+- **Actions**: suspend/activate and Super Host toggle both call `PATCH
+  /admin/users/consumer/{id}` (`updateConsumerUser`) — the same endpoint Elite Nodes and any
+  future consumer-user-editing feature should reuse. Add/remove from the roster call `POST`/
+  `DELETE /home-page-listings/{id}/hosts` (body `{ hostIds: string[] }`).
+- **Backend change made for this**: `isSuperHost?: boolean` was added to
+  `CreateConsumerUserDto` (flows into `UpdateConsumerUserDto` via `PartialType`) — it wasn't
+  settable through any admin endpoint before. Purely additive; no existing behavior for
+  users who don't pass this field changes. Requires a backend deploy.
+- `App.tsx`'s mock `eliteHosts`/`setEliteHosts` state and the `INITIAL_ELITE_HOSTS`
+  import were removed — `<EliteNodesModule />` now takes no props, same as
+  Categories/Banners.
+
+## Reviews: how it actually works
+
+- **Consumer-facing review flow (create, list-by-property, host replies) already existed
+  and was left untouched** — `ReviewController`/`ReviewService` in
+  `misra-api-nest/src/modules/review/`. This dashboard does not call any of those consumer
+  routes.
+- **There was no admin-facing listing or moderation capability at all before this** — no
+  paginated "all reviews" endpoint, no hide/delete, no admin reply. Added:
+  - `deletedAt?: Date | null` on the `Review` schema (was previously entirely absent — this
+    schema had no soft-delete field, unlike most others in this backend) — additive, so every
+    existing review implicitly has `deletedAt: null` already.
+  - `auditPlugin(schema, { entityType: 'Review' })` applied (wasn't before) — review
+    hide/restore actions now show up in the Notifications/Activity Feed (see below).
+  - `AdminReviewController` (`src/modules/review/admin-review.controller.ts`), new file,
+    registered alongside the existing `ReviewController` in `review.module.ts`: `GET
+    /admin/reviews` (paginated, filters: `propertyId`, `hostId`, `rating`,
+    `status: all|visible|hidden`), `GET /admin/reviews/{id}`, `PATCH /admin/reviews/{id}/hide`,
+    `PATCH /admin/reviews/{id}/restore`. Same `AuthGuard('jwt') + PermissionsGuard` /
+    `Permission.ADMIN_READ` / `Permission.ADMIN_UPDATE` pattern as `AdminBookingController` —
+    there's no dedicated `Permission.REVIEW_*` value in the enum, so this reuses the generic
+    admin ones, matching that precedent.
+  - **"Hide" is a soft moderation action, never a hard delete** — sets `deletedAt`; consumer-
+    facing read paths (`getPropertyReviews`, `getAverageRating`,
+    `getAverageRatingsForProperties`, `getReviewsForHost`, `getHostRating`) were all updated
+    to filter `deletedAt: null`, so a hidden review disappears from public listings/averages
+    without the underlying document ever being destroyed. This is a real, live behavior
+    change to consumer-facing service methods — but purely additive in effect: since no
+    review had a `deletedAt` before this change, every existing review's visibility is
+    unaffected until an admin actually hides one.
+  - **Important shape lesson, corrected before it shipped**: the new admin service methods
+    initially wrapped their return values as `{ message, data }` (following the pattern used
+    by the *consumer* review methods, e.g. `getReviewsForHost`'s `ResponseDto`). That's wrong
+    for a controller mirroring `AdminBookingController` — its service methods
+    (`getAllBookingsForAdmin`, `getBookingByIdForAdmin`, etc.) return raw data directly, and
+    the global `TransformResponseInterceptor` only wraps a response **once**
+    (`transform-response.interceptor.ts`: if the value doesn't already have `success` on it,
+    it wraps it — it does not detect/hoist an inner `{message, data}` shape). Wrapping twice
+    would have made the real wire shape `response.data.data` be `{ message, data:
+    paginatedThing }` instead of the flat `{ data, currentPage, totalCount, totalPages }` the
+    frontend types assume. Fixed by returning the `PaginatedDataDto`/document directly from
+    all four new admin methods, matching `AdminBookingController`'s convention exactly. **If
+    you add another admin controller later, check which convention its sibling actually
+    uses (raw return vs. `ResponseDto`-wrapped) — don't assume by copying the nearest example
+    file without checking its own consumer-vs-admin controller has the same wrapping.**
+  - `GET /admin/reviews/{id}`'s response reshapes the populated `userId`/`propertyId` fields
+    to `user`/`property` (to match the list endpoint's projection) — the frontend's
+    `AdminReviewDetail` type expects `user`/`property`, not `userId`/`propertyId`.
+  - Requires a backend deploy before any admin review moderation works.
+- `ReviewsView.tsx` is fully wired: status filter tabs (All/Visible/Hidden), pagination,
+  hide/restore action per card. No tags/helpful-count UI carried over from the old mock —
+  those weren't backed by any real field. The "Total Platform Score" stat card was replaced
+  with an honest "Moderation Overview" (total + hidden counts) rather than a fabricated
+  average — there's no single bulk "average rating across all properties" endpoint to back a
+  real platform-wide score.
+
+## Notifications: how it actually works
+
+- **No backend change at all** — this backend has no per-admin notification concept, but
+  the audit log module (`misra-api-nest/src/modules/audit-log/`, `AuditLogController` at
+  `/admin/audit-logs`) already records every create/update/delete across nearly all schemas
+  (Booking, PropertyCategory, User, Banner, Review as of this pass, HomePageListing,
+  Setting, SupportHelp, HostingGuide — anywhere `auditPlugin` is applied) and was already
+  live before this project touched anything. `NotificationsView.tsx` repurposes it as the
+  admin "Activity Feed."
+- Response shape confirmed from `AuditLogService.findAll()`: flat `{ data, total, page,
+  limit, totalPages }` — same convention as `adminUsers`, a third distinct pagination shape
+  from bookings' and properties/categories' (see `features/auditLogs/types.ts` for the full
+  callout).
+- There's no read/unread field on an audit log entry — the old mock UI's "unread" dot was
+  fabricated. Replaced with an honest "changed within the last 24h" recency highlight
+  instead of pretending to track read state that doesn't exist server-side.
+- Filters: action tabs (All/Created/Updated/Deleted map to the `action` query param) plus
+  pagination. No `entityType` filter dropdown in this pass — everything is one combined
+  feed; add one later if the volume warrants it.
 
 ## Error handling
 
@@ -351,18 +557,17 @@ exact misconfiguration produced zero diagnostic output in the actual broken depl
 
 ## Known Gaps / TODO
 
-- **The staging deploy is still blocked after the CI env-var fix, by a separate issue:**
-  the `x-api-key`'s origin allowlist (`ApiKeyGuard` in the backend, `authorizedOrigins` on
-  the `ApiKey` Mongo document) does not include `https://misrah-staging.mvp-apps.ae` —
-  confirmed live (`401 "Request origin is not authorized"` even with a valid key). That
-  allowlist is only populated once, at key-creation time, from `WEB_AUTHORIZED_ORIGINS`
-  (`misra-api-nest/src/database/seeds/api-key.seeder.ts`) — the key already in use was
-  seeded before this origin existed, so updating the env var and reseeding won't
-  retroactively fix it, and the seeder's `reseed()` deletes ALL existing keys (would break
-  every other environment currently using this key, including local dev). This needs a
-  targeted database update (conceptually: add the origin to that one document's
-  `authorizedOrigins` array) by whoever has DB access — not something to script/run
-  against a live database without deliberately deciding to.
+- **RESOLVED**: the staging deploy was blocked by the `x-api-key`'s origin allowlist
+  (`ApiKeyGuard` in the backend, `authorizedOrigins` on the `ApiKey` Mongo document) not
+  including `https://misrah-staging.mvp-apps.ae` (`401 "Request origin is not
+  authorized"` even with a valid key). That allowlist is only populated once, at
+  key-creation time, from `WEB_AUTHORIZED_ORIGINS`
+  (`misra-api-nest/src/database/seeds/api-key.seeder.ts`) — updating the env var and
+  reseeding would NOT have retroactively fixed the already-existing key, and the seeder's
+  `reseed()` deletes ALL existing keys (would've broken every other environment using it,
+  including local dev). Fixed with a single targeted `$addToSet` on that one document's
+  `authorizedOrigins` array — if this happens again for a new environment/domain, that's
+  the fix, not a reseed.
 - **`/admin/auth/login` and `/admin/auth/autologin`'s inner response shapes are
   CONFIRMED** (both `{ access_token, refresh_token, user: { id, email, userType,
   userMode?, notificationSettings? } }` — note the key is `user`, not `admin`, and there's
@@ -400,17 +605,44 @@ exact misconfiguration produced zero diagnostic output in the actual broken depl
   read that it's a platform identifier, not a secret, based on the OpenAPI description
   text. If the backend team says otherwise, this needs a proxy/BFF — don't just leave it
   in the client bundle.
+- **Category `iconName` auto-derivation is a convention match, not an enforced contract.**
+  See "Categories" above — a new category's icon may not actually render on mobile if its
+  slug doesn't match a bundled icon asset there. No way to verify this from the admin
+  dashboard or backend alone.
+- **Category-to-property assignment doesn't scale past ~200 properties** — the "add
+  properties" search in `ManageCategoryPropertiesModal.tsx` fetches one page client-side
+  rather than querying the server per-keystroke. Fine for now; revisit if the property
+  catalog grows.
+- **No category reordering UI.** `displayOrder` is required by the API; new categories are
+  auto-appended, existing order is otherwise untouched. Drag-to-reorder is unbuilt.
+- **Banners, Elite Nodes' `isSuperHost` DTO change, and Reviews' admin moderation endpoints
+  all need a backend deploy before they'll work.** Banners and admin review moderation are
+  brand-new backend surface (404 until deployed); Elite Nodes' suspend/Super-Host toggles
+  will 400/silently no-op on `isSuperHost` until the DTO change ships. Notifications needed
+  no backend change and works against whatever's already deployed.
+- **Earnings is intentionally not built.** Placed on hold at the user's explicit request,
+  pending answers from their team on breakdown granularity, time range, currency, platform
+  commission handling, and historical data availability — do not build until those come
+  back. `EarningsView.tsx` is still the original hardcoded mock.
+- **Elite Nodes' `admin/users?limit=200` fetch doesn't scale** — same caveat as
+  category-to-property assignment. The "add existing host" picker in
+  `ManageEliteHostsModal.tsx` won't surface every host-eligible user past that many
+  consumer accounts.
+- **Reviews has no bulk "average rating across the whole platform" endpoint.** The
+  Moderation Overview stat card in `ReviewsView.tsx` shows total/hidden counts, not a
+  platform-wide average score, because no endpoint computes one in one call (per-property
+  and per-host averages exist, a global one doesn't).
 
 ## Future: data fetching beyond auth
 
 Auth uses plain `useState`/`useEffect` in a Context because it's global session state
-with imperative actions (login/logout), not a typical "fetch and cache" concern. Bookings
-and Properties both use plain `useState`/`useEffect` inside each view itself, since it's
+with imperative actions (login/logout), not a typical "fetch and cache" concern. Every
+other integrated screen (Bookings, Properties, Categories, Banners, Elite Nodes, Reviews,
+Notifications) uses plain `useState`/`useEffect` inside the view/module itself, since it's
 just "fetch a page of data for this screen" — each view fetches independently with no
 shared cache, so e.g. approving a property in the Hosting queue doesn't live-update an
-already-mounted Listings view (it refetches on its own next mount/filter change). For more
-screens like this (reviews — still hardcoded mock data in `src/constants.ts`), consider
-introducing a proper data-fetching library (e.g. TanStack Query) on top of the same
-`apiClient` rather than hand-rolling loading/error/refetch state per view — but that's a
-deliberate addition to discuss, not something to bring in silently as a side effect of one
-feature.
+already-mounted Listings view (it refetches on its own next mount/filter change). As more
+screens accumulate this same hand-rolled loading/error/refetch pattern, consider introducing
+a proper data-fetching library (e.g. TanStack Query) on top of the same `apiClient` — but
+that's a deliberate addition to discuss, not something to bring in silently as a side effect
+of one feature. Only `EarningsView` remains fully mock (on hold, see "Known Gaps").

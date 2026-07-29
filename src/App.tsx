@@ -23,18 +23,11 @@ import {
 } from 'lucide-react';
 
 // Types
-import { Banner, Category, EliteHost, User as UserType } from './types';
+import { User as UserType } from './types';
 import type { AdminUser } from './features/auth/types';
 
 // Auth
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
-
-// Constants & Mock Data
-import {
-  INITIAL_BANNERS,
-  INITIAL_CATEGORIES,
-  INITIAL_ELITE_HOSTS
-} from './constants';
 
 // UI Components
 import { SidebarItem } from './components/ui/SidebarItem';
@@ -389,11 +382,6 @@ const BootstrappingScreen = () => (
 function AppRoutes() {
   const { status, user, logout } = useAuth();
 
-  // App State
-  const [banners, setBanners] = useState<Banner[]>(INITIAL_BANNERS);
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [eliteHosts, setEliteHosts] = useState<EliteHost[]>(INITIAL_ELITE_HOSTS);
-
   if (status === 'bootstrapping') {
     return <BootstrappingScreen />;
   }
@@ -423,11 +411,11 @@ function AppRoutes() {
         <Route path="bookings" element={<BookingsView user={currentUser!} />} />
         <Route path="listings" element={<PropertiesView user={currentUser!} />} />
         <Route path="listings/:id" element={<PropertyDetailRoute user={currentUser!} />} />
-        <Route path="admin/categories" element={<CategoriesModule categories={categories} setCategories={setCategories} />} />
-        <Route path="admin/banners" element={<BannersModule banners={banners} setBanners={setBanners} />} />
+        <Route path="admin/categories" element={<CategoriesModule />} />
+        <Route path="admin/banners" element={<BannersModule />} />
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
-        <Route path="admin/elite-nodes" element={<EliteNodesModule eliteHosts={eliteHosts} setEliteHosts={setEliteHosts} />} />
+        <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />

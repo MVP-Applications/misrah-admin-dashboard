@@ -41,6 +41,63 @@ export const API_ENDPOINTS = {
     adminApprove: (id: string) => `/admin/properties/${id}/approve`,
     adminReject: (id: string) => `/admin/properties/${id}/reject`,
   },
+  categories: {
+    // No /admin/ prefix — unlike bookings/properties, "admin" here just means
+    // the plain JWT-guarded base routes on PropertyCategoryController, as
+    // opposed to its separate @Public() traveller/* routes on the same
+    // controller. Confirmed from the guard placement in source, not guessed
+    // from naming. All confirmed already live (not added by this project).
+    adminAll: '/property-categories',
+    adminById: (id: string) => `/property-categories/${id}`,
+    adminToggleActive: (id: string) => `/property-categories/${id}/toggle-active`,
+    adminProperties: (id: string) => `/property-categories/${id}/properties`,
+  },
+  // Brand-new backend module we added ourselves (misra-api-nest/src/modules/banner)
+  // — no Banner concept existed anywhere before. Mirrors PropertyCategoryController's
+  // structure exactly. See API_INTEGRATION.md → "Banners".
+  banners: {
+    adminAll: '/banners',
+    adminById: (id: string) => `/banners/${id}`,
+    adminToggleActive: (id: string) => `/banners/${id}/toggle-active`,
+  },
+  // Same guard pattern as categories — plain JWT-guarded base routes for admin,
+  // separate @Public() traveller/* routes on the same controller. Confirmed
+  // already live (not added by this project).
+  homePageListings: {
+    adminAll: '/home-page-listings',
+    adminById: (id: string) => `/home-page-listings/${id}`,
+    adminHosts: (id: string) => `/home-page-listings/${id}/hosts`,
+    // Public, but used from the admin app too — it's the only endpoint that
+    // returns HOST-type sections with fully populated, computed host stats
+    // (totalProperties, avgRating, totalReviews). The admin GET routes above
+    // only return raw hostIds. See API_INTEGRATION.md → "Elite Nodes".
+    travellerAll: '/home-page-listings/traveller/all',
+  },
+  adminUsers: {
+    all: '/admin/users',
+    byId: (id: string) => `/admin/users/${id}`,
+    updateConsumer: (id: string) => `/admin/users/consumer/${id}`,
+  },
+  // Added to the backend ourselves (misra-api-nest/src/modules/review) — no
+  // admin-facing listing/moderation endpoints existed before, only consumer
+  // routes on ReviewController. Moderation is soft (deletedAt), mirroring the
+  // rest of this backend's soft-delete convention. See API_INTEGRATION.md →
+  // "Reviews". Requires this backend change to be deployed before it works.
+  reviews: {
+    adminAll: '/admin/reviews',
+    adminById: (id: string) => `/admin/reviews/${id}`,
+    adminHide: (id: string) => `/admin/reviews/${id}/hide`,
+    adminRestore: (id: string) => `/admin/reviews/${id}/restore`,
+  },
+  // Already live — no backend change needed. Backs the Notifications/Activity
+  // Feed view: this backend has no real per-user notification concept, but
+  // the audit log module already records every create/update/delete across
+  // most schemas (Booking, PropertyCategory, User, Banner, Review, ...), so
+  // it's repurposed as the admin "activity feed". See API_INTEGRATION.md →
+  // "Notifications".
+  auditLogs: {
+    all: '/admin/audit-logs',
+  },
   files: {
     upload: '/files/upload',
     uploadMultiple: '/files/upload-multiple',

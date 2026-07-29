@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   format,
-  parseISO,
   startOfMonth,
   endOfMonth,
   startOfWeek,
@@ -32,58 +31,14 @@ import {
 import { Badge } from '../ui/Badge';
 import { User, Booking } from '../../types';
 import { listBookings, getBookingById, cancelBooking, rescheduleBooking } from '../../features/bookings/api';
-import type { BookingListItem, BookingDetail } from '../../features/bookings/types';
+import { toLegacyBooking, formatBookingDate } from '../../features/bookings/mappers';
+import type { BookingDetail } from '../../features/bookings/types';
 
 interface BookingsViewProps {
   user: User;
 }
 
 const PAGE_SIZE = 10;
-
-// Mirrors the backend's own status derivation (applyBookingStatusFilter in
-// misra-api-nest/src/modules/booking/booking.service.ts) rather than
-// inventing new logic: 'ongoing' there means confirmed + checkInDate <= today
-// <= checkOutDate, which is exactly what "Hosting" means in this UI.
-function deriveDisplayStatus(status: string, checkInDate: string, checkOutDate: string): Booking['status'] {
-  if (status === 'cancelled') return 'Cancelled';
-  if (status === 'completed') return 'Past';
-  if (status === 'confirmed') {
-    const now = new Date();
-    const checkIn = new Date(checkInDate);
-    const checkOut = new Date(checkOutDate);
-    if (checkIn <= now && now <= checkOut) return 'Hosting';
-    return 'Confirmed';
-  }
-  return 'Pending';
-}
-
-function formatDate(iso: string): string {
-  try {
-    return format(parseISO(iso), 'MMM d, yyyy');
-  } catch {
-    return iso;
-  }
-}
-
-// Adapts the real API shape into the legacy Booking shape the list table
-// already expects — same pattern as App.tsx's toLegacyUser. traveler has no
-// avatar/profileImage field on the list endpoint (confirmed from the
-// backend's populate `.select('name email phoneNumber')`), so a placeholder
-// avatar is used there; the detail endpoint DOES resolve a real one (see
-// toDetailAvatar below).
-function toLegacyBooking(item: BookingListItem): Booking {
-  return {
-    id: item._id,
-    guestName: item.traveler?.name ?? 'Guest',
-    guestAvatar: `https://i.pravatar.cc/150?u=${item.traveler?._id ?? item._id}`,
-    propertyName: item.propertySnapshot?.title ?? 'Property',
-    checkIn: formatDate(item.checkInDate),
-    checkOut: formatDate(item.checkOutDate),
-    guests: (item.guests?.adults ?? 0) + (item.guests?.children ?? 0),
-    total: item.pricing?.totalPayable ?? 0,
-    status: deriveDisplayStatus(item.status, item.checkInDate, item.checkOutDate),
-  };
-}
 
 const STATUS_BADGE_VARIANT: Record<Booking['status'], string> = {
   Hosting: 'green',
@@ -469,7 +424,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                   </div>
                   <div className="space-y-0.5">
                     <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Dates</p>
-                    <p className="text-lg font-black text-primary italic uppercase tracking-tight">{formatDate(bookingDetail.checkInDate)} - {formatDate(bookingDetail.checkOutDate)}</p>
+                    <p className="text-lg font-black text-primary italic uppercase tracking-tight">{formatBookingDate(bookingDetail.checkInDate)} - {formatBookingDate(bookingDetail.checkOutDate)}</p>
                   </div>
                 </div>
 

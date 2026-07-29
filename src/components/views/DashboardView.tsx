@@ -5,9 +5,10 @@ import { format } from 'date-fns';
 import { Banknote, Home, ArrowUpRight, ShieldCheck, Star, MessageSquare, Calendar } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
-import { User } from '../../types';
-import { BOOKINGS } from '../../constants';
+import { User, Booking } from '../../types';
 import { listAdminProperties } from '../../features/properties/api';
+import { listBookings } from '../../features/bookings/api';
+import { toLegacyBooking } from '../../features/bookings/mappers';
 
 interface DashboardViewProps {
   user: User;
@@ -17,10 +18,12 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
   const navigate = useNavigate();
   const [pendingCount, setPendingCount] = useState(0);
   const [approvedCount, setApprovedCount] = useState(0);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   useEffect(() => {
     listAdminProperties({ status: 'pending', limit: 1 }).then(r => setPendingCount(r.meta.total));
     listAdminProperties({ status: 'approved', limit: 1 }).then(r => setApprovedCount(r.meta.total));
+    listBookings({ page: 1, limit: 4 }).then(r => setRecentBookings(r.data.map(toLegacyBooking)));
   }, []);
 
   return (
@@ -259,24 +262,28 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
             </button>
           </div>
           <div className="divide-y divide-border-misrah/50">
-            {BOOKINGS.slice(0, 4).map(booking => (
-              <div key={booking.id} className="flex items-center gap-5 p-6 hover:bg-surface/50 transition-colors cursor-pointer group/item">
-                <div className="relative">
-                  <img src={booking.guestAvatar} alt={booking.guestName} className="w-12 h-12 rounded-2xl object-cover shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all" />
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success rounded-full border-2 border-white" />
+            {recentBookings.length === 0 ? (
+              <p className="p-8 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">No recent bookings</p>
+            ) : (
+              recentBookings.map(booking => (
+                <div key={booking.id} className="flex items-center gap-5 p-6 hover:bg-surface/50 transition-colors cursor-pointer group/item">
+                  <div className="relative">
+                    <img src={booking.guestAvatar} alt={booking.guestName} className="w-12 h-12 rounded-2xl object-cover shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all" />
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success rounded-full border-2 border-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black text-primary uppercase tracking-tight">{booking.guestName}</p>
+                    <p className="text-[10px] font-bold text-muted-text truncate uppercase tracking-widest mt-0.5">{booking.propertyName}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[11px] font-black text-primary mb-2 italic">AED {booking.total.toLocaleString()}</p>
+                    <Badge variant={booking.status === 'Hosting' ? 'green' : booking.status === 'Arriving Soon' ? 'gold' : 'blue'}>
+                      {booking.status}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-black text-primary uppercase tracking-tight">{booking.guestName}</p>
-                  <p className="text-[10px] font-bold text-muted-text truncate uppercase tracking-widest mt-0.5">{booking.propertyName}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[11px] font-black text-primary mb-2 italic">AED {booking.total.toLocaleString()}</p>
-                  <Badge variant={booking.status === 'Hosting' ? 'green' : booking.status === 'Arriving Soon' ? 'gold' : 'blue'}>
-                    {booking.status}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
