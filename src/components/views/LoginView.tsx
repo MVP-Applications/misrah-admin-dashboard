@@ -1,22 +1,91 @@
 import React, { useState } from 'react';
-import { Shield, ArrowRight, Loader2, Code2 } from 'lucide-react';
+import {
+  Shield,
+  Home,
+  UserCheck,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Code2,
+  Smartphone,
+} from 'lucide-react';
 import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
+import { UserRole } from '../../types';
 
 export const LoginView = () => {
-  const { login, loginWithMock } = useAuth();
-  const [email, setEmail] = useState('');
+  const { login, loginWithMock, loginAsHostPreview } = useAuth();
+
+  // Which portal the person is signing into. The API has no host-specific
+  // login path, so this is passed through to AuthContext purely to pick
+  // which (already-built) admin vs. host UI renders post-login.
+  const [selectedRole, setSelectedRole] = useState<UserRole>('admin');
+
+  // Single unified field for Email OR Phone Number (no tabs!)
+  const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [showForgotNote, setShowForgotNote] = useState(false);
+
+  // Optional OTP flow if user prefers SMS code — UI only, the API has no
+  // SMS-auth endpoint yet, so this never actually signs anyone in.
+  const [useOtp, setUseOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSendOtp = () => {
+    if (!emailOrPhone.trim()) {
+      setError('Please enter your phone number or email first');
+      return;
+    }
+    setError(null);
+    setOtpSent(true);
+    setOtpCode('4829');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const inputVal = emailOrPhone.trim();
+    if (!inputVal) {
+      setError('Please enter your email address or phone number');
+      return;
+    }
+
+    if (useOtp) {
+      // UI only — no SMS-auth endpoint on the API yet.
+      setError('SMS sign-in is coming soon — please use your password for now.');
+      return;
+    }
+
+    if (!password.trim()) {
+      setError('Please enter your password');
+      return;
+    }
+
+    if (selectedRole !== 'admin') {
+      // Host Hub has no backend yet — this is a UI-only preview, so skip the
+      // real admin login call entirely and sign straight into the host view.
+      setIsSubmitting(true);
+      setTimeout(() => {
+        loginAsHostPreview(inputVal);
+        setIsSubmitting(false);
+      }, 350);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await login(email, password);
+      await login(inputVal, password);
     } catch (err) {
       const message = err && typeof err === 'object' && 'message' in err
         ? String((err as { message: unknown }).message)
@@ -28,104 +97,258 @@ export const LoginView = () => {
   };
 
   return (
-    <div className="min-h-screen bg-primary flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-accent/5 rounded-full blur-[120px] -translate-y-1/2 translate-x-1/2" />
-      <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-accent/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2" />
+    <div className="min-h-screen bg-primary flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
+      {/* Background Ambience */}
+      <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-accent/10 rounded-full blur-[160px] -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-[650px] h-[650px] bg-accent/10 rounded-full blur-[140px] translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 
-      <div className="w-full max-w-sm relative z-10 text-center">
-        <div className="flex flex-col items-center mb-12">
-           <div className="w-20 h-20 bg-accent flex items-center justify-center rounded-[32px] shadow-2xl shadow-accent/20 mb-8">
-             <Shield size={40} className="text-primary" />
-           </div>
-           <h1 className="text-4xl font-black italic text-white uppercase tracking-tighter leading-none mb-2">Misrah Elite</h1>
-           <p className="text-[10px] font-black text-accent uppercase tracking-[4px] opacity-80">Strategic Hospitality Management</p>
+      <div className="w-full max-w-lg relative z-10 my-4 space-y-6">
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-accent rounded-3xl shadow-2xl shadow-accent/25 ring-8 ring-white/5 mb-2">
+            <Shield size={32} className="text-primary" />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black italic text-white uppercase tracking-tighter leading-none">
+            Misrah Elite
+          </h1>
+          <p className="text-[10px] font-black text-accent uppercase tracking-[3px] opacity-90">
+            Unified Hospitality Management Portal
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white/5 backdrop-blur-xl border border-white/10 p-10 rounded-[48px] shadow-2xl space-y-8 text-left">
-           <div className="space-y-4">
-             <div className="space-y-2">
-               <label htmlFor="email" className="text-[10px] font-black text-white/40 uppercase tracking-[2px]">Email</label>
-               <input
-                 id="email"
-                 type="email"
-                 autoComplete="email"
-                 required
-                 value={email}
-                 onChange={(e) => setEmail(e.target.value)}
-                 disabled={isSubmitting}
-                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white font-bold focus:outline-none focus:border-accent transition-all disabled:opacity-50"
-                 placeholder="admin@misrah.ae"
-               />
-             </div>
-             <div className="space-y-2">
-               <label htmlFor="password" className="text-[10px] font-black text-white/40 uppercase tracking-[2px]">Password</label>
-               <input
-                 id="password"
-                 type="password"
-                 autoComplete="current-password"
-                 required
-                 value={password}
-                 onChange={(e) => setPassword(e.target.value)}
-                 disabled={isSubmitting}
-                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white font-bold focus:outline-none focus:border-accent transition-all disabled:opacity-50"
-                 placeholder="••••••••"
-               />
-             </div>
-           </div>
+        {/* Main Authentication Card */}
+        <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[36px] p-6 sm:p-8 shadow-2xl space-y-6">
+          {/* Portal Selector: Admin HQ signs in through the real admin API; Host Hub has no backend yet, so it's a UI-only preview (see loginAsHostPreview) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-white/50 px-1">
+              <span>Select Destination Portal</span>
+              <span className="text-accent text-[9px]">Admin or Host</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {/* Admin Portal */}
+              <button
+                type="button"
+                onClick={() => setSelectedRole('admin')}
+                className={`p-3.5 rounded-2xl border text-left transition-all relative ${
+                  selectedRole === 'admin'
+                    ? 'bg-accent/15 border-accent text-white shadow-md'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
+                }`}
+              >
+                {selectedRole === 'admin' && (
+                  <CheckCircle2 size={14} className="absolute top-3 right-3 text-accent stroke-[3]" />
+                )}
+                <div className="flex items-center gap-2 mb-1">
+                  <Shield size={16} className={selectedRole === 'admin' ? 'text-accent' : 'text-white/40'} />
+                  <span className="text-xs font-black uppercase tracking-tight text-white">Admin HQ</span>
+                </div>
+                <p className="text-[9px] text-white/50 line-clamp-1">Regional HQ & System Ops</p>
+              </button>
 
-           {error && (
-             <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest text-center leading-relaxed">
-               {error}
-             </p>
-           )}
+              {/* Host Portal */}
+              <button
+                type="button"
+                onClick={() => setSelectedRole('manager')}
+                className={`p-3.5 rounded-2xl border text-left transition-all relative ${
+                  selectedRole === 'manager'
+                    ? 'bg-accent/15 border-accent text-white shadow-md'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
+                }`}
+              >
+                {selectedRole === 'manager' && (
+                  <CheckCircle2 size={14} className="absolute top-3 right-3 text-accent stroke-[3]" />
+                )}
+                <div className="flex items-center gap-2 mb-1">
+                  <Home size={16} className={selectedRole === 'manager' ? 'text-accent' : 'text-white/40'} />
+                  <span className="text-xs font-black uppercase tracking-tight text-white">Host Hub</span>
+                </div>
+                <p className="text-[9px] text-white/50 line-clamp-1">Properties & Experiences</p>
+              </button>
+            </div>
+          </div>
 
-           <div className="space-y-4">
-             <button
-               type="submit"
-               disabled={isSubmitting}
-               className="w-full bg-accent text-primary py-5 rounded-[28px] text-[10px] font-black uppercase tracking-[3px] shadow-2xl shadow-accent/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:hover:scale-100"
-             >
-               {isSubmitting ? (
-                 <>
-                   <Loader2 size={16} className="animate-spin" />
-                   Authenticating
-                 </>
-               ) : (
-                 <>
-                   Initialize Interface
-                   <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                 </>
-               )}
-             </button>
+          {/* Error Message banner */}
+          {error && (
+            <div className="p-3 rounded-2xl bg-danger/10 border border-danger/30 text-danger text-xs flex items-center gap-2 font-bold animate-shake">
+              <AlertCircle size={15} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-             {/* TODO: forgot/reset password flow is not implemented yet (deferred). */}
-             <button
-               type="button"
-               onClick={() => setShowForgotNote(true)}
-               className="w-full text-center text-[9px] font-bold text-white/30 hover:text-white/50 uppercase tracking-[2px] transition-colors"
-             >
-               Forgot password?
-             </button>
-             {showForgotNote && (
-               <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest text-center leading-relaxed">
-                 Coming soon — contact your administrator in the meantime.
-               </p>
-             )}
-           </div>
-        </form>
+          <form onSubmit= {handleSubmit} className="space-y-4">
+            {/* Single Unified Identifier Field */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-white/60 block px-1">
+                Email or Phone Number
+              </label>
+              <div className="relative">
+                <UserCheck size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                <input
+                  type="text"
+                  required
+                  placeholder="name@misrah.ae or +971 50 123 4567"
+                  value={emailOrPhone}
+                  onChange={(e) => setEmailOrPhone(e.target.value)}
+                  disabled={isSubmitting}
+                  className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/15 rounded-2xl text-xs font-medium text-white placeholder:text-white/30 outline-none focus:border-accent focus:bg-white/10 transition-colors disabled:opacity-50"
+                />
+              </div>
+            </div>
 
-        {isLocalhost() && (
-          <button
-            type="button"
-            onClick={loginWithMock}
-            className="mt-6 w-full flex items-center justify-center gap-2 text-[9px] font-black text-white/50 hover:text-white/80 uppercase tracking-[2px] border border-dashed border-white/20 rounded-2xl py-3 transition-colors"
-          >
-            <Code2 size={12} />
-            Dev: skip login (localhost only)
-          </button>
-        )}
+            {/* Password OR SMS Verification */}
+            {!useOtp ? (
+              <div className="space-y-1.5">
+                <label htmlFor="password" className="text-[10px] font-black uppercase tracking-wider text-white/60 block px-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required={!useOtp}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isSubmitting}
+                    className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/15 rounded-2xl text-xs font-medium text-white placeholder:text-white/30 outline-none focus:border-accent focus:bg-white/10 transition-colors disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* SMS Verification Code Field (UI only — no SMS-auth endpoint yet) */
+              <div className="space-y-2 p-3.5 bg-white/5 border border-white/10 rounded-2xl">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-white/70 flex items-center gap-1.5">
+                    <Smartphone size={13} className="text-accent" />
+                    <span>SMS Verification Code</span>
+                  </span>
+                  {!otpSent ? (
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      className="text-[10px] font-black uppercase tracking-wider text-accent hover:underline"
+                    >
+                      Send Code
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-accent font-bold">
+                      Code Sent ({otpCode})
+                    </span>
+                  )}
+                </div>
 
-        <p className="mt-12 text-[9px] font-bold text-white/30 uppercase tracking-[2px]">Secure encrypted connection active · Production protocol v2.4</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="e.g. 4829"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    className="flex-1 py-2.5 px-4 bg-white/10 border border-white/20 rounded-xl text-center text-sm font-black tracking-widest text-white outline-none focus:border-accent"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOtpCode('4829')}
+                    className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-accent/25 transition-colors"
+                  >
+                    Fill (4829)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Toggle Between Password & SMS OTP Mode */}
+            <div className="flex items-center justify-between text-[11px] px-1 pt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setUseOtp(!useOtp);
+                  setError(null);
+                }}
+                className="text-white/60 hover:text-accent font-bold transition-colors"
+              >
+                {useOtp ? '← Switch to Password Login' : 'Sign in with SMS Code instead'}
+              </button>
+
+              {!useOtp && (
+                <button
+                  type="button"
+                  onClick={() => setShowForgotNote(true)}
+                  className="text-accent hover:underline font-bold"
+                >
+                  Forgot Password?
+                </button>
+              )}
+            </div>
+            {showForgotNote && (
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest text-center leading-relaxed px-1">
+                Coming soon — contact your administrator in the meantime.
+              </p>
+            )}
+
+            {/* Remember Me */}
+            <div className="pt-1 px-1">
+              <label className="flex items-center gap-2 cursor-pointer text-white/70 hover:text-white text-[11px] select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="rounded accent-accent w-3.5 h-3.5"
+                />
+                <span>Remember this device</span>
+              </label>
+            </div>
+
+            {/* Sign In Button */}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-accent text-primary py-4 px-6 rounded-2xl text-xs font-black uppercase tracking-[2px] shadow-xl shadow-accent/25 hover:scale-[1.01] active:scale-98 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 mt-4 group"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Authenticating</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign In as {selectedRole === 'admin' ? 'Admin HQ' : 'Host Hub'}</span>
+                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {isLocalhost() && (
+            <button
+              type="button"
+              onClick={() => selectedRole === 'admin' ? loginWithMock() : loginAsHostPreview(emailOrPhone.trim() || 'host-preview@misrah.ae')}
+              className="w-full flex items-center justify-center gap-2 text-[9px] font-black text-white/50 hover:text-white/80 uppercase tracking-[2px] border border-dashed border-white/20 rounded-2xl py-3 transition-colors"
+            >
+              <Code2 size={12} />
+              Dev: skip login (localhost only)
+            </button>
+          )}
+        </div>
+
+        {/* Security Footer */}
+        <div className="text-center space-y-1">
+          <p className="text-[9px] font-bold text-white/30 uppercase tracking-[2px]">
+            Misrah Protocol · Encrypted Gateway · UAE & GCC
+          </p>
+          <p className="text-[9px] text-white/20 uppercase tracking-[2px]">
+            Secure encrypted connection active · Production protocol v2.4
+          </p>
+        </div>
       </div>
     </div>
   );

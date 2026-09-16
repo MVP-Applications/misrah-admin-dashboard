@@ -96,7 +96,24 @@ export async function uploadFile(file: File): Promise<UploadedFileResult> {
 
 // GET /city/active/list — used to populate a real city picker instead of a
 // hardcoded city-name list.
+//
+// Unlike the other calls in this file, this one used to skip response-shape
+// validation and just return `data.data` as-is. When that came back
+// malformed (e.g. HTML from a misconfigured API base URL instead of JSON),
+// `data.data` silently evaluated to `undefined`, which flowed straight into
+// PropertiesView's `setCities(undefined)` and crashed the whole route on the
+// next render (`cities.map` on undefined) — a blank white page with no
+// visible error. assertResponseShape here makes a bad response throw
+// (logged, caught by the caller's `.then`/no `.catch` so it never touches
+// state) instead of silently corrupting `cities`.
 export async function listActiveCities(): Promise<CityListItem[]> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<CityListItem[]>>(API_ENDPOINTS.cities.activeList);
-  return data.data;
+  const payload = assertResponseShape<{ data: CityListItem[] }>('list active cities', data, ['data']);
+  if (!Array.isArray(payload.data)) {
+    throw new Error(
+      "The server's list active cities response doesn't match what this app expects (data is not an array). " +
+        'This is a known integration gap — see the browser console and API_INTEGRATION.md.',
+    );
+  }
+  return payload.data;
 }
