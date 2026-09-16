@@ -17,14 +17,19 @@ import {
   Search,
   Bell,
   Sparkles,
+  Compass,
   X,
   TrendingUp,
   ArrowUpRight
 } from 'lucide-react';
 
 // Types
-import { User as UserType } from './types';
+import { User as UserType, Property, Booking } from './types';
 import type { AdminUser } from './features/auth/types';
+
+// Experiences mock data (standalone — ported from misrah-retreats-admin,
+// no backend endpoints exist for this feature yet)
+import { INITIAL_EXPERIENCE_PROPERTIES } from './data/experienceProperties';
 
 // Auth
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
@@ -40,6 +45,8 @@ import { PropertyDetailRoute } from './components/views/Properties/PropertyDetai
 import { EarningsView } from './components/views/EarningsView';
 import { MessagesView } from './components/views/MessagesView';
 import { ReviewsView } from './components/views/ReviewsView';
+import { ExperiencesView } from './components/views/ExperiencesView';
+import { ExploreExperiencesView } from './components/views/ExploreExperiencesView';
 import { ProfileView } from './components/views/ProfileView';
 import { NotificationsView } from './components/views/NotificationsView';
 import { SettingsView } from './components/views/SettingsView';
@@ -59,6 +66,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/admin/banners': 'banners',
   '/admin/hosting': 'hosting',
   '/admin/elite-nodes': 'elite nodes',
+  '/experiences': 'experiences',
+  '/explore-experiences': 'guest explore',
   '/reviews': 'reviews',
   '/earnings': 'earnings',
   '/profile': 'profile',
@@ -138,6 +147,8 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={Layout} label="Categories" active={location.pathname === '/admin/categories'} onClick={() => navigate('/admin/categories')} />
                 <SidebarItem icon={ImageIcon} label="Banners" active={location.pathname === '/admin/banners'} onClick={() => navigate('/admin/banners')} />
                 <SidebarItem icon={Users} label="Elite Nodes" active={location.pathname === '/admin/elite-nodes'} onClick={() => navigate('/admin/elite-nodes')} />
+                <SidebarItem icon={Sparkles} label="Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
+                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
               </section>
 
               <section className="space-y-1">
@@ -160,6 +171,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={Home} label="My Listings" active={isListingsActive} onClick={() => navigate('/listings')} />
                 <SidebarItem icon={Calendar} label="Bookings" active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
                 <SidebarItem icon={Banknote} label="Earnings" active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
+                <SidebarItem icon={Sparkles} label="My Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
               </section>
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
@@ -168,6 +180,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 </h4>
                 <SidebarItem icon={MessageSquare} label="Messages" active={location.pathname === '/messages'} onClick={() => navigate('/messages')} badge="1" />
                 <SidebarItem icon={Star} label="Reviews" active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
+                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
               </section>
             </>
           )}
@@ -382,6 +395,18 @@ const BootstrappingScreen = () => (
 function AppRoutes() {
   const { status, user, logout } = useAuth();
 
+  // Standalone mock state for the ported Experiences feature — there is no
+  // backend for this yet, so it lives here rather than behind features/*/api
+  // the way properties/bookings/reviews do.
+  const [experienceProperties, setExperienceProperties] = useState<Property[]>(INITIAL_EXPERIENCE_PROPERTIES);
+  const [, setExperienceBookings] = useState<Booking[]>([]);
+  const handleUpdatePropertyActivities = (propertyId: string, activities: Property['activities']) => {
+    setExperienceProperties(prev => prev.map(p => p.id === propertyId ? { ...p, activities } : p));
+  };
+  const handleAddExperienceBooking = (booking: Booking) => {
+    setExperienceBookings(prev => [booking, ...prev]);
+  };
+
   if (status === 'bootstrapping') {
     return <BootstrappingScreen />;
   }
@@ -416,6 +441,8 @@ function AppRoutes() {
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
+        <Route path="experiences" element={<ExperiencesView user={currentUser!} properties={experienceProperties} onUpdatePropertyActivities={handleUpdatePropertyActivities} />} />
+        <Route path="explore-experiences" element={<ExploreExperiencesView properties={experienceProperties} onAddBooking={handleAddExperienceBooking} />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />

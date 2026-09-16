@@ -47,6 +47,7 @@ const STATUS_BADGE_VARIANT: Record<Booking['status'], string> = {
   Pending: 'gold',
   Past: 'gray',
   Cancelled: 'gray',
+  Completed: 'green',
 };
 
 function toDetailAvatar(detail: BookingDetail): string {
