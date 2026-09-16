@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 
 // Types
-import { User as UserType, Property, Booking } from './types';
+import { User as UserType, UserRole, Property, Booking } from './types';
 import type { AdminUser } from './features/auth/types';
 
 // Experiences mock data (standalone — ported from misrah-retreats-admin,
@@ -169,18 +169,18 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 </h4>
                 <SidebarItem icon={LayoutDashboard} label="Overview" active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
                 <SidebarItem icon={Home} label="My Listings" active={isListingsActive} onClick={() => navigate('/listings')} />
+                  <SidebarItem icon={Sparkles} label="My Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
                 <SidebarItem icon={Calendar} label="Bookings" active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
                 <SidebarItem icon={Banknote} label="Earnings" active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
-                <SidebarItem icon={Sparkles} label="My Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
               </section>
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
                   Direct Lines
                 </h4>
+                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
                 <SidebarItem icon={MessageSquare} label="Messages" active={location.pathname === '/messages'} onClick={() => navigate('/messages')} badge="1" />
                 <SidebarItem icon={Star} label="Reviews" active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
-                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
               </section>
             </>
           )}
@@ -368,20 +368,21 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
 // roleIds model (see GET/POST /admin/roles), while every existing view in
 // this app still types its `user` prop as the legacy `User` shape below.
 // Rather than refactor ~15 view components under a deadline, we adapt the
-// real AdminUser into that legacy shape here. `role` is hardcoded to 'admin'
-// because everyone who authenticates via /admin/auth/login is an admin-panel
-// user — it is NOT derived from roleIds and must NOT be used for real
-// authorization decisions (those must happen server-side).
+// real AdminUser into that legacy shape here. `role` comes from `portalRole`
+// (the portal picked on the login screen) purely to render the right UI —
+// everyone who authenticates via /admin/auth/login is really an admin-panel
+// user, so this must NOT be used for real authorization decisions (those
+// must happen server-side).
 // TODO: once the Roles API is integrated, derive real role/permissions from
-// `roleIds` instead of hardcoding this, and consider folding this adapter
-// away in favor of using AdminUser directly across views.
-function toLegacyUser(admin: AdminUser): UserType {
+// `roleIds` instead of the login-screen portal choice, and consider folding
+// this adapter away in favor of using AdminUser directly across views.
+function toLegacyUser(admin: AdminUser, portalRole: UserRole): UserType {
   return {
     id: admin.id,
     // The API returns no display name — derive one from the email local-part.
     name: admin.email.split('@')[0],
     email: admin.email,
-    role: 'admin',
+    role: portalRole,
     avatar: `https://i.pravatar.cc/150?u=${admin.id}`,
   };
 }
@@ -393,7 +394,7 @@ const BootstrappingScreen = () => (
 );
 
 function AppRoutes() {
-  const { status, user, logout } = useAuth();
+  const { status, user, portalRole, logout } = useAuth();
 
   // Standalone mock state for the ported Experiences feature — there is no
   // backend for this yet, so it lives here rather than behind features/*/api
@@ -412,7 +413,7 @@ function AppRoutes() {
   }
 
   const isAuthenticated = status === 'authenticated';
-  const currentUser = user ? toLegacyUser(user) : null;
+  const currentUser = user ? toLegacyUser(user, portalRole) : null;
   const handleLogout = () => {
     void logout();
   };
