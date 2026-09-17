@@ -1,59 +1,204 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Sparkles, 
-  Plus, 
-  Search, 
-  Filter, 
-  SlidersHorizontal, 
-  Eye, 
-  Edit3, 
-  Trash2, 
-  Clock, 
-  Users, 
-  DollarSign, 
-  Calendar, 
-  Star, 
-  CheckCircle2, 
-  AlertCircle, 
-  Building2, 
-  ChevronRight, 
-  ArrowUpRight, 
+import {
+  Sparkles,
+  Plus,
+  Search,
+  Filter,
+  SlidersHorizontal,
+  Eye,
+  Edit3,
+  Trash2,
+  Clock,
+  Users,
+  DollarSign,
+  Calendar,
+  Star,
+  CheckCircle2,
+  AlertCircle,
+  Building2,
+  ChevronRight,
+  ArrowUpRight,
   Layers,
   TrendingUp,
   X,
   MapPin,
   Check,
-  Tag
+  ChevronLeft,
+  Loader2
 } from 'lucide-react';
-import { Property, User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
+import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
 import { ACTIVITY_CATEGORIES, CategoryDefinition } from '../../data/activityCategories';
 import { getSuggestedAddons, CATEGORY_DEFAULT_ADDONS } from '../../data/activityAddons';
 import { STANDARD_TIME_SLOT_PRESETS, getCategoryDefaultTimeSlots } from '../../data/activityTimeSlots';
 import { Badge } from '../ui/Badge';
+import {
+  createAdminExperience,
+  deleteAdminExperience,
+  getAdminExperienceById,
+  listAdminExperiences,
+  listExperienceCategories,
+  updateAdminExperience,
+} from '../../features/experiences/api';
+import { apiExperienceToViewModel, ExperienceRow } from '../../features/experiences/mappers';
+import type { ApiExperienceCategory, ExperiencePricingModel, UpdateExperienceRequest } from '../../features/experiences/types';
+import { listAdminProperties } from '../../features/properties/api';
+import type { ApiPropertyListItem } from '../../features/properties/types';
+
+const EXPERIENCES_PAGE_SIZE = 12;
+
+// The create payload wants duration in numeric hours; this app's catalog/UI
+// only ever deals in display strings like "2.5 Hours" — pull the leading
+// number back out rather than adding a second, redundant numeric input.
+function parseDurationHours(display: string): number {
+  const parsed = parseFloat(display);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+}
+
+// The backend wants each slot as a single 12-hour AM/PM instant (e.g.
+// "04:30 PM") and rejects anything else — but this view's presets/custom
+// slots are all authored as 24-hour ranges (e.g. "17:00 - 19:30", inherited
+// from data/activityTimeSlots.ts) since that reads better for an admin
+// configuring a schedule. Convert at the submission boundary instead of
+// reworking that UI: take the range's start time and reformat it.
+function to12HourTime(raw: string): string {
+  const trimmed = raw.trim();
+  const alreadyAmPm = trimmed.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])/);
+  if (alreadyAmPm) {
+    return `${alreadyAmPm[1].padStart(2, '0')}:${alreadyAmPm[2]} ${alreadyAmPm[3].toUpperCase()}`;
+  }
+  const time24 = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!time24) return trimmed;
+  let hours = parseInt(time24[1], 10);
+  const minutes = time24[2];
+  const period = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${String(hours).padStart(2, '0')}:${minutes} ${period}`;
+}
+
+// The edit form only manages a subset of the full experience record (no UI
+// for categoryId/propertyId/images/inclusions/whatToBring/license) — since
+// PATCH is partial (UpdateExperienceRequest = Partial<...>), only send the
+// fields the form actually edits and let the backend leave the rest as-is.
+function activityToUpdateRequest(activity: ActivityExperience): UpdateExperienceRequest {
+  return {
+    title: activity.title,
+    titleAr: activity.titleAr,
+    price: activity.price,
+    priceType: activity.priceType,
+    duration: parseDurationHours(activity.duration),
+    minGuests: activity.minGuests,
+    maxGuests: activity.maxGuests,
+    description: activity.description,
+    timeSlots: (activity.timeSlots || []).map(to12HourTime),
+    addOns: (activity.addons || []).map(addon => ({
+      title: addon.title,
+      titleAr: addon.titleAr,
+      description: addon.description,
+      price: addon.price,
+      pricingModel: (addon.priceType || 'fixed') as ExperiencePricingModel,
+    })),
+    isActive: activity.status === 'Active',
+  };
+}
 
 interface ExperiencesViewProps {
   user: User;
-  properties: Property[];
-  onUpdatePropertyActivities: (propertyId: string, activities: ActivityExperience[]) => void;
 }
 
 export const ExperiencesView = ({
   user,
-  properties,
-  onUpdatePropertyActivities
 }: ExperiencesViewProps) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedPropertyFilter, setSelectedPropertyFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
+  // GET /admin/experiences (page, limit, search, categoryId) — see
+  // features/experiences/api.ts. Debounce the free-text search so every
+  // keystroke doesn't fire a request.
+  const [experiences, setExperiences] = useState<ExperienceRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingExperiences, setIsLoadingExperiences] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, selectedCategory]);
+
+  const fetchExperiences = useCallback(
+    (pageToLoad: number) => {
+      setIsLoadingExperiences(true);
+      setLoadError(null);
+      listAdminExperiences({
+        page: pageToLoad,
+        limit: EXPERIENCES_PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+      })
+        .then((res) => {
+          setExperiences(res.data.map(apiExperienceToViewModel));
+          setTotalPages(res.meta.totalPages || 1);
+          setTotalCount(res.meta.total || 0);
+        })
+        .catch((err) => {
+          setExperiences([]);
+          setLoadError(err?.message || 'Failed to load experiences.');
+        })
+        .finally(() => setIsLoadingExperiences(false));
+    },
+    [debouncedSearch, selectedCategory],
+  );
+
+  useEffect(() => {
+    fetchExperiences(page);
+  }, [fetchExperiences, page]);
+
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmittingExperience, setIsSubmittingExperience] = useState(false);
+  const [addExperienceError, setAddExperienceError] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<{ propertyId: string; activity: ActivityExperience } | null>(null);
-  const [selectedTargetPropertyId, setSelectedTargetPropertyId] = useState<string>(properties[0]?.id || '');
-  const [deleteTarget, setDeleteTarget] = useState<{ propertyId: string; activityId: string; title: string; propertyName: string } | null>(null);
+  const [isLoadingEditDetail, setIsLoadingEditDetail] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null);
+  // Real property/category records for the Add Experience form — the
+  // backend rejects the local mock `properties` prop's ids and
+  // ACTIVITY_CATEGORIES' slugs ('culinary', ...) with "must be a mongodb
+  // id", so submission needs to come from these instead. Fetched once on
+  // mount rather than lazily per modal-open since both lists are small.
+  // Experience categories share the single "Category *" field that already
+  // lives under the title inputs in the custom form below (used for both
+  // add modes) rather than a second dropdown.
+  const [realProperties, setRealProperties] = useState<ApiPropertyListItem[]>([]);
+  const [experienceCategories, setExperienceCategories] = useState<ApiExperienceCategory[]>([]);
+  const [isLoadingAddModalOptions, setIsLoadingAddModalOptions] = useState(true);
+  const [selectedTargetPropertyId, setSelectedTargetPropertyId] = useState<string>('');
+  const [deleteTarget, setDeleteTarget] = useState<{ activityId: string; title: string; propertyName: string } | null>(null);
+  const [isDeletingExperience, setIsDeletingExperience] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([listAdminProperties({ limit: 100 }), listExperienceCategories()])
+      .then(([propsRes, cats]) => {
+        setRealProperties(propsRes.data);
+        setExperienceCategories(cats);
+        setSelectedTargetPropertyId(prev => prev || propsRes.data[0]?._id || '');
+        setCustomForm(prev => (prev.categoryId ? prev : { ...prev, categoryId: cats[0]?._id || '' }));
+      })
+      .catch((err) => setAddExperienceError(err?.message || 'Failed to load properties/categories.'))
+      .finally(() => setIsLoadingAddModalOptions(false));
+  }, []);
 
   // Add experience modal internal states
   const [addMode, setAddMode] = useState<'preset' | 'custom'>('preset');
@@ -62,7 +207,9 @@ export const ExperiencesView = ({
   const [customForm, setCustomForm] = useState({
     title: '',
     titleAr: '',
-    categoryId: 'culinary',
+    // Seeded once experienceCategories loads (see the fetch effect above) —
+    // this holds a real experience-category id, not a local content slug.
+    categoryId: '',
     description: '',
     price: 250,
     priceType: 'per_person' as PriceType,
@@ -96,37 +243,23 @@ export const ExperiencesView = ({
   const [newEditAddonPriceType, setNewEditAddonPriceType] = useState<PriceType>('fixed');
   const [newEditAddonDescription, setNewEditAddonDescription] = useState('');
 
-  // Flatten all activities with property association
-  const allExperiences = properties.flatMap(prop => 
-    (prop.activities || []).map(act => ({
-      ...act,
-      propertyId: prop.id,
-      propertyName: prop.name,
-      propertyCity: prop.city,
-      propertyImage: prop.image
-    }))
-  );
-
-  // Filtered list
-  const filteredExperiences = allExperiences.filter(exp => {
-    if (selectedCategory !== 'all' && exp.categoryId !== selectedCategory) return false;
+  // `experiences` is the current page fetched from GET /admin/experiences
+  // (search + categoryId already applied server-side). Status/property are
+  // not backend query params here, so they're refined client-side on top of
+  // whatever page is currently loaded.
+  const filteredExperiences = experiences.filter(exp => {
     if (selectedStatus !== 'all' && exp.status !== selectedStatus) return false;
     if (selectedPropertyFilter !== 'all' && exp.propertyId !== selectedPropertyFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = exp.title.toLowerCase().includes(q) || (exp.titleAr && exp.titleAr.includes(q));
-      const matchCat = exp.categoryName.toLowerCase().includes(q);
-      const matchProp = exp.propertyName.toLowerCase().includes(q);
-      if (!matchTitle && !matchCat && !matchProp) return false;
-    }
     return true;
   });
 
-  // Calculate Metrics
-  const totalExperiences = allExperiences.length;
-  const activeExperiences = allExperiences.filter(e => e.status === 'Active').length;
-  const totalBookings = allExperiences.reduce((acc, e) => acc + (e.bookingsCount || 0), 0);
-  const totalRevenue = allExperiences.reduce((acc, e) => acc + ((e.bookingsCount || 0) * e.price), 0);
+  // Calculate Metrics. totalExperiences reflects the real backend total
+  // (meta.total); the rest are only derivable from the currently loaded page
+  // since there's no aggregate-stats endpoint.
+  const totalExperiences = totalCount;
+  const activeExperiences = experiences.filter(e => e.status === 'Active').length;
+  const totalBookings = experiences.reduce((acc, e) => acc + (e.bookingsCount || 0), 0);
+  const totalRevenue = experiences.reduce((acc, e) => acc + ((e.bookingsCount || 0) * e.price), 0);
 
   const priceTypeLabels: Record<PriceType, { en: string; ar: string }> = {
     per_person: { en: '/ person', ar: 'لكل شخص' },
@@ -135,173 +268,229 @@ export const ExperiencesView = ({
     fixed: { en: 'total', ar: 'شامل' }
   };
 
-  const handleToggleStatus = (propertyId: string, activityId: string) => {
-    const prop = properties.find(p => p.id === propertyId);
-    if (!prop) return;
-    const updated = (prop.activities || []).map(a => {
-      if (a.id === activityId) {
-        return {
-          ...a,
-          status: (a.status === 'Active' ? 'Paused' : 'Active') as any
-        };
-      }
-      return a;
-    });
-    onUpdatePropertyActivities(propertyId, updated);
+  // PATCH /admin/experiences/{id} { isActive } — see features/experiences/api.ts.
+  const handleToggleStatus = async (activityId: string, currentStatus: string) => {
+    setTogglingStatusId(activityId);
+    try {
+      await updateAdminExperience(activityId, { isActive: currentStatus !== 'Active' });
+      await fetchExperiences(page);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update status.');
+    } finally {
+      setTogglingStatusId(null);
+    }
   };
 
-  const handleDeleteExperience = (propertyId: string, activityId: string, title?: string, propertyName?: string) => {
-    const prop = properties.find(p => p.id === propertyId);
-    const act = (prop?.activities || []).find(a => a.id === activityId);
+  const handleDeleteExperience = (activityId: string, title?: string, propertyName?: string) => {
+    setDeleteError(null);
     setDeleteTarget({
-      propertyId,
       activityId,
-      title: title || act?.title || 'this experience',
-      propertyName: propertyName || prop?.name || 'this retreat'
+      title: title || 'this experience',
+      propertyName: propertyName || 'this retreat'
     });
   };
 
-  const confirmDeleteExperience = () => {
+  // DELETE /admin/experiences/{id} — see features/experiences/api.ts.
+  const confirmDeleteExperience = async () => {
     if (!deleteTarget) return;
-    const { propertyId, activityId } = deleteTarget;
-    const prop = properties.find(p => p.id === propertyId);
-    if (prop) {
-      const updated = (prop.activities || []).filter(a => a.id !== activityId);
-      onUpdatePropertyActivities(propertyId, updated);
-    }
-    setDeleteTarget(null);
-    if (editingActivity && editingActivity.activity.id === activityId) {
-      setEditingActivity(null);
+    const { activityId } = deleteTarget;
+    setIsDeletingExperience(true);
+    setDeleteError(null);
+    try {
+      await deleteAdminExperience(activityId);
+      setDeleteTarget(null);
+      if (editingActivity && editingActivity.activity.id === activityId) {
+        setEditingActivity(null);
+      }
+      await fetchExperiences(page);
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Failed to delete experience.');
+    } finally {
+      setIsDeletingExperience(false);
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  // GET /admin/experiences/{id} — opens the modal immediately with the
+  // already-known list row (instant UI), then swaps in the canonical
+  // fetched record once it lands; a fetch failure just keeps the list data
+  // and surfaces a soft warning rather than blocking the edit.
+  const openEditModal = async (exp: ExperienceRow) => {
+    setEditingActivity({ propertyId: exp.propertyId, activity: exp });
+    setEditError(null);
+    setIsLoadingEditDetail(true);
+    try {
+      const detail = await getAdminExperienceById(exp.id);
+      const mapped = apiExperienceToViewModel(detail);
+      setEditingActivity({ propertyId: mapped.propertyId, activity: mapped });
+    } catch (err: any) {
+      setEditError(err?.message || 'Could not load the latest details — showing cached data.');
+    } finally {
+      setIsLoadingEditDetail(false);
+    }
+  };
+
+  // PATCH /admin/experiences/{id} — see features/experiences/api.ts and
+  // activityToUpdateRequest() above for which fields this actually sends.
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingActivity) return;
-    const { propertyId, activity } = editingActivity;
-    const prop = properties.find(p => p.id === propertyId);
-    if (!prop) return;
-    const updated = (prop.activities || []).map(a => a.id === activity.id ? activity : a);
-    onUpdatePropertyActivities(propertyId, updated);
-    setEditingActivity(null);
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await updateAdminExperience(editingActivity.activity.id, activityToUpdateRequest(editingActivity.activity));
+      setEditingActivity(null);
+      await fetchExperiences(page);
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to save changes.');
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
-  const handleAddPreset = (category: CategoryDefinition, preset: any) => {
-    const targetPropId = selectedTargetPropertyId || properties[0]?.id;
-    if (!targetPropId) {
-      alert('Please select or create a property first.');
+  // POST /admin/experiences — see features/experiences/api.ts. propertyId
+  // and categoryId must be real Mongo ids (the backend 400s on this app's
+  // local mock `properties` prop / ACTIVITY_CATEGORIES slugs like
+  // 'culinary'), so they come from realProperties/experienceCategories
+  // (fetched above via listAdminProperties/listExperienceCategories)
+  // instead. The real category picker is the single "Category *" field
+  // under the title inputs in the custom form (customForm.categoryId) —
+  // shared across both add modes, since presets have no dedicated category
+  // field of their own. The curated catalog's local category is still used
+  // to seed preset content (title, description, suggested addons/time
+  // slots) — it's just not what gets submitted as `categoryId`.
+  const handleAddPreset = async (category: CategoryDefinition, preset: any) => {
+    const targetPropId = selectedTargetPropertyId;
+    const targetProperty = realProperties.find(p => p._id === targetPropId);
+    if (!targetPropId || !targetProperty) {
+      alert('Please select a property first.');
       return;
     }
-    const prop = properties.find(p => p.id === targetPropId);
-    if (!prop) return;
+    if (!customForm.categoryId) {
+      alert('Please select a category first.');
+      return;
+    }
 
-    const newActivity: ActivityExperience = {
-      id: `act-${targetPropId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      propertyId: targetPropId,
-      hostId: prop.hostId,
-      title: preset.nameEn,
-      titleAr: preset.nameAr,
-      categoryId: category.id,
-      categoryName: category.nameEn,
-      categoryNameAr: category.nameAr,
-      categoryEmoji: category.emoji,
-      description: `${preset.nameEn} offered on-site with luxury hospitality at ${prop.name}.`,
-      images: [category.coverImage],
-      price: preset.suggestedPrice,
-      priceType: preset.defaultPriceType,
-      duration: preset.defaultDuration,
-      minGuests: 1,
-      maxGuests: 10,
-      status: 'Active',
-      availabilityType: 'Instant',
-      availableDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      timeSlots: getCategoryDefaultTimeSlots(category.id),
-      locationType: 'on_site',
-      locationDetails: `${prop.name} grounds`,
-      included: preset.defaultIncluded,
-      whatToBring: preset.defaultWhatToBring,
-      addons: getSuggestedAddons(category.id),
-      bookingsCount: 0,
-      rating: 5.0,
-      reviewsCount: 0,
-      orderIndex: (prop.activities || []).length
-    };
-
-    onUpdatePropertyActivities(targetPropId, [...(prop.activities || []), newActivity]);
-    setIsAddModalOpen(false);
+    setIsSubmittingExperience(true);
+    setAddExperienceError(null);
+    try {
+      await createAdminExperience({
+        title: preset.nameEn,
+        titleAr: preset.nameAr,
+        categoryId: customForm.categoryId,
+        propertyId: targetPropId,
+        price: preset.suggestedPrice,
+        currency: 'AED',
+        priceType: preset.defaultPriceType,
+        duration: parseDurationHours(preset.defaultDuration),
+        timeSlots: getCategoryDefaultTimeSlots(category.id).map(to12HourTime),
+        minGuests: 1,
+        maxGuests: 10,
+        description: `${preset.nameEn} offered on-site with luxury hospitality at ${targetProperty.title}.`,
+        coverPhoto: category.coverImage,
+        images: [category.coverImage],
+        inclusions: preset.defaultIncluded,
+        whatToBring: preset.defaultWhatToBring,
+        addOns: getSuggestedAddons(category.id).map(addon => ({
+          title: addon.title,
+          titleAr: addon.titleAr,
+          description: addon.description,
+          price: addon.price,
+          pricingModel: (addon.priceType || 'fixed') as ExperiencePricingModel,
+        })),
+        isActive: true,
+        hostId: targetProperty.owner?._id,
+      });
+      setIsAddModalOpen(false);
+      await fetchExperiences(page);
+    } catch (err: any) {
+      setAddExperienceError(err?.message || 'Failed to create experience.');
+    } finally {
+      setIsSubmittingExperience(false);
+    }
   };
 
-  const handleAddCustom = (e: React.FormEvent) => {
+  const handleAddCustom = async (e: React.FormEvent) => {
     e.preventDefault();
-    const targetPropId = selectedTargetPropertyId || properties[0]?.id;
-    if (!targetPropId) {
-      alert('Please select or create a property first.');
+    const targetPropId = selectedTargetPropertyId;
+    const targetProperty = realProperties.find(p => p._id === targetPropId);
+    if (!targetPropId || !targetProperty) {
+      alert('Please select a property first.');
+      return;
+    }
+    if (!customForm.categoryId) {
+      alert('Please select a category first.');
       return;
     }
     if (!customForm.title.trim()) {
       alert('Please enter an experience title.');
       return;
     }
-    const prop = properties.find(p => p.id === targetPropId);
-    if (!prop) return;
 
+    // ACTIVITY_CATEGORIES lookup is content-only (cover photo / time-slot
+    // fallbacks) — customForm.categoryId now holds a real experience
+    // category id, so this essentially always falls through to [0]; that's
+    // fine, it's just seeding generic defaults, not the submitted categoryId.
     const cat = ACTIVITY_CATEGORIES.find(c => c.id === customForm.categoryId) || ACTIVITY_CATEGORIES[0];
     const finalSlots = (customForm.timeSlots && customForm.timeSlots.length > 0)
       ? customForm.timeSlots
       : getCategoryDefaultTimeSlots(cat.id);
+    const coverPhoto = customForm.imageUrl || cat.coverImage;
 
-    const newActivity: ActivityExperience = {
-      id: `act-custom-${targetPropId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      propertyId: targetPropId,
-      hostId: prop.hostId,
-      title: customForm.title.trim(),
-      titleAr: customForm.titleAr.trim() || customForm.title.trim(),
-      categoryId: cat.id,
-      categoryName: cat.nameEn,
-      categoryNameAr: cat.nameAr,
-      categoryEmoji: cat.emoji,
-      description: customForm.description || `Custom ${customForm.title} tailored for guests at ${prop.name}.`,
-      images: [customForm.imageUrl || cat.coverImage],
-      price: Number(customForm.price) || 150,
-      priceType: customForm.priceType,
-      duration: customForm.duration || '2 Hours',
-      minGuests: Number(customForm.minGuests) || 1,
-      maxGuests: Number(customForm.maxGuests) || 10,
-      status: 'Active',
-      availabilityType: 'Instant',
-      availableDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      timeSlots: finalSlots,
-      locationType: 'on_site',
-      locationDetails: customForm.locationDetails,
-      included: customForm.included ? customForm.included.split(',').map(s => s.trim()).filter(Boolean) : [],
-      whatToBring: customForm.whatToBring ? customForm.whatToBring.split(',').map(s => s.trim()).filter(Boolean) : [],
-      addons: customForm.addons || [],
-      bookingsCount: 0,
-      rating: 5.0,
-      reviewsCount: 0,
-      orderIndex: (prop.activities || []).length
-    };
-
-    onUpdatePropertyActivities(targetPropId, [...(prop.activities || []), newActivity]);
-    setIsAddModalOpen(false);
-    setCustomForm({
-      title: '',
-      titleAr: '',
-      categoryId: 'culinary',
-      description: '',
-      price: 250,
-      priceType: 'per_person',
-      duration: '2 Hours',
-      minGuests: 1,
-      maxGuests: 10,
-      imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
-      locationDetails: 'Property grounds & facilities',
-      included: 'Equipment, Welcome refreshments',
-      whatToBring: 'Comfortable clothing',
-      addons: getSuggestedAddons('culinary'),
-      timeSlots: getCategoryDefaultTimeSlots('culinary')
-    });
-    setNewCustomSlot('');
+    setIsSubmittingExperience(true);
+    setAddExperienceError(null);
+    try {
+      await createAdminExperience({
+        title: customForm.title.trim(),
+        titleAr: customForm.titleAr.trim() || customForm.title.trim(),
+        categoryId: customForm.categoryId,
+        propertyId: targetPropId,
+        price: Number(customForm.price) || 150,
+        currency: 'AED',
+        priceType: customForm.priceType,
+        duration: parseDurationHours(customForm.duration || '2 Hours'),
+        timeSlots: finalSlots.map(to12HourTime),
+        minGuests: Number(customForm.minGuests) || 1,
+        maxGuests: Number(customForm.maxGuests) || 10,
+        description: customForm.description || `Custom ${customForm.title} tailored for guests at ${targetProperty.title}.`,
+        coverPhoto,
+        images: [coverPhoto],
+        inclusions: customForm.included ? customForm.included.split(',').map(s => s.trim()).filter(Boolean) : [],
+        whatToBring: customForm.whatToBring ? customForm.whatToBring.split(',').map(s => s.trim()).filter(Boolean) : [],
+        addOns: (customForm.addons || []).map(addon => ({
+          title: addon.title,
+          titleAr: addon.titleAr,
+          description: addon.description,
+          price: addon.price,
+          pricingModel: (addon.priceType || 'fixed') as ExperiencePricingModel,
+        })),
+        isActive: true,
+        hostId: targetProperty.owner?._id,
+      });
+      setIsAddModalOpen(false);
+      setCustomForm({
+        title: '',
+        titleAr: '',
+        categoryId: customForm.categoryId,
+        description: '',
+        price: 250,
+        priceType: 'per_person',
+        duration: '2 Hours',
+        minGuests: 1,
+        maxGuests: 10,
+        imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
+        locationDetails: 'Property grounds & facilities',
+        included: 'Equipment, Welcome refreshments',
+        whatToBring: 'Comfortable clothing',
+        addons: getSuggestedAddons('culinary'),
+        timeSlots: getCategoryDefaultTimeSlots('culinary')
+      });
+      setNewCustomSlot('');
+      await fetchExperiences(page);
+    } catch (err: any) {
+      setAddExperienceError(err?.message || 'Failed to create experience.');
+    } finally {
+      setIsSubmittingExperience(false);
+    }
   };
 
   // Time Slot helpers for Custom Form
@@ -470,7 +659,7 @@ export const ExperiencesView = ({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => { setAddExperienceError(null); setIsAddModalOpen(true); }}
             className="px-6 py-3 rounded-2xl bg-primary text-accent hover:opacity-95 text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
           >
             <Plus size={16} />
@@ -530,15 +719,17 @@ export const ExperiencesView = ({
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
-            {/* Property Filter */}
+            {/* Property Filter — options derived from the properties visible on
+                the currently loaded page (client-side refinement only; the
+                backend has no property filter param). */}
             <select
               value={selectedPropertyFilter}
               onChange={e => setSelectedPropertyFilter(e.target.value)}
               className="py-3 px-4 bg-surface border border-border-misrah rounded-2xl text-xs font-bold text-primary outline-none focus:border-accent"
             >
-              <option value="all">All Properties ({properties.length})</option>
-              {properties.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.city})</option>
+              <option value="all">All Properties (this page)</option>
+              {Array.from(new Map<string, ExperienceRow>(experiences.map(e => [e.propertyId, e])).values()).map(e => (
+                <option key={e.propertyId} value={e.propertyId}>{e.propertyName} ({e.propertyCity})</option>
               ))}
             </select>
 
@@ -574,7 +765,10 @@ export const ExperiencesView = ({
           </div>
         </div>
 
-        {/* 9 Category Pills */}
+        {/* Category Pills — sourced live from GET /experience-categories
+            (experienceCategories, fetched above) rather than the local
+            ACTIVITY_CATEGORIES slugs, which never matched a real backend
+            categoryId and made this filter a silent no-op. */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide pt-2 border-t border-border-misrah/60">
           <button
             type="button"
@@ -584,23 +778,42 @@ export const ExperiencesView = ({
           >
             All Categories
           </button>
-          {ACTIVITY_CATEGORIES.map(cat => (
+          {experienceCategories.map(cat => (
             <button
-              key={cat.id}
+              key={cat._id}
               type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-1.5
-                ${selectedCategory === cat.id ? 'bg-primary text-accent shadow-xs' : 'bg-surface border border-border-misrah text-muted-text hover:text-primary'}`}
+              onClick={() => setSelectedCategory(cat._id)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all
+                ${selectedCategory === cat._id ? 'bg-primary text-accent shadow-xs' : 'bg-surface border border-border-misrah text-muted-text hover:text-primary'}`}
             >
-              <span>{cat.emoji}</span>
-              <span>{cat.nameEn}</span>
+              {cat.name.en}
             </button>
           ))}
         </div>
       </div>
 
       {/* Grid or Table Layout */}
-      {filteredExperiences.length === 0 ? (
+      {loadError ? (
+        <div className="p-16 bg-white rounded-[36px] border border-dashed border-danger/40 text-center space-y-4 shadow-xs">
+          <AlertCircle className="mx-auto text-danger" size={32} />
+          <div>
+            <h3 className="text-lg font-black text-danger uppercase">Couldn't Load Experiences</h3>
+            <p className="text-xs text-muted-text mt-1">{loadError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchExperiences(page)}
+            className="px-5 py-2.5 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary hover:border-accent"
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoadingExperiences && experiences.length === 0 ? (
+        <div className="p-16 bg-white rounded-[36px] border border-dashed border-border-misrah text-center space-y-3 shadow-xs">
+          <Loader2 className="mx-auto text-accent animate-spin" size={28} />
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-text">Loading experiences…</p>
+        </div>
+      ) : filteredExperiences.length === 0 ? (
         <div className="p-16 bg-white rounded-[36px] border border-dashed border-border-misrah text-center space-y-4 shadow-xs">
           <div className="w-16 h-16 rounded-3xl bg-accent/15 text-accent flex items-center justify-center mx-auto text-2xl">
             ✨
@@ -647,13 +860,14 @@ export const ExperiencesView = ({
                 <div className="absolute top-3 right-3">
                   <button
                     type="button"
-                    onClick={() => handleToggleStatus(exp.propertyId, exp.id)}
-                    className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-xs
-                      ${exp.status === 'Active' 
-                        ? 'bg-emerald-500 text-white hover:bg-emerald-600' 
+                    disabled={togglingStatusId === exp.id}
+                    onClick={() => handleToggleStatus(exp.id, exp.status)}
+                    className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-xs disabled:opacity-60 disabled:cursor-not-allowed
+                      ${exp.status === 'Active'
+                        ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                         : 'bg-amber-500 text-white hover:bg-amber-600'}`}
                   >
-                    {exp.status}
+                    {togglingStatusId === exp.id ? '…' : exp.status}
                   </button>
                 </div>
 
@@ -721,7 +935,7 @@ export const ExperiencesView = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setEditingActivity({ propertyId: exp.propertyId, activity: exp })}
+                      onClick={() => openEditModal(exp)}
                       className="w-9 h-9 rounded-xl bg-surface hover:bg-accent/20 text-primary flex items-center justify-center transition-colors"
                       title="Edit Experience"
                     >
@@ -729,7 +943,7 @@ export const ExperiencesView = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteExperience(exp.propertyId, exp.id, exp.title, exp.propertyName)}
+                      onClick={() => handleDeleteExperience(exp.id, exp.title, exp.propertyName)}
                       className="w-9 h-9 rounded-xl bg-surface hover:bg-danger/10 text-danger flex items-center justify-center transition-colors"
                       title="Delete Experience"
                     >
@@ -803,25 +1017,27 @@ export const ExperiencesView = ({
                     <td className="p-4">
                       <button
                         type="button"
-                        onClick={() => handleToggleStatus(exp.propertyId, exp.id)}
-                        className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider
+                        disabled={togglingStatusId === exp.id}
+                        onClick={() => handleToggleStatus(exp.id, exp.status)}
+                        className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed
                           ${exp.status === 'Active' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}
                       >
-                        {exp.status}
+                        {togglingStatusId === exp.id ? '…' : exp.status}
                       </button>
                     </td>
                     <td className="p-4 pr-6 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          onClick={() => setEditingActivity({ propertyId: exp.propertyId, activity: exp })}
+                          onClick={() => openEditModal(exp)}
                           className="w-8 h-8 rounded-lg bg-surface hover:bg-accent/20 text-primary flex items-center justify-center transition-colors"
+                          title="Edit Experience"
                         >
                           <Edit3 size={14} />
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteExperience(exp.propertyId, exp.id, exp.title, exp.propertyName)}
+                          onClick={() => handleDeleteExperience(exp.id, exp.title, exp.propertyName)}
                           className="w-8 h-8 rounded-lg bg-surface hover:bg-danger/10 text-danger flex items-center justify-center transition-colors"
                           title="Delete Experience"
                         >
@@ -833,6 +1049,33 @@ export const ExperiencesView = ({
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!loadError && totalPages > 1 && (
+        <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-border-misrah shadow-xs">
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted-text">
+            Page {page} of {totalPages} · {totalCount} experience{totalCount === 1 ? '' : 's'}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={page <= 1 || isLoadingExperiences}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              className="w-9 h-9 rounded-xl bg-surface border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40 hover:border-accent transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages || isLoadingExperiences}
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              className="w-9 h-9 rounded-xl bg-surface border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40 hover:border-accent transition-colors"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
         </div>
       )}
@@ -876,8 +1119,22 @@ export const ExperiencesView = ({
                 </button>
               </div>
 
-              {/* Target Property Selector */}
-              {properties.length > 0 ? (
+              {/* Target Property Selector — sourced live from
+                  listAdminProperties (see the fetch effect above) since the
+                  backend requires a real Mongo id. Category is selected via
+                  the existing "Category *" field under the title inputs in
+                  the custom form below, not a second dropdown here. */}
+              {isLoadingAddModalOptions ? (
+                <div className="p-4 rounded-2xl bg-surface border border-border-misrah text-xs font-bold text-muted-text flex items-center gap-3">
+                  <Loader2 size={16} className="animate-spin text-accent" />
+                  Loading properties…
+                </div>
+              ) : realProperties.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs font-bold flex items-center gap-3">
+                  <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
+                  <div>You have no properties listed yet. Please add a listing first to assign experiences.</div>
+                </div>
+              ) : (
                 <div className="p-4 rounded-2xl bg-surface border border-border-misrah flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <Building2 className="text-accent flex-shrink-0" size={20} />
@@ -887,21 +1144,23 @@ export const ExperiencesView = ({
                     </div>
                   </div>
                   <select
-                    value={selectedTargetPropertyId || properties[0]?.id}
+                    value={selectedTargetPropertyId}
                     onChange={(e) => setSelectedTargetPropertyId(e.target.value)}
                     className="p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent min-w-[220px]"
                   >
-                    {properties.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.city}) — {(p.activities || []).length} activities
+                    {realProperties.map(p => (
+                      <option key={p._id} value={p._id}>
+                        {p.title} {p.city ? `(${p.city.name})` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
-              ) : (
-                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs font-bold flex items-center gap-3">
-                  <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
-                  <div>You have no properties listed yet. Please add a listing first to assign experiences.</div>
+              )}
+
+              {addExperienceError && (
+                <div className="p-4 rounded-2xl bg-danger/10 border border-danger/30 text-danger text-xs font-bold flex items-center gap-3">
+                  <AlertCircle size={18} className="flex-shrink-0" />
+                  <div>{addExperienceError}</div>
                 </div>
               )}
 
@@ -1020,10 +1279,10 @@ export const ExperiencesView = ({
                           <button
                             type="button"
                             onClick={() => handleAddPreset(item.category, item)}
-                            disabled={properties.length === 0}
+                            disabled={realProperties.length === 0 || !customForm.categoryId || isSubmittingExperience}
                             className="w-full py-2 bg-white hover:bg-primary hover:text-accent border border-border-misrah rounded-xl text-xs font-black uppercase tracking-wider text-primary transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                           >
-                            <Plus size={14} />
+                            {isSubmittingExperience ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                             Add Experience
                           </button>
                         </div>
@@ -1069,22 +1328,19 @@ export const ExperiencesView = ({
                       <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1">
                         Category *
                       </label>
+                      {/* GET /experience-categories — see features/experiences/api.ts.
+                          This is the real category id submitted for both add
+                          modes (handleAddPreset also reads customForm.categoryId). */}
                       <select
                         value={customForm.categoryId}
-                        onChange={e => {
-                          const newCat = e.target.value;
-                          setCustomForm({ 
-                            ...customForm, 
-                            categoryId: newCat,
-                            addons: getSuggestedAddons(newCat),
-                            timeSlots: getCategoryDefaultTimeSlots(newCat)
-                          });
-                        }}
-                        className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
+                        onChange={e => setCustomForm({ ...customForm, categoryId: e.target.value })}
+                        disabled={experienceCategories.length === 0}
+                        className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent disabled:opacity-50"
                       >
-                        {ACTIVITY_CATEGORIES.map(c => (
-                          <option key={c.id} value={c.id}>
-                            {c.emoji} {c.nameEn} ({c.nameAr})
+                        {experienceCategories.length === 0 && <option value="">No categories available</option>}
+                        {experienceCategories.map(c => (
+                          <option key={c._id} value={c._id}>
+                            {c.name.en} ({c.name.ar})
                           </option>
                         ))}
                       </select>
@@ -1600,10 +1856,11 @@ export const ExperiencesView = ({
                     </button>
                     <button
                       type="submit"
-                      disabled={properties.length === 0}
-                      className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md transition-all disabled:opacity-50"
+                      disabled={realProperties.length === 0 || !customForm.categoryId || isSubmittingExperience}
+                      className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      Publish Custom Experience
+                      {isSubmittingExperience && <Loader2 size={14} className="animate-spin" />}
+                      {isSubmittingExperience ? 'Publishing…' : 'Publish Custom Experience'}
                     </button>
                   </div>
                 </form>
@@ -1635,14 +1892,28 @@ export const ExperiencesView = ({
                   <h3 className="text-xl font-black italic text-primary uppercase">Edit Experience</h3>
                   <p className="text-xs text-muted-text">{editingActivity.activity.title}</p>
                 </div>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setEditingActivity(null)}
                   className="w-8 h-8 rounded-full bg-surface hover:bg-border-misrah flex items-center justify-center text-primary"
                 >
                   <X size={16} />
                 </button>
               </div>
+
+              {isLoadingEditDetail && (
+                <div className="p-3 rounded-2xl bg-surface border border-border-misrah text-xs font-bold text-muted-text flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-accent" />
+                  Loading latest details…
+                </div>
+              )}
+
+              {editError && (
+                <div className="p-3 rounded-2xl bg-danger/10 border border-danger/30 text-danger text-xs font-bold flex items-center gap-2">
+                  <AlertCircle size={16} className="flex-shrink-0" />
+                  <div>{editError}</div>
+                </div>
+              )}
 
               <form onSubmit={handleSaveEdit} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1979,7 +2250,7 @@ export const ExperiencesView = ({
                       const toDel = editingActivity;
                       setEditingActivity(null);
                       if (toDel) {
-                        handleDeleteExperience(toDel.propertyId, toDel.activity.id, toDel.activity.title);
+                        handleDeleteExperience(toDel.activity.id, toDel.activity.title, toDel.activity.propertyName);
                       }
                     }}
                     className="p-3.5 rounded-2xl border border-danger/20 text-danger hover:bg-danger/10 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors"
@@ -1997,9 +2268,11 @@ export const ExperiencesView = ({
                   </button>
                   <button
                     type="submit"
-                    className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md transition-all"
+                    disabled={isSavingEdit || isLoadingEditDetail}
+                    className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Save Changes
+                    {isSavingEdit && <Loader2 size={14} className="animate-spin" />}
+                    {isSavingEdit ? 'Saving…' : 'Save Changes'}
                   </button>
                 </div>
               </form>
@@ -2037,20 +2310,31 @@ export const ExperiencesView = ({
                   This action will remove the experience from guest bookings and mobile exploration.
                 </p>
               </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-2xl bg-danger/10 border border-danger/30 text-danger text-xs font-bold text-left flex items-center gap-2">
+                  <AlertCircle size={16} className="flex-shrink-0" />
+                  <div>{deleteError}</div>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
+                  disabled={isDeletingExperience}
                   onClick={() => setDeleteTarget(null)}
-                  className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface transition-colors"
+                  className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  disabled={isDeletingExperience}
                   onClick={confirmDeleteExperience}
-                  className="flex-1 py-3.5 bg-danger text-white rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-danger/90 transition-all shadow-md"
+                  className="flex-1 py-3.5 bg-danger text-white rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-danger/90 transition-all shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Delete Experience
+                  {isDeletingExperience && <Loader2 size={14} className="animate-spin" />}
+                  {isDeletingExperience ? 'Deleting…' : 'Delete Experience'}
                 </button>
               </div>
             </motion.div>

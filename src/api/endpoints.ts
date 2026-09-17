@@ -111,4 +111,25 @@ export const API_ENDPOINTS = {
   cities: {
     activeList: '/city/active/list',
   },
+  // Requested directly by the team (page/limit/search/categoryId query params)
+  // rather than confirmed against backend source — no sibling misra-api-nest
+  // checkout was available in this workspace. See experiences/types.ts.
+  experiences: {
+    adminAll: '/admin/experiences',
+    adminById: (id: string) => `/admin/experiences/${id}`,
+  },
+  // A separate collection from `categories` (property-categories) above —
+  // requested directly by the team. No `/admin` prefix, mirroring
+  // property-categories' plain JWT-guarded convention.
+  experienceCategories: {
+    adminAll: '/experience-categories',
+  },
+  // Distinct from `experiences` above (the catalog/product records) — this
+  // is the guest reservation record for one. See features/experienceBookings/types.ts.
+  experienceBookings: {
+    adminAll: '/admin/experience-bookings',
+    adminById: (id: string) => `/admin/experience-bookings/${id}`,
+    adminComplete: (id: string) => `/admin/experience-bookings/${id}/complete`,
+    adminCancel: (id: string) => `/admin/experience-bookings/${id}/cancel`,
+  },
 } as const;
