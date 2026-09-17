@@ -218,7 +218,16 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ml-64 flex flex-col min-h-screen">
+      {/* min-w-0 is load-bearing: `main` is the only real flex item in the
+          outer `flex` row (the sidebar is `fixed`, so it's out-of-flow and
+          doesn't count). Without it, a flex item's automatic minimum width
+          defaults to its content's min-content size when its own overflow is
+          `visible` (the default) — so any wide child anywhere in the route
+          tree (a dense KPI grid, an unbroken pill row, ...) silently forced
+          this whole element, and with it the page, wider than the viewport
+          instead of being clipped/scrolled by the inner `overflow-x-hidden`
+          wrapper below. */}
+      <main className="flex-1 min-w-0 ml-64 flex flex-col min-h-screen">
         {/* Topbar */}
         <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-border-misrah h-20 flex items-center justify-between px-10">
           <div className="flex items-center gap-3">
@@ -396,14 +405,12 @@ const BootstrappingScreen = () => (
 function AppRoutes() {
   const { status, user, portalRole, logout } = useAuth();
 
-  // Standalone mock state for the ported Experiences feature — there is no
-  // backend for this yet, so it lives here rather than behind features/*/api
-  // the way properties/bookings/reviews do.
-  const [experienceProperties, setExperienceProperties] = useState<Property[]>(INITIAL_EXPERIENCE_PROPERTIES);
+  // Standalone mock state backing the still-unmigrated Guest Explore preview
+  // (ExploreExperiencesView) — ExperiencesView itself is now fully backed by
+  // the real /admin/experiences API (see features/experiences/), so this no
+  // longer needs a mutator for it.
+  const [experienceProperties] = useState<Property[]>(INITIAL_EXPERIENCE_PROPERTIES);
   const [, setExperienceBookings] = useState<Booking[]>([]);
-  const handleUpdatePropertyActivities = (propertyId: string, activities: Property['activities']) => {
-    setExperienceProperties(prev => prev.map(p => p.id === propertyId ? { ...p, activities } : p));
-  };
   const handleAddExperienceBooking = (booking: Booking) => {
     setExperienceBookings(prev => [booking, ...prev]);
   };
@@ -442,7 +449,7 @@ function AppRoutes() {
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
-        <Route path="experiences" element={<ExperiencesView user={currentUser!} properties={experienceProperties} onUpdatePropertyActivities={handleUpdatePropertyActivities} />} />
+        <Route path="experiences" element={<ExperiencesView user={currentUser!} />} />
         <Route path="explore-experiences" element={<ExploreExperiencesView properties={experienceProperties} onAddBooking={handleAddExperienceBooking} />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />

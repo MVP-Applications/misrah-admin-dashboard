@@ -22,6 +22,11 @@
 export interface ListBookingsParams {
   page?: number;
   limit?: number;
+  // Requested directly by the team for BookingsView's shared search/status
+  // row (Stays + Experiences tabs) — unlike page/limit above, these two
+  // haven't been independently confirmed against backend source.
+  search?: string;
+  status?: string;
 }
 
 export interface BookingListItem {
