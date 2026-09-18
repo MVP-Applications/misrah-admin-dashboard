@@ -30,3 +30,13 @@ export interface ApiError {
   message: string;
   error?: string;
 }
+
+// Shared shape for every `/enums/*` lookup endpoint (e.g. booking-statuses,
+// experience-booking-statuses) — confirmed live. `key` is the enum name
+// (e.g. "CONFIRMED"), `value` is the actual string sent/received on the wire
+// (e.g. "confirmed") — use `value`, never `key`, when filtering or comparing
+// against a record's status field.
+export interface EnumOption {
+  key: string;
+  value: string;
+}

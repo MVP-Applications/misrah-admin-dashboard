@@ -132,4 +132,12 @@ export const API_ENDPOINTS = {
     adminComplete: (id: string) => `/admin/experience-bookings/${id}/complete`,
     adminCancel: (id: string) => `/admin/experience-bookings/${id}/cancel`,
   },
+  // Confirmed live — the real status vocabularies for the two booking
+  // domains above (Stays' /admin/bookings and Experiences'
+  // /admin/experience-bookings). Populate status filter dropdowns from
+  // these instead of guessing/hardcoding the option list.
+  enums: {
+    bookingStatuses: '/enums/booking-statuses',
+    experienceBookingStatuses: '/enums/experience-booking-statuses',
+  },
 } as const;

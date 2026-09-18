@@ -111,6 +111,21 @@ apiClient.interceptors.response.use(
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isExemptEndpoint) {
       originalRequest._retry = true;
+
+      // No host login API yet, so Host Hub uses a token-less UI-only session
+      // (loginAsHostPreview in AuthContext.tsx). Any background API call from
+      // that session 401s (no Authorization header was ever sent), and with
+      // no refresh token to even attempt, forcing a logout here would bounce
+      // a signed-up host straight back to /login the moment any dashboard
+      // fetch runs. Skip the forced-logout branch below when there was never
+      // a refresh token to begin with — only a session that HAD one and
+      // failed to renew it counts as a real expiry.
+      // TODO: remove this guard once host login has a real backend and
+      // Host Hub sessions carry real tokens.
+      if (!tokenStorage.getRefreshToken()) {
+        return Promise.reject(normalizeError(error));
+      }
+
       try {
         const newAccessToken = await getRefreshedAccessToken();
         originalRequest.headers.set('Authorization', `Bearer ${newAccessToken}`);
