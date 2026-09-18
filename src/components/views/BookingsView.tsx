@@ -44,6 +44,8 @@ import {
   listExperienceBookings,
 } from '../../features/experienceBookings/api';
 import type { ExperienceBookingDetail, ExperienceBookingListItem } from '../../features/experienceBookings/types';
+import { listBookingStatuses, listExperienceBookingStatuses } from '../../features/enums/api';
+import type { EnumOption } from '../../api/types';
 
 interface BookingsViewProps {
   user: User;
@@ -60,6 +62,17 @@ const STATUS_BADGE_VARIANT: Record<Booking['status'], string> = {
   Cancelled: 'gray',
   Completed: 'green',
 };
+
+// "CONFIRMED" -> "Confirmed", "ARRIVING_SOON" -> "Arriving Soon" — display
+// label for an /enums/* option; the actual filter value sent to the API is
+// always option.value, never this.
+function formatEnumLabel(key: string): string {
+  return key
+    .toLowerCase()
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 function toDetailAvatar(detail: BookingDetail): string {
   return detail.traveler?.profileImage || `https://i.pravatar.cc/150?u=${detail.traveler?._id ?? detail._id}`;
@@ -106,6 +119,19 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  // GET /enums/booking-statuses + /enums/experience-booking-statuses —
+  // populate the status dropdown's options from the real backend vocabulary
+  // instead of a guessed/hardcoded list (a hardcoded 'completed' is what
+  // caused the Booking Workflow bar's Mark-as-Completed button to
+  // incorrectly stay hidden — see its gating below).
+  const [bookingStatusOptions, setBookingStatusOptions] = useState<EnumOption[]>([]);
+  const [experienceBookingStatusOptions, setExperienceBookingStatusOptions] = useState<EnumOption[]>([]);
+
+  useEffect(() => {
+    listBookingStatuses().then(setBookingStatusOptions).catch(() => {});
+    listExperienceBookingStatuses().then(setExperienceBookingStatusOptions).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400);
@@ -497,6 +523,12 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     // Neither traveler nor host carries a profileImage on this endpoint
     // (unlike property bookings) — always fall back to a generated avatar.
     const guestAvatar = `https://i.pravatar.cc/150?u=${detail?.traveler?._id ?? detail?._id ?? selectedExperienceBookingId}`;
+    // Derived from the real /enums/experience-booking-statuses vocabulary
+    // rather than hardcoded 'completed'/'cancelled' strings — a hardcoded
+    // guess is exactly what caused Mark-as-Completed to stay hidden before.
+    // Falls back to the lowercase guess only until that enum call resolves.
+    const completedStatusValue = experienceBookingStatusOptions.find(o => o.key === 'COMPLETED')?.value ?? 'completed';
+    const cancelledStatusValue = experienceBookingStatusOptions.find(o => o.key === 'CANCELLED')?.value ?? 'cancelled';
 
     return (
       <div className="space-y-8 w-full animate-in fade-in duration-300">
@@ -712,7 +744,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                 </p>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                {detail.status !== 'completed' && detail.status !== 'cancelled' && (
+                {detail.status !== completedStatusValue && detail.status !== cancelledStatusValue && (
                   <button
                     type="button"
                     onClick={handleCompleteExperienceBooking}
@@ -723,7 +755,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                     Mark as Completed
                   </button>
                 )}
-                {detail.status !== 'cancelled' && (
+                {detail.status !== cancelledStatusValue && (
                   <button
                     type="button"
                     onClick={() => { setExpBookingToCancel(detail); setExpCancelReason(''); setExpActionError(null); }}
@@ -988,21 +1020,9 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
             className="py-2.5 px-3 rounded-xl bg-white border border-border-misrah text-xs font-black uppercase tracking-wider text-primary outline-none focus:border-accent shadow-2xs cursor-pointer shrink-0"
           >
             <option value="all">All Statuses</option>
-            {activeTab === 'stays' ? (
-              <>
-                <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </>
-            ) : (
-              <>
-                <option value="Active">Active</option>
-                <option value="Paused">Paused</option>
-                <option value="Draft">Draft</option>
-                <option value="Sold Out">Sold Out</option>
-              </>
-            )}
+            {(activeTab === 'stays' ? bookingStatusOptions : experienceBookingStatusOptions).map(opt => (
+              <option key={opt.key} value={opt.value}>{formatEnumLabel(opt.key)}</option>
+            ))}
           </select>
         </div>
       </div>
