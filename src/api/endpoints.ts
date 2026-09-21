@@ -13,6 +13,17 @@ export const API_ENDPOINTS = {
       resetPassword: '/admin/auth/reset-password',
     },
   },
+  // login/autologin are shared across both portals (POST /admin/auth/login
+  // takes no portal concept — see AuthContext.tsx). Refresh is NOT shared:
+  // a Host Hub session's refresh_token must be redeemed here, not at
+  // admin.auth.refresh, or the backend rejects it. Confirmed live, returns
+  // 201 — don't assume the response body shape mirrors admin's refresh
+  // beyond what's confirmed in features/auth/types.ts.
+  host: {
+    auth: {
+      refresh: '/host/auth/refresh',
+    },
+  },
   bookings: {
     // Admin-wide listing — confirmed live (backend source: AdminBookingController
     // in misra-api-nest, registered under admin/bookings, requires ADMIN_READ).

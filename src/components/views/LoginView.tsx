@@ -18,11 +18,12 @@ import { useAuth } from '../../features/auth/AuthContext';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
-  const { login, loginWithMock, loginAsHostPreview } = useAuth();
+  const { login, loginWithMock } = useAuth();
 
-  // Which portal the person is signing into. The API has no host-specific
-  // login path, so this is passed through to AuthContext purely to pick
-  // which (already-built) admin vs. host UI renders post-login.
+  // Which portal the person is signing into. Both portals authenticate
+  // through the same real POST /admin/auth/login call — this is only passed
+  // through to AuthContext to pick which (already-built) admin vs. host UI
+  // renders post-login.
   const [selectedRole, setSelectedRole] = useState<UserRole>('admin');
 
   // Single unified field for Email OR Phone Number (no tabs!)
@@ -72,20 +73,9 @@ export const LoginView = () => {
       return;
     }
 
-    if (selectedRole !== 'admin') {
-      // Host Hub has no backend yet — this is a UI-only preview, so skip the
-      // real admin login call entirely and sign straight into the host view.
-      setIsSubmitting(true);
-      setTimeout(() => {
-        loginAsHostPreview(inputVal);
-        setIsSubmitting(false);
-      }, 350);
-      return;
-    }
-
     setIsSubmitting(true);
     try {
-      await login(inputVal, password);
+      await login(inputVal, password, selectedRole);
     } catch (err) {
       const message = err && typeof err === 'object' && 'message' in err
         ? String((err as { message: unknown }).message)
@@ -118,7 +108,7 @@ export const LoginView = () => {
 
         {/* Main Authentication Card */}
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[36px] p-6 sm:p-8 shadow-2xl space-y-6">
-          {/* Portal Selector: Admin HQ signs in through the real admin API; Host Hub has no backend yet, so it's a UI-only preview (see loginAsHostPreview) */}
+          {/* Portal Selector: both Admin HQ and Host Hub sign in through the real POST /admin/auth/login call */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-white/50 px-1">
               <span>Select Destination Portal</span>
@@ -331,7 +321,7 @@ export const LoginView = () => {
           {isLocalhost() && (
             <button
               type="button"
-              onClick={() => selectedRole === 'admin' ? loginWithMock() : loginAsHostPreview(emailOrPhone.trim() || 'host-preview@misrah.ae')}
+              onClick={() => loginWithMock(selectedRole)}
               className="w-full flex items-center justify-center gap-2 text-[9px] font-black text-white/50 hover:text-white/80 uppercase tracking-[2px] border border-dashed border-white/20 rounded-2xl py-3 transition-colors"
             >
               <Code2 size={12} />

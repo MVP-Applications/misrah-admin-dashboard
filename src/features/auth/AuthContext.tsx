@@ -12,36 +12,30 @@ interface AuthContextValue {
   status: AuthStatus;
   user: AdminUser | null;
   /**
-   * Which portal the signed-in session is for (Admin HQ vs Host Hub). Only
-   * ever 'manager' via loginAsHostPreview() below — the real /admin/auth/login
-   * endpoint has no host-specific path or role concept, so this is never used
-   * for real authorization, only to decide which (already-built) admin vs.
-   * host UI to render post-login.
+   * Which portal the signed-in session is for (Admin HQ vs Host Hub) — set
+   * from whichever portal was selected on the login screen when `login()` is
+   * called. Both portals authenticate through the same real
+   * POST /admin/auth/login endpoint (it has no host-specific path or role
+   * concept of its own), so this is never used for real authorization, only
+   * to decide which (already-built) admin vs. host UI to render post-login.
    */
   portalRole: UserRole;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   /**
    * Dev-only escape hatch for working on the UI before a real x-api-key is
-   * available — bypasses the API entirely and fakes a session. No-ops unless
-   * isLocalhost() is true, so it can never activate on a deployed build even
-   * if env vars are misconfigured. Doesn't touch tokenStorage, so it never
-   * persists across a reload and can't be confused with a real session.
+   * available — bypasses the API entirely and fakes a session for either
+   * portal. No-ops unless isLocalhost() is true, so it can never activate on
+   * a deployed build even if env vars are misconfigured. Doesn't touch
+   * tokenStorage, so it never persists across a reload and can't be confused
+   * with a real session.
    * TODO: safe to delete once real login is fully verified end-to-end, though
    * harmless to leave since it's hostname-gated.
    */
-  loginWithMock: () => void;
-  /**
-   * Host Hub has no backend yet (no host-specific auth endpoint), so this
-   * signs straight into a UI-only host session — it deliberately never calls
-   * authApi.login and never touches tokenStorage. Unlike loginWithMock, it's
-   * not gated to localhost: it's the real (if UI-only) Host Hub entry point,
-   * not a dev cheat.
-   */
-  loginAsHostPreview: (identifier: string) => void;
+  loginWithMock: (role?: UserRole) => void;
 }
 
-// Fixed fake admin used only by loginWithMock() — never sent to or received
+// Fixed fake users used only by loginWithMock() — never sent to or received
 // from the API.
 const MOCK_ADMIN_USER: AdminUser = {
   id: 'mock-admin-id',
@@ -49,11 +43,9 @@ const MOCK_ADMIN_USER: AdminUser = {
   userType: 'admin',
 };
 
-// Fixed fake host used only by loginAsHostPreview() — never sent to or
-// received from the API; Host Hub has no backend to authenticate against.
 const MOCK_HOST_USER: AdminUser = {
-  id: 'host-preview-id',
-  email: 'host@misrah.ae',
+  id: 'mock-host-id',
+  email: 'mock-host@localhost.dev',
   userType: 'manager',
 };
 
@@ -107,6 +99,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         tokenStorage.setAccessToken(response.access_token);
         tokenStorage.setRefreshToken(response.refresh_token);
         setUser(response.user);
+        // Restores which portal UI to render — getRefreshedAccessToken()
+        // above already read this same persisted value to pick between
+        // admin.auth.refresh and host.auth.refresh (see api/client.ts), so
+        // it must already be correct by the time autologin succeeds.
+        setPortalRole(tokenStorage.getPortal());
         setStatus('authenticated');
       } catch {
         tokenStorage.clearAll();
@@ -127,12 +124,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, role: UserRole = 'admin') => {
     const response = await authApi.login({ email, password });
     tokenStorage.setAccessToken(response.access_token);
     tokenStorage.setRefreshToken(response.refresh_token);
+    // Persisted (not just kept in this component's state) so a later silent
+    // refresh — from either the 401 interceptor or a page-reload bootstrap —
+    // knows to redeem this session's refresh_token at host.auth.refresh
+    // instead of admin.auth.refresh when role is 'manager'. See
+    // refreshAccessToken() in api/client.ts.
+    tokenStorage.setPortal(role);
     setUser(response.user);
-    setPortalRole('admin');
+    setPortalRole(role);
     setStatus('authenticated');
   }, []);
 
@@ -140,6 +143,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedRefreshToken = tokenStorage.getRefreshToken();
     if (storedRefreshToken) {
       try {
+        // Always hits admin.auth.logout, even for a Host Hub session — no
+        // host-specific logout route has been given (unlike refresh, which
+        // does need host.auth.refresh). If the real backend rejects a host
+        // refresh_token here, this is still safe: it's best-effort and local
+        // state is cleared below regardless of whether the call succeeded.
         await authApi.logout({ refresh_token: storedRefreshToken });
       } catch {
         // Best-effort revoke — always clear local state below regardless of
@@ -152,22 +160,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
-  const loginWithMock = useCallback(() => {
+  const loginWithMock = useCallback((role: UserRole = 'admin') => {
     if (!isLocalhost()) return;
-    setUser(MOCK_ADMIN_USER);
-    setPortalRole('admin');
-    setStatus('authenticated');
-  }, []);
-
-  const loginAsHostPreview = useCallback((identifier: string) => {
-    setUser({ ...MOCK_HOST_USER, email: identifier || MOCK_HOST_USER.email });
-    setPortalRole('manager');
+    setUser(role === 'manager' ? MOCK_HOST_USER : MOCK_ADMIN_USER);
+    setPortalRole(role);
     setStatus('authenticated');
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, portalRole, login, logout, loginWithMock, loginAsHostPreview }),
-    [status, user, portalRole, login, logout, loginWithMock, loginAsHostPreview],
+    () => ({ status, user, portalRole, login, logout, loginWithMock }),
+    [status, user, portalRole, login, logout, loginWithMock],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
