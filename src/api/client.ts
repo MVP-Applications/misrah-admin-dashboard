@@ -57,10 +57,18 @@ async function refreshAccessToken(): Promise<string> {
   if (!refresh_token) {
     throw new Error('No refresh token available');
   }
+  // Host Hub and Admin HQ do NOT share a refresh endpoint (unlike login) —
+  // a host's refresh_token is only valid against /host/auth/refresh. Which
+  // one to call can't be read from React state here (this module has no
+  // access to AuthContext), so it's read from the portal tokenStorage
+  // persisted alongside the tokens at login (see login()/loginWithMock() in
+  // AuthContext.tsx).
+  const refreshUrl =
+    tokenStorage.getPortal() === 'manager' ? API_ENDPOINTS.host.auth.refresh : API_ENDPOINTS.admin.auth.refresh;
   // Deliberately bypasses apiClient's interceptors (plain axios call) so this
   // request can never itself trigger the 401 retry logic below.
   const response = await axios.post(
-    `${env.API_BASE_URL}${API_ENDPOINTS.admin.auth.refresh}`,
+    `${env.API_BASE_URL}${refreshUrl}`,
     { refresh_token },
     { headers: { 'x-api-key': env.API_KEY, 'Content-Type': 'application/json' } },
   );
@@ -112,16 +120,16 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isExemptEndpoint) {
       originalRequest._retry = true;
 
-      // No host login API yet, so Host Hub uses a token-less UI-only session
-      // (loginAsHostPreview in AuthContext.tsx). Any background API call from
-      // that session 401s (no Authorization header was ever sent), and with
-      // no refresh token to even attempt, forcing a logout here would bounce
-      // a signed-up host straight back to /login the moment any dashboard
-      // fetch runs. Skip the forced-logout branch below when there was never
-      // a refresh token to begin with — only a session that HAD one and
-      // failed to renew it counts as a real expiry.
-      // TODO: remove this guard once host login has a real backend and
-      // Host Hub sessions carry real tokens.
+      // Both Admin HQ and Host Hub now sign in through the real
+      // POST /admin/auth/login call (see login() in AuthContext.tsx) and get
+      // real tokens either way — but the dev-only loginWithMock() bypass
+      // (either portal) still never touches tokenStorage. Any background API
+      // call from a mocked session 401s (no Authorization header was ever
+      // sent), and with no refresh token to even attempt, forcing a logout
+      // here would bounce a dev-mocked session straight back to /login the
+      // moment any dashboard fetch runs. Skip the forced-logout branch below
+      // when there was never a refresh token to begin with — only a session
+      // that HAD one and failed to renew it counts as a real expiry.
       if (!tokenStorage.getRefreshToken()) {
         return Promise.reject(normalizeError(error));
       }
