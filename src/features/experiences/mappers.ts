@@ -30,12 +30,18 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     description: a.description,
   }));
 
+  // This view-model (and most of ExperiencesView's UI — the property
+  // filter, edit/delete guards, etc.) still assumes one property per
+  // experience row, so only the first of possibly several associated
+  // properties is shown here even though the wire shape is plural.
+  const primaryProperty = item.properties?.[0];
+
   return {
     id: item._id,
-    propertyId: item.propertyId,
-    propertyName: item.property?.title || 'Unassigned Property',
-    propertyCity: item.property?.city || '—',
-    propertyImage: item.property?.images?.[0]?.fullUrl || item.coverPhoto || FALLBACK_IMAGE,
+    propertyId: item.propertyIds?.[0] || '',
+    propertyName: primaryProperty?.title || 'Unassigned Property',
+    propertyCity: primaryProperty?.city || '—',
+    propertyImage: primaryProperty?.images?.[0]?.fullUrl || item.coverPhoto || FALLBACK_IMAGE,
     hostId: item.hostId || '',
     title: item.title,
     titleAr: item.titleAr,

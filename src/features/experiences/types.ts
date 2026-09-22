@@ -50,11 +50,20 @@ export interface ApiExperienceAddOn {
 
 export interface ApiExperienceListItem {
   _id: string;
-  propertyId: string;
-  // Embedded property summary — assumed present so the list can show which
-  // property an experience belongs to without a second round-trip, mirroring
-  // how bookings embeds `propertySnapshot`. UNCONFIRMED.
-  property?: { _id: string; title: string; city?: string; images?: Array<{ fullUrl: string }> };
+  // Confirmed live on GET /admin/experiences/{id} (an admin edit hitting
+  // `assertResponseShape` for a missing `propertyId` is what caught this) —
+  // plural, an experience can be attached to multiple properties, matching
+  // CreateExperienceRequest.propertyIds and assignExperienceToProperties.
+  // Not independently confirmed on the LIST response (only by assumption
+  // that list/detail share one schema, same caveat as every other field
+  // here) but treated the same way for consistency.
+  propertyIds: string[];
+  // Embedded property summaries — assumed present so the list can show
+  // which properties an experience belongs to without a second round-trip,
+  // mirroring how bookings embeds `propertySnapshot`, and how the real
+  // /experience/admin-created sample embeds a `properties` array alongside
+  // its own propertyId/propertyIds. UNCONFIRMED.
+  properties?: Array<{ _id: string; title: string; city?: string; images?: Array<{ fullUrl: string }> }>;
   hostId?: string;
   title: string;
   titleAr?: string;
@@ -99,12 +108,16 @@ export interface CreateExperienceAddOnRequest {
   pricingModel: ExperiencePricingModel;
 }
 
-// Confirmed live — this exact shape returns 201.
+// Confirmed live — this exact shape returns 201. propertyId was a single
+// string in the original captured sample; the team has since changed it to
+// propertyIds (plural, array) to let one create call attach the new
+// experience to multiple properties at once — mirroring
+// assignExperienceToProperties's { propertyIds } shape below.
 export interface CreateExperienceRequest {
   title: string;
   titleAr?: string;
   categoryId: string;
-  propertyId: string;
+  propertyIds: string[];
   price: number;
   currency: string;
   priceType: PriceType;
@@ -147,3 +160,99 @@ export interface ApiExperienceCategory {
 }
 
 export type ListExperienceCategoriesResponse = ApiExperienceCategory[];
+
+// ---------------------------------------------------------------------------
+// GET /experience/admin-created (list, search/categoryId) — confirmed live,
+// a real captured item is what AdminCreatedExperience below is modeled on.
+// Note the path has no /admin prefix and is singular ("experience", not
+// "experiences") — genuinely a different route from admin.experiences above,
+// not a typo. The envelope's pagination shape wasn't captured in the sample
+// (it was truncated after the first two items), so `meta` here is assumed to
+// match /admin/experiences' confirmed `{ total, page, limit, totalPages }`
+// convention rather than independently confirmed — assertResponseShape will
+// throw immediately if that assumption is wrong.
+//
+// These are admin-authored template experiences (isAdmin: true) meant to be
+// quickly cloned onto a specific host property — that's what backs the
+// Curated Catalog tab in ExperiencesView's Add Experience modal. Unlike
+// ApiExperienceListItem, every field an admin-created item needs to seed a
+// new experience is confirmed directly from the sample, not inferred from
+// the create payload.
+// ---------------------------------------------------------------------------
+
+export interface AdminCreatedExperienceAddOn {
+  _id?: string;
+  title: string;
+  titleAr?: string;
+  description?: string;
+  price: number;
+  pricingModel: ExperiencePricingModel;
+}
+
+export interface AdminCreatedExperienceCategory {
+  _id: string;
+  name: { en: string; ar: string };
+  slug?: string;
+  iconName?: string;
+  iconUrl?: string | null;
+}
+
+export interface AdminCreatedExperienceHost {
+  _id: string;
+  name: string;
+  email: string;
+  phoneNumber?: string;
+  profileImage?: string;
+}
+
+export interface AdminCreatedExperience {
+  _id: string;
+  hostId?: string;
+  isAdmin?: boolean;
+  createdBy?: string;
+  title: string;
+  titleAr?: string;
+  categoryId: string;
+  propertyId?: string;
+  price: number;
+  currency: string;
+  priceType: PriceType;
+  duration: number;
+  timeSlots: string[];
+  addOns?: AdminCreatedExperienceAddOn[];
+  minGuests: number;
+  maxGuests: number;
+  description: string;
+  coverPhoto?: string;
+  images: string[];
+  inclusions?: string[];
+  whatToBring?: string[];
+  isActive?: boolean;
+  status?: string;
+  avgRating?: number;
+  reviewCount?: number;
+  bookingCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  host?: AdminCreatedExperienceHost;
+  category?: AdminCreatedExperienceCategory;
+}
+
+export interface ListAdminCreatedExperiencesParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  categoryId?: string;
+}
+
+export interface ListAdminCreatedExperiencesResponse {
+  data: AdminCreatedExperience[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+// POST /admin/experiences/{id}/properties — confirmed live, returns 201.
+// Attaches an existing (typically admin-created) experience to one or more
+// properties, given directly.
+export interface AssignExperiencePropertiesRequest {
+  propertyIds: string[];
+}

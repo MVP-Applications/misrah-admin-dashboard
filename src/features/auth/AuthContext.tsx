@@ -14,9 +14,9 @@ interface AuthContextValue {
   /**
    * Which portal the signed-in session is for (Admin HQ vs Host Hub) — set
    * from whichever portal was selected on the login screen when `login()` is
-   * called. Both portals authenticate through the same real
-   * POST /admin/auth/login endpoint (it has no host-specific path or role
-   * concept of its own), so this is never used for real authorization, only
+   * called, and used to pick between the two portals' separate
+   * login/refresh endpoints (features/auth/api.ts, api/client.ts). It's
+   * never used for real authorization (that must happen server-side) — only
    * to decide which (already-built) admin vs. host UI to render post-login.
    */
   portalRole: UserRole;
@@ -125,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string, role: UserRole = 'admin') => {
-    const response = await authApi.login({ email, password });
+    const response = await authApi.login({ email, password }, role);
     tokenStorage.setAccessToken(response.access_token);
     tokenStorage.setRefreshToken(response.refresh_token);
     // Persisted (not just kept in this component's state) so a later silent

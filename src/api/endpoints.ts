@@ -5,7 +5,6 @@ export const API_ENDPOINTS = {
   admin: {
     auth: {
       login: '/admin/auth/login',
-      autologin: '/admin/auth/autologin',
       refresh: '/admin/auth/refresh',
       logout: '/admin/auth/logout',
       // TODO: not wired up yet — see API_INTEGRATION.md → "Known Gaps".
@@ -13,16 +12,22 @@ export const API_ENDPOINTS = {
       resetPassword: '/admin/auth/reset-password',
     },
   },
-  // login/autologin are shared across both portals (POST /admin/auth/login
-  // takes no portal concept — see AuthContext.tsx). Refresh is NOT shared:
-  // a Host Hub session's refresh_token must be redeemed here, not at
-  // admin.auth.refresh, or the backend rejects it. Confirmed live, returns
-  // 201 — don't assume the response body shape mirrors admin's refresh
-  // beyond what's confirmed in features/auth/types.ts.
+  // Neither login nor refresh is shared across portals: a Host Hub session
+  // must authenticate/renew here, not at admin.auth.login/admin.auth.refresh,
+  // or the backend rejects it (only autologin, below, is genuinely shared).
+  // Both confirmed live, return 201 — don't assume either response body
+  // shape mirrors admin's beyond what's confirmed in features/auth/types.ts.
   host: {
     auth: {
+      login: '/host/auth/login',
       refresh: '/host/auth/refresh',
     },
+  },
+  // Confirmed live, returns 200 — genuinely shared by both portals (no
+  // /admin or /host prefix, unlike login/refresh above), one path for
+  // whichever session's refresh token is being redeemed.
+  auth: {
+    autologin: '/auth/autologin',
   },
   bookings: {
     // Admin-wide listing — confirmed live (backend source: AdminBookingController
@@ -128,6 +133,17 @@ export const API_ENDPOINTS = {
   experiences: {
     adminAll: '/admin/experiences',
     adminById: (id: string) => `/admin/experiences/${id}`,
+    // Confirmed live — NOT under /admin and singular ("experience"), a
+    // genuinely different route from adminAll above, not a typo. Lists
+    // admin-authored template experiences (isAdmin: true) for the Curated
+    // Catalog tab in ExperiencesView's Add Experience modal.
+    adminCreated: '/experience/admin-created',
+    // Confirmed live, returns 201. Attaches an EXISTING admin-created
+    // template (id from adminCreated above) to one or more properties —
+    // the Curated Catalog's "Add Experience" action links the template to
+    // whichever property is selected, it does not clone a new experience
+    // record the way the Bespoke/Custom form's createAdminExperience does.
+    adminAssignProperties: (id: string) => `/admin/experiences/${id}/properties`,
   },
   // A separate collection from `categories` (property-categories) above —
   // requested directly by the team. No `/admin` prefix, mirroring

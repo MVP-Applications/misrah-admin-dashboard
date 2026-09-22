@@ -20,10 +20,10 @@ import { UserRole } from '../../types';
 export const LoginView = () => {
   const { login, loginWithMock } = useAuth();
 
-  // Which portal the person is signing into. Both portals authenticate
-  // through the same real POST /admin/auth/login call — this is only passed
-  // through to AuthContext to pick which (already-built) admin vs. host UI
-  // renders post-login.
+  // Which portal the person is signing into — passed through to
+  // AuthContext's login(), which picks between the two portals' separate
+  // login endpoints (POST /admin/auth/login vs POST /host/auth/login) and
+  // decides which (already-built) admin vs. host UI renders post-login.
   const [selectedRole, setSelectedRole] = useState<UserRole>('admin');
 
   // Single unified field for Email OR Phone Number (no tabs!)
@@ -108,7 +108,7 @@ export const LoginView = () => {
 
         {/* Main Authentication Card */}
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[36px] p-6 sm:p-8 shadow-2xl space-y-6">
-          {/* Portal Selector: both Admin HQ and Host Hub sign in through the real POST /admin/auth/login call */}
+          {/* Portal Selector: Admin HQ signs in via POST /admin/auth/login, Host Hub via POST /host/auth/login */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-white/50 px-1">
               <span>Select Destination Portal</span>
