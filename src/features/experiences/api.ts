@@ -4,7 +4,10 @@ import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
 import type {
   ApiExperienceListItem,
+  AssignExperiencePropertiesRequest,
   CreateExperienceRequest,
+  ListAdminCreatedExperiencesParams,
+  ListAdminCreatedExperiencesResponse,
   ListExperienceCategoriesResponse,
   ListExperiencesParams,
   ListExperiencesResponse,
@@ -35,7 +38,7 @@ export async function getAdminExperienceById(id: string): Promise<ApiExperienceL
   const { data } = await apiClient.get<ApiSuccessEnvelope<ApiExperienceListItem>>(
     API_ENDPOINTS.experiences.adminById(id),
   );
-  return assertResponseShape('experience detail', data.data, ['_id', 'title', 'categoryId', 'propertyId']);
+  return assertResponseShape('experience detail', data.data, ['_id', 'title', 'categoryId', 'propertyIds']);
 }
 
 // PATCH /admin/experiences/{id} — confirmed live, same field shape as
@@ -62,4 +65,27 @@ export async function listExperienceCategories(): Promise<ListExperienceCategori
     throw new Error('[experience-categories] list response is not an array.');
   }
   return data.data;
+}
+
+// GET /experience/admin-created?search&categoryId — confirmed live, see
+// types.ts for the full shape and why `meta` here is an assumption rather
+// than a fully confirmed fact.
+export async function listAdminCreatedExperiences(
+  params: ListAdminCreatedExperiencesParams = {},
+): Promise<ListAdminCreatedExperiencesResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<ListAdminCreatedExperiencesResponse>>(
+    API_ENDPOINTS.experiences.adminCreated,
+    { params },
+  );
+  return assertResponseShape('list admin-created experiences', data.data, ['data', 'meta']);
+}
+
+// POST /admin/experiences/{id}/properties — confirmed live (201). Attaches
+// an existing experience to one or more properties; doesn't create a new
+// experience record. Response not parsed — callers should refetch the list.
+export async function assignExperienceToProperties(
+  id: string,
+  payload: AssignExperiencePropertiesRequest,
+): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.experiences.adminAssignProperties(id), payload);
 }

@@ -28,20 +28,27 @@ import {
   Loader2
 } from 'lucide-react';
 import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
-import { ACTIVITY_CATEGORIES, CategoryDefinition } from '../../data/activityCategories';
+import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
 import { getSuggestedAddons, CATEGORY_DEFAULT_ADDONS } from '../../data/activityAddons';
 import { STANDARD_TIME_SLOT_PRESETS, getCategoryDefaultTimeSlots } from '../../data/activityTimeSlots';
 import { Badge } from '../ui/Badge';
 import {
+  assignExperienceToProperties,
   createAdminExperience,
   deleteAdminExperience,
   getAdminExperienceById,
+  listAdminCreatedExperiences,
   listAdminExperiences,
   listExperienceCategories,
   updateAdminExperience,
 } from '../../features/experiences/api';
 import { apiExperienceToViewModel, ExperienceRow } from '../../features/experiences/mappers';
-import type { ApiExperienceCategory, ExperiencePricingModel, UpdateExperienceRequest } from '../../features/experiences/types';
+import type {
+  AdminCreatedExperience,
+  ApiExperienceCategory,
+  ExperiencePricingModel,
+  UpdateExperienceRequest,
+} from '../../features/experiences/types';
 import { listAdminProperties } from '../../features/properties/api';
 import type { ApiPropertyListItem } from '../../features/properties/types';
 
@@ -204,6 +211,33 @@ export const ExperiencesView = ({
   const [addMode, setAddMode] = useState<'preset' | 'custom'>('preset');
   const [modalCategory, setModalCategory] = useState<string>('all');
   const [modalSearch, setModalSearch] = useState<string>('');
+  const [debouncedModalSearch, setDebouncedModalSearch] = useState('');
+
+  // GET /experience/admin-created?search&categoryId — backs the Curated
+  // Catalog tab's Presets List (see features/experiences/api.ts). Only
+  // fetched while that tab is actually visible.
+  const [presetItems, setPresetItems] = useState<AdminCreatedExperience[]>([]);
+  const [isLoadingPresets, setIsLoadingPresets] = useState(false);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedModalSearch(modalSearch.trim()), 400);
+    return () => clearTimeout(handle);
+  }, [modalSearch]);
+
+  useEffect(() => {
+    if (!isAddModalOpen || addMode !== 'preset') return;
+    setIsLoadingPresets(true);
+    setPresetsError(null);
+    listAdminCreatedExperiences({
+      search: debouncedModalSearch || undefined,
+      categoryId: modalCategory !== 'all' ? modalCategory : undefined,
+      limit: 50,
+    })
+      .then(res => setPresetItems(res.data))
+      .catch(err => setPresetsError(err instanceof Error ? err.message : 'Failed to load curated experiences.'))
+      .finally(() => setIsLoadingPresets(false));
+  }, [isAddModalOpen, addMode, debouncedModalSearch, modalCategory]);
   const [customForm, setCustomForm] = useState({
     title: '',
     titleAr: '',
@@ -347,63 +381,26 @@ export const ExperiencesView = ({
     }
   };
 
-  // POST /admin/experiences — see features/experiences/api.ts. propertyId
-  // and categoryId must be real Mongo ids (the backend 400s on this app's
-  // local mock `properties` prop / ACTIVITY_CATEGORIES slugs like
-  // 'culinary'), so they come from realProperties/experienceCategories
-  // (fetched above via listAdminProperties/listExperienceCategories)
-  // instead. The real category picker is the single "Category *" field
-  // under the title inputs in the custom form (customForm.categoryId) —
-  // shared across both add modes, since presets have no dedicated category
-  // field of their own. The curated catalog's local category is still used
-  // to seed preset content (title, description, suggested addons/time
-  // slots) — it's just not what gets submitted as `categoryId`.
-  const handleAddPreset = async (category: CategoryDefinition, preset: any) => {
+  // POST /admin/experiences/{id}/properties — see features/experiences/api.ts.
+  // Curated Catalog presets are EXISTING admin-created experiences (from
+  // GET /experience/admin-created), so "Add Experience" here attaches the
+  // template to the selected property rather than cloning a new experience
+  // the way the Bespoke/Custom form's createAdminExperience does.
+  const handleAddPreset = async (preset: AdminCreatedExperience) => {
     const targetPropId = selectedTargetPropertyId;
-    const targetProperty = realProperties.find(p => p._id === targetPropId);
-    if (!targetPropId || !targetProperty) {
+    if (!targetPropId || !realProperties.some(p => p._id === targetPropId)) {
       alert('Please select a property first.');
-      return;
-    }
-    if (!customForm.categoryId) {
-      alert('Please select a category first.');
       return;
     }
 
     setIsSubmittingExperience(true);
     setAddExperienceError(null);
     try {
-      await createAdminExperience({
-        title: preset.nameEn,
-        titleAr: preset.nameAr,
-        categoryId: customForm.categoryId,
-        propertyId: targetPropId,
-        price: preset.suggestedPrice,
-        currency: 'AED',
-        priceType: preset.defaultPriceType,
-        duration: parseDurationHours(preset.defaultDuration),
-        timeSlots: getCategoryDefaultTimeSlots(category.id).map(to12HourTime),
-        minGuests: 1,
-        maxGuests: 10,
-        description: `${preset.nameEn} offered on-site with luxury hospitality at ${targetProperty.title}.`,
-        coverPhoto: category.coverImage,
-        images: [category.coverImage],
-        inclusions: preset.defaultIncluded,
-        whatToBring: preset.defaultWhatToBring,
-        addOns: getSuggestedAddons(category.id).map(addon => ({
-          title: addon.title,
-          titleAr: addon.titleAr,
-          description: addon.description,
-          price: addon.price,
-          pricingModel: (addon.priceType || 'fixed') as ExperiencePricingModel,
-        })),
-        isActive: true,
-        hostId: targetProperty.owner?._id,
-      });
+      await assignExperienceToProperties(preset._id, { propertyIds: [targetPropId] });
       setIsAddModalOpen(false);
       await fetchExperiences(page);
     } catch (err: any) {
-      setAddExperienceError(err?.message || 'Failed to create experience.');
+      setAddExperienceError(err?.message || 'Failed to add this experience to the property.');
     } finally {
       setIsSubmittingExperience(false);
     }
@@ -443,7 +440,7 @@ export const ExperiencesView = ({
         title: customForm.title.trim(),
         titleAr: customForm.titleAr.trim() || customForm.title.trim(),
         categoryId: customForm.categoryId,
-        propertyId: targetPropId,
+        propertyIds: [targetPropId],
         price: Number(customForm.price) || 150,
         currency: 'AED',
         priceType: customForm.priceType,
@@ -1173,7 +1170,7 @@ export const ExperiencesView = ({
                     ${addMode === 'preset' ? 'bg-primary text-accent shadow-sm' : 'text-muted-text hover:text-primary'}`}
                 >
                   <Sparkles size={14} />
-                  Curated Catalog ({ACTIVITY_CATEGORIES.length} Categories)
+                  Curated Catalog ({experienceCategories.length} Categories)
                 </button>
                 <button
                   type="button"
@@ -1213,80 +1210,83 @@ export const ExperiencesView = ({
                     >
                       All Categories
                     </button>
-                    {ACTIVITY_CATEGORIES.map(cat => (
+                    {experienceCategories.map(cat => (
                       <button
-                        key={cat.id}
+                        key={cat._id}
                         type="button"
-                        onClick={() => setModalCategory(cat.id)}
+                        onClick={() => setModalCategory(cat._id)}
                         className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1.5
-                          ${modalCategory === cat.id ? 'bg-primary text-accent' : 'bg-surface text-muted-text hover:text-primary border border-border-misrah'}`}
+                          ${modalCategory === cat._id ? 'bg-primary text-accent' : 'bg-surface text-muted-text hover:text-primary border border-border-misrah'}`}
                       >
-                        <span>{cat.emoji}</span>
-                        <span>{cat.nameEn}</span>
+                        <span>{cat.name.en}</span>
                       </button>
                     ))}
                   </div>
 
-                  {/* Presets List */}
+                  {/* Presets List — GET /experience/admin-created, search +
+                      categoryId already applied server-side. */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
-                    {ACTIVITY_CATEGORIES
-                      .filter(cat => modalCategory === 'all' || cat.id === modalCategory)
-                      .flatMap(cat => 
-                        cat.activities.map(preset => ({ ...preset, category: cat }))
-                      )
-                      .filter(item => {
-                        if (!modalSearch.trim()) return true;
-                        const q = modalSearch.toLowerCase();
-                        return (
-                          item.nameEn.toLowerCase().includes(q) ||
-                          item.nameAr.includes(q) ||
-                          item.category.nameEn.toLowerCase().includes(q)
-                        );
-                      })
-                      .map((item, idx) => (
-                        <div 
-                          key={`${item.category.id}-${item.nameEn}-${idx}`}
+                    {isLoadingPresets ? (
+                      <div className="col-span-full p-10 text-center text-xs font-bold text-muted-text flex items-center justify-center gap-2">
+                        <Loader2 size={16} className="animate-spin text-accent" />
+                        Loading curated experiences…
+                      </div>
+                    ) : presetsError ? (
+                      <div className="col-span-full p-10 text-center text-xs font-bold text-danger">{presetsError}</div>
+                    ) : presetItems.length === 0 ? (
+                      <div className="col-span-full p-10 text-center text-xs font-bold text-muted-text">
+                        No curated experiences found.
+                      </div>
+                    ) : (
+                      presetItems.map(item => (
+                        <div
+                          key={item._id}
                           className="p-4 rounded-2xl bg-surface border border-border-misrah hover:border-accent/50 transition-all flex flex-col justify-between group"
                         >
                           <div>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs px-2.5 py-0.5 rounded-lg bg-white border border-border-misrah font-bold text-primary flex items-center gap-1">
-                                {item.category.emoji} {item.category.nameEn}
+                                <Sparkles size={12} className="text-accent" /> {item.category?.name.en || 'Experience'}
                               </span>
                               <div className="text-xs font-black text-primary">
-                                AED {item.suggestedPrice} <span className="text-[9px] text-muted-text font-bold">{priceTypeLabels[item.defaultPriceType]?.en}</span>
+                                {item.currency} {item.price} <span className="text-[9px] text-muted-text font-bold">{priceTypeLabels[item.priceType]?.en}</span>
                               </div>
                             </div>
                             <h4 className="text-sm font-black text-primary leading-tight group-hover:text-accent transition-colors">
-                              {item.nameEn}
+                              {item.title}
                             </h4>
-                            <p className="text-[11px] font-bold text-muted-text mb-2" dir="rtl">
-                              {item.nameAr}
-                            </p>
+                            {item.titleAr && (
+                              <p className="text-[11px] font-bold text-muted-text mb-2" dir="rtl">
+                                {item.titleAr}
+                              </p>
+                            )}
                             <div className="flex items-center gap-2 text-[10px] font-bold text-muted-text mb-2">
                               <Clock size={12} className="text-accent" />
-                              <span>{item.defaultDuration}</span>
+                              <span>{item.duration} {item.duration === 1 ? 'Hour' : 'Hours'}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1 mb-3">
-                              {item.defaultIncluded.slice(0, 2).map((inc, i) => (
-                                <span key={i} className="text-[9px] px-2 py-0.5 rounded-md bg-white text-muted-text font-semibold truncate max-w-[180px]">
-                                  ✓ {inc}
-                                </span>
-                              ))}
-                            </div>
+                            {item.inclusions && item.inclusions.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                {item.inclusions.slice(0, 2).map((inc, i) => (
+                                  <span key={i} className="text-[9px] px-2 py-0.5 rounded-md bg-white text-muted-text font-semibold truncate max-w-[180px]">
+                                    ✓ {inc}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <button
                             type="button"
-                            onClick={() => handleAddPreset(item.category, item)}
-                            disabled={realProperties.length === 0 || !customForm.categoryId || isSubmittingExperience}
+                            onClick={() => handleAddPreset(item)}
+                            disabled={realProperties.length === 0 || isSubmittingExperience}
                             className="w-full py-2 bg-white hover:bg-primary hover:text-accent border border-border-misrah rounded-xl text-xs font-black uppercase tracking-wider text-primary transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                           >
                             {isSubmittingExperience ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                             Add Experience
                           </button>
                         </div>
-                      ))}
+                      ))
+                    )}
                   </div>
                 </div>
               )}
