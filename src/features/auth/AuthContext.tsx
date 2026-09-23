@@ -4,7 +4,7 @@ import { isLocalhost } from '../../config/env';
 import type { UserRole } from '../../types';
 import * as authApi from './api';
 import * as tokenStorage from './tokenStorage';
-import type { AdminUser } from './types';
+import type { AdminUser, LoginRequest } from './types';
 
 type AuthStatus = 'bootstrapping' | 'authenticated' | 'unauthenticated';
 
@@ -20,7 +20,12 @@ interface AuthContextValue {
    * to decide which (already-built) admin vs. host UI to render post-login.
    */
   portalRole: UserRole;
-  login: (email: string, password: string, role?: UserRole) => Promise<void>;
+  /**
+   * `identifier` is whatever was typed into the login screen's single
+   * "Email or Phone Number" field — anything containing an "@" is sent as
+   * `email`, anything else as `phoneNumber` (see toLoginRequest()).
+   */
+  login: (identifier: string, password: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   /**
    * Dev-only escape hatch for working on the UI before a real x-api-key is
@@ -33,6 +38,16 @@ interface AuthContextValue {
    * harmless to leave since it's hostname-gated.
    */
   loginWithMock: (role?: UserRole) => void;
+}
+
+// The login screen has one field for email OR phone number. An "@" means
+// email; otherwise it's treated as a phone number with the usual formatting
+// characters (spaces, dashes, dots, parentheses) stripped, so
+// "+971 50 123 4567" is sent as "+971501234567".
+function toLoginRequest(identifier: string, password: string): LoginRequest {
+  const value = identifier.trim();
+  if (value.includes('@')) return { email: value, password };
+  return { phoneNumber: value.replace(/[\s\-.()]/g, ''), password };
 }
 
 // Fixed fake users used only by loginWithMock() — never sent to or received
@@ -124,8 +139,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const login = useCallback(async (email: string, password: string, role: UserRole = 'admin') => {
-    const response = await authApi.login({ email, password }, role);
+  const login = useCallback(async (identifier: string, password: string, role: UserRole = 'admin') => {
+    const response = await authApi.login(toLoginRequest(identifier, password), role);
     tokenStorage.setAccessToken(response.access_token);
     tokenStorage.setRefreshToken(response.refresh_token);
     // Persisted (not just kept in this component's state) so a later silent
