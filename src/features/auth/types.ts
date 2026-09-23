@@ -1,9 +1,10 @@
 // Request shapes are certain — they mirror the DTOs documented in the live
 // OpenAPI spec (https://misra-test.mvp-apps.ae/api-json).
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
+// Both /admin/auth/login and /host/auth/login accept either an email or a
+// phoneNumber alongside the password — send exactly one of them.
+export type LoginRequest =
+  | { email: string; password: string }
+  | { phoneNumber: string; password: string };
 
 export interface RefreshRequest {
   refresh_token: string;
