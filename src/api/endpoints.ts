@@ -21,6 +21,10 @@ export const API_ENDPOINTS = {
     auth: {
       login: '/host/auth/login',
       refresh: '/host/auth/refresh',
+      // Confirmed live, returns 201. Sends an SMS sign-in code to a host's
+      // phone — there is no admin equivalent. Verifying the code isn't wired
+      // up yet (no verify endpoint confirmed).
+      otpSend: '/host/auth/otp/send',
     },
   },
   // Confirmed live, returns 200 — genuinely shared by both portals (no

@@ -6,6 +6,12 @@ export type LoginRequest =
   | { email: string; password: string }
   | { phoneNumber: string; password: string };
 
+// POST /host/auth/otp/send — phone only, same normalized form as login's
+// phoneNumber.
+export interface HostOtpSendRequest {
+  phoneNumber: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }

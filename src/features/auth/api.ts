@@ -3,7 +3,7 @@ import { assertResponseShape } from '../../api/assertShape';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
 import type { UserRole } from '../../types';
-import type { AutologinResponse, LoginRequest, LoginResponse, LogoutRequest } from './types';
+import type { AutologinResponse, HostOtpSendRequest, LoginRequest, LoginResponse, LogoutRequest } from './types';
 
 // Confirmed live: every success response is wrapped in { success, message,
 // data, timestamp, responseTime } — unwrap .data before validating the inner
@@ -34,4 +34,10 @@ export async function logout(payload: LogoutRequest): Promise<void> {
 export async function autologin(): Promise<AutologinResponse> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<AutologinResponse>>(API_ENDPOINTS.auth.autologin);
   return assertResponseShape('autologin', data.data, ['access_token', 'refresh_token', 'user']);
+}
+
+// POST /host/auth/otp/send — confirmed live, returns 201. Host Hub only; the
+// response body isn't relied on (shape unconfirmed), success is the 2xx.
+export async function sendHostLoginOtp(payload: HostOtpSendRequest): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.host.auth.otpSend, payload);
 }
