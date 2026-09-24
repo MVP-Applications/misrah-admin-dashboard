@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
+import { sendHostLoginOtp } from '../../features/auth/api';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
@@ -41,6 +42,7 @@ export const LoginView = () => {
   const [useOtp, setUseOtp] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,14 +70,39 @@ export const LoginView = () => {
     return () => clearTimeout(timer);
   }, [isResendActive, resendCountdown]);
 
-  const handleSendOtp = () => {
-    if (!emailOrPhone.trim()) {
+  const handleSendOtp = async () => {
+    const inputVal = emailOrPhone.trim();
+    if (!inputVal) {
       setError('Please enter your phone number or email first');
       return;
     }
     setError(null);
-    setOtpSent(true);
-    setOtpCode('4829');
+
+    if (selectedRole !== 'manager') {
+      // Admin HQ has no SMS endpoint — demo code only.
+      setOtpSent(true);
+      setOtpCode('4829');
+      return;
+    }
+
+    // Host Hub: real SMS via POST /host/auth/otp/send (phone only).
+    if (inputVal.includes('@')) {
+      setError('SMS codes can only be sent to a phone number');
+      return;
+    }
+    setIsSendingOtp(true);
+    try {
+      await sendHostLoginOtp({ phoneNumber: inputVal.replace(/[\s\-.()]/g, '') });
+      setOtpSent(true);
+      setOtpCode('');
+    } catch (err) {
+      const message = err && typeof err === 'object' && 'message' in err
+        ? String((err as { message: unknown }).message)
+        : 'Could not send the code. Please try again.';
+      setError(message);
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -433,7 +460,7 @@ export const LoginView = () => {
                 {/* Admin Portal */}
                 <button
                   type="button"
-                  onClick={() => setSelectedRole('admin')}
+                  onClick={() => { setSelectedRole('admin'); setOtpSent(false); setOtpCode(''); }}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative ${
                     selectedRole === 'admin'
                       ? 'bg-accent/15 border-accent text-white shadow-md'
@@ -453,7 +480,7 @@ export const LoginView = () => {
                 {/* Host Portal */}
                 <button
                   type="button"
-                  onClick={() => setSelectedRole('manager')}
+                  onClick={() => { setSelectedRole('manager'); setOtpSent(false); setOtpCode(''); }}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative ${
                     selectedRole === 'manager'
                       ? 'bg-accent/15 border-accent text-white shadow-md'
@@ -540,9 +567,20 @@ export const LoginView = () => {
                       <button
                         type="button"
                         onClick={handleSendOtp}
-                        className="text-[10px] font-black uppercase tracking-wider text-accent hover:underline"
+                        disabled={isSendingOtp}
+                        className="text-[10px] font-black uppercase tracking-wider text-accent hover:underline disabled:opacity-50 flex items-center gap-1"
                       >
-                        Send Code
+                        {isSendingOtp && <Loader2 size={11} className="animate-spin" />}
+                        {isSendingOtp ? 'Sending' : 'Send Code'}
+                      </button>
+                    ) : selectedRole === 'manager' ? (
+                      <button
+                        type="button"
+                        onClick={handleSendOtp}
+                        disabled={isSendingOtp}
+                        className="text-[10px] text-accent font-bold hover:underline disabled:opacity-50"
+                      >
+                        {isSendingOtp ? 'Sending…' : 'Code Sent · Resend'}
                       </button>
                     ) : (
                       <span className="text-[10px] text-accent font-bold">
@@ -560,13 +598,15 @@ export const LoginView = () => {
                       onChange={(e) => setOtpCode(e.target.value)}
                       className="flex-1 py-2.5 px-4 bg-white/10 border border-white/20 rounded-xl text-center text-sm font-black tracking-widest text-white outline-none focus:border-accent"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode('4829')}
-                      className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-accent/25 transition-colors"
-                    >
-                      Fill (4829)
-                    </button>
+                    {selectedRole !== 'manager' && (
+                      <button
+                        type="button"
+                        onClick={() => setOtpCode('4829')}
+                        className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-accent/25 transition-colors"
+                      >
+                        Fill (4829)
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

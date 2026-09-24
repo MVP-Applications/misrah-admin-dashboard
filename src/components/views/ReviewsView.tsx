@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { formatDistanceToNowStrict, parseISO } from 'date-fns';
-import { Trash2, Undo2, Star, Loader2, TriangleAlert, EyeOff } from 'lucide-react';
+import { Trash2, Undo2, Loader2, TriangleAlert, EyeOff, ThumbsUp, MessageCircle } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User } from '../../types';
-import { listReviews, hideReview, restoreReview } from '../../features/reviews/api';
+import { listReviews, hideReview, restoreReview, getReviewById } from '../../features/reviews/api';
 import type { AdminReviewListItem } from '../../features/reviews/types';
+import { PrivateReplyModal, ReviewItem, PrivateReply } from './PrivateReplyModal';
 
 interface ReviewsViewProps {
   user: User;
@@ -31,6 +32,14 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+
+  // Helpful votes — local only, the reviews API has no helpful/vote field.
+  const [helpful, setHelpful] = useState<Record<string, { isHelpful: boolean; count: number }>>({});
+  const [activeReplyReview, setActiveReplyReview] = useState<ReviewItem | null>(null);
+  const [loadingReplyId, setLoadingReplyId] = useState<string | null>(null);
+  // Replies sent from this screen — kept locally, no admin reply-create
+  // endpoint exists yet. Merged on top of the API's replies.
+  const [localReplies, setLocalReplies] = useState<Record<string, PrivateReply[]>>({});
 
   const fetchReviews = async (targetPage: number, status: StatusFilter) => {
     setIsLoading(true);
@@ -78,6 +87,55 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
     } finally {
       setMutatingId(null);
     }
+  };
+
+  const handleToggleHelpful = (reviewId: string) => {
+    setHelpful(prev => {
+      const current = prev[reviewId] ?? { isHelpful: false, count: 0 };
+      const isHelpful = !current.isHelpful;
+      return { ...prev, [reviewId]: { isHelpful, count: isHelpful ? current.count + 1 : Math.max(0, current.count - 1) } };
+    });
+  };
+
+  // Opens the reply modal with the review's existing thread from
+  // GET /admin/reviews/:id (the list endpoint only returns a count).
+  const handleOpenReply = async (review: AdminReviewListItem) => {
+    setLoadingReplyId(review._id);
+    setActionError(null);
+    try {
+      const detail = await getReviewById(review._id);
+      const apiReplies: PrivateReply[] = detail.replies.map(r => ({
+        id: r._id,
+        author: r.user?.name || r.user?.email || 'Misrah Team',
+        role: 'Reply',
+        channel: 'In-App Message',
+        date: formatDistanceToNowStrict(parseISO(r.createdAt), { addSuffix: true }),
+        message: r.message,
+        status: 'Delivered',
+      }));
+      setActiveReplyReview({
+        id: review._id,
+        guest: review.user.name || review.user.email || 'Guest',
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${review.user._id}`,
+        rating: review.rating,
+        date: formatDistanceToNowStrict(parseISO(review.createdAt), { addSuffix: true }),
+        property: review.property.title || 'Unknown Property',
+        comment: review.comment || '',
+        tags: [],
+        helpfulCount: helpful[review._id]?.count ?? 0,
+        isHelpful: helpful[review._id]?.isHelpful ?? false,
+        replies: [...(localReplies[review._id] ?? []), ...apiReplies],
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to load review replies.');
+    } finally {
+      setLoadingReplyId(null);
+    }
+  };
+
+  const handleSendReply = (reviewId: string, newReply: PrivateReply) => {
+    setLocalReplies(prev => ({ ...prev, [reviewId]: [newReply, ...(prev[reviewId] ?? [])] }));
+    setActiveReplyReview(prev => (prev && prev.id === reviewId ? { ...prev, replies: [newReply, ...prev.replies] } : prev));
   };
 
   return (
@@ -210,10 +268,46 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 mt-8 pt-6 border-t border-border-misrah/50">
-                        <Star size={14} className="text-muted-text/40" />
-                        <span className="text-[9px] font-black text-primary/40 uppercase tracking-widest">
-                          {review.repliesCount} {review.repliesCount === 1 ? 'reply' : 'replies'}
+                      {/* Interactive Action Bar: Helpful & Private Reply */}
+                      <div className="flex items-center justify-between gap-4 mt-8 pt-6 border-t border-border-misrah/50">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleHelpful(review._id)}
+                            className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-3.5 py-2 rounded-xl transition-all cursor-pointer select-none
+                              ${helpful[review._id]?.isHelpful
+                                ? 'bg-accent/15 text-accent border border-accent/30 scale-105 shadow-xs'
+                                : 'text-primary/60 hover:text-primary hover:bg-surface border border-transparent'}`}
+                          >
+                            <ThumbsUp size={14} className={helpful[review._id]?.isHelpful ? 'fill-current text-accent' : ''} />
+                            <span>Helpful ({helpful[review._id]?.count ?? 0})</span>
+                          </button>
+
+                          {(() => {
+                            const replyCount = review.repliesCount + (localReplies[review._id]?.length ?? 0);
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReply(review)}
+                                disabled={loadingReplyId === review._id}
+                                className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border transition-all cursor-pointer group/btn disabled:opacity-50
+                                  ${replyCount > 0
+                                    ? 'bg-surface/80 border-border-misrah text-primary hover:border-accent hover:text-accent'
+                                    : 'bg-white border-border-misrah text-primary/70 hover:text-primary hover:border-accent'}`}
+                              >
+                                {loadingReplyId === review._id ? (
+                                  <Loader2 size={14} className="animate-spin text-accent" />
+                                ) : (
+                                  <MessageCircle size={14} className="text-accent group-hover/btn:scale-110 transition-transform" />
+                                )}
+                                <span>{replyCount > 0 ? `Private Reply (${replyCount})` : 'Private Reply'}</span>
+                              </button>
+                            );
+                          })()}
+                        </div>
+
+                        <span className="text-[9px] font-mono text-muted-text/60 hidden sm:inline-block">
+                          Verified Guest
                         </span>
                       </div>
                     </div>
@@ -246,6 +340,15 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
           </div>
         </div>
       )}
+
+      {/* Private Reply Modal */}
+      <PrivateReplyModal
+        isOpen={Boolean(activeReplyReview)}
+        onClose={() => setActiveReplyReview(null)}
+        review={activeReplyReview}
+        user={user}
+        onSendReply={handleSendReply}
+      />
     </div>
   );
 };

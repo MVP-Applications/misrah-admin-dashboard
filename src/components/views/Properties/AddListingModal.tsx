@@ -328,8 +328,8 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col bg-[#FCFAF8]/30">
-          <div className="flex-1 p-12 overflow-y-auto scrollbar-hide max-h-[80vh]">
+        <div className="flex-1 flex flex-col bg-[#FCFAF8]/30 justify-between">
+          <div className="flex-1 p-12 overflow-y-auto scrollbar-hide max-h-[75vh]">
             <AnimatePresence mode="wait">
             {/* Step 0: Ownership */}
             {step === 0 && (
@@ -632,9 +632,11 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
           </AnimatePresence>
         </div>
 
-        <div className="p-8 pt-0 flex gap-4 w-full">
+        {/* Sticky Footer Navigation */}
+        <div className="p-8 pt-4 pb-8 flex gap-4 w-full bg-white border-t border-border-misrah/40 items-center">
             {step > 0 && (
                 <button
+                  type="button"
                   onClick={handleBack}
                   className="flex-1 py-5 rounded-[28px] border border-[#F2E8DF] text-[10px] font-black uppercase tracking-[2px] text-primary hover:bg-surface transition-all"
                 >
@@ -642,12 +644,16 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                 </button>
             )}
             <button
+              type="button"
               disabled={submitting || (step === 0 && !ownerSelection)}
               onClick={() => {
                 if (step === 6) handleSubmit();
                 else handleNext();
               }}
-              className="flex-[2] py-5 rounded-[28px] bg-primary text-accent text-[10px] font-black uppercase tracking-[2px] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
+              className={`flex-[2] py-5 rounded-[28px] text-[10px] font-black uppercase tracking-[2px] transition-all
+                ${(submitting || (step === 0 && !ownerSelection))
+                  ? 'bg-primary/30 text-white/50 cursor-not-allowed shadow-none'
+                  : 'bg-primary text-accent shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95'}`}
             >
               {step === 6 ? (submitting ? 'Syncing…' : 'Confirm & Sync') : 'Proceed'}
             </button>

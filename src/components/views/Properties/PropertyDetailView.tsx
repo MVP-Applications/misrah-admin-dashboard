@@ -13,12 +13,17 @@ import {
   ArrowUpRight,
   MoreVertical,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  UserCheck,
+  Radio
 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import type { HostAssignmentSelection } from '../../../features/properties/types';
 import { ReassignHostModal } from './ReassignHostModal';
+import { AuditDocsModal } from './AuditDocsModal';
+import { DirectIntelUplinkModal } from './DirectIntelUplinkModal';
+import { NodeProfileVerificationModal } from './NodeProfileVerificationModal';
 
 interface PropertyDetailViewProps {
   property: Property;
@@ -43,6 +48,11 @@ export const PropertyDetailView = ({
   const [formData, setFormData] = useState({ ...property });
   const [showSecondaryMenu, setShowSecondaryMenu] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [selectedAuditDocId, setSelectedAuditDocId] = useState<string | null>(null);
+  const [showIntelUplinkModal, setShowIntelUplinkModal] = useState(false);
+  const [uplinkInitialTab, setUplinkInitialTab] = useState<'uplink' | 'telemetry'>('uplink');
+  const [showNodeVerificationModal, setShowNodeVerificationModal] = useState(false);
 
   useEffect(() => {
     setFormData({ ...property });
@@ -400,24 +410,41 @@ export const PropertyDetailView = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Legal Compliance Archive</h4>
-                <button className="text-[10px] font-black text-accent uppercase tracking-widest hover:underline transition-all">Audit All Docs</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedAuditDocId(null);
+                    setShowAuditModal(true);
+                  }}
+                  className="text-[10px] font-black text-accent uppercase tracking-widest hover:underline transition-all flex items-center gap-1.5 group cursor-pointer"
+                >
+                  <ShieldCheck size={13} className="text-accent group-hover:scale-110 transition-transform" />
+                  <span>Audit All Docs</span>
+                </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  {[
-                   { label: 'Title Deed Registry', status: 'Legally Verified', icon: FileText },
-                   { label: 'Municipal License', status: 'Expires Q4 2026', icon: ShieldCheck },
-                   { label: 'Tourism Operator Permit', status: 'Active Node', icon: CheckCircle2 },
-                   { label: 'Asset Protection Policy', status: 'Elite Tier', icon: ShieldCheck },
+                   { id: 'title-deed', label: 'Title Deed Registry', status: 'Legally Verified', icon: FileText },
+                   { id: 'municipal-license', label: 'Municipal License', status: 'Expires Q4 2026', icon: ShieldCheck },
+                   { id: 'tourism-permit', label: 'Tourism Operator Permit', status: 'Active Node', icon: CheckCircle2 },
+                   { id: 'asset-protection', label: 'Asset Protection Policy', status: 'Elite Tier', icon: ShieldCheck },
                  ].map(doc => (
-                   <div key={doc.label} className="p-6 rounded-[28px] bg-white border border-border-misrah flex items-center gap-5 group hover:border-accent transition-all cursor-pointer shadow-sm">
+                   <div
+                     key={doc.label}
+                     onClick={() => {
+                       setSelectedAuditDocId(doc.id);
+                       setShowAuditModal(true);
+                     }}
+                     className="p-6 rounded-[28px] bg-white border border-border-misrah flex items-center gap-5 group hover:border-accent hover:shadow-md transition-all cursor-pointer shadow-sm"
+                   >
                       <div className="w-12 h-12 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-primary group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                         <doc.icon size={20} />
                       </div>
                       <div>
-                        <div className="text-sm font-black text-primary uppercase tracking-tight">{doc.label}</div>
+                        <div className="text-sm font-black text-primary uppercase tracking-tight group-hover:text-accent transition-colors">{doc.label}</div>
                         <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{doc.status}</div>
                       </div>
-                      <ArrowUpRight size={16} className="ml-auto text-muted-text group-hover:text-accent transition-all" />
+                      <ArrowUpRight size={16} className="ml-auto text-muted-text group-hover:text-accent group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
                    </div>
                  ))}
               </div>
@@ -443,12 +470,24 @@ export const PropertyDetailView = ({
                   </div>
 
                   <div className="pt-8 border-t border-border-misrah flex flex-col gap-3">
-                    <button className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg">Verify Node Profile</button>
                     <button
-                      onClick={() => setShowReassignModal(true)}
-                      className="w-full py-4 bg-white border border-border-misrah text-primary rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:bg-surface transition-all flex items-center justify-center gap-2"
+                      type="button"
+                      onClick={() => setShowNodeVerificationModal(true)}
+                      className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg flex items-center justify-center gap-2.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                     >
-                      <RefreshCw size={14} /> Reassign Node
+                      <UserCheck size={14} className="text-accent" />
+                      <span>Verify Node Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUplinkInitialTab('uplink');
+                        setShowIntelUplinkModal(true);
+                      }}
+                      className="w-full py-4 bg-white border border-border-misrah text-primary rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:bg-surface transition-all flex items-center justify-center gap-2.5 cursor-pointer group hover:border-accent hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      <Radio size={14} className="text-accent group-hover:animate-pulse" />
+                      <span>Direct Intel Uplink</span>
                     </button>
                   </div>
                 </div>
@@ -510,6 +549,35 @@ export const PropertyDetailView = ({
           </div>
         </div>
       </div>
+
+      {/* Compliance Audit Modal */}
+      <AuditDocsModal
+        isOpen={showAuditModal}
+        onClose={() => {
+          setShowAuditModal(false);
+          setSelectedAuditDocId(null);
+        }}
+        property={property}
+        user={user}
+        initialDocId={selectedAuditDocId}
+      />
+
+      {/* Direct Intel Uplink Modal */}
+      <DirectIntelUplinkModal
+        isOpen={showIntelUplinkModal}
+        onClose={() => setShowIntelUplinkModal(false)}
+        property={property}
+        user={user}
+        initialTab={uplinkInitialTab}
+      />
+
+      {/* Node Profile Verification Modal */}
+      <NodeProfileVerificationModal
+        isOpen={showNodeVerificationModal}
+        onClose={() => setShowNodeVerificationModal(false)}
+        property={property}
+        user={user}
+      />
 
       {showReassignModal && (
         <ReassignHostModal
