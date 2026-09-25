@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { formatDistanceToNowStrict, parseISO } from 'date-fns';
-import { Loader2, TriangleAlert } from 'lucide-react';
+import { format, formatDistanceToNowStrict, parseISO } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
+import { Loader2, TriangleAlert, Check, X, ArrowRight } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { listAuditLogs } from '../../features/auditLogs/api';
+import { approveAdminProperty, getAdminPropertyById } from '../../features/properties/api';
 import type { AuditAction, AuditLogEntry } from '../../features/auditLogs/types';
 
 type ActionFilter = 'all' | AuditAction;
@@ -37,13 +40,64 @@ function describeChanges(entry: AuditLogEntry): string {
   return `Changed: ${shown}${rest}`;
 }
 
+// Only a newly created Property can be approved from the feed — it's the one
+// audit entity with a real approve endpoint (PATCH /admin/properties/:id/approve).
+const isApprovableEntry = (entry: AuditLogEntry) =>
+  entry.action === 'create' && entry.entityType.toLowerCase() === 'property';
+
+// Where "Open" in the details modal should take you, by entity type.
+const ENTITY_ROUTES: Record<string, (id: string) => string> = {
+  property: (id) => `/admin/hosting/${id}`,
+  booking: () => '/bookings',
+  review: () => '/reviews',
+  banner: () => '/admin/banners',
+  propertycategory: () => '/admin/categories',
+};
+
+const formatValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
 export const NotificationsView = () => {
+  const navigate = useNavigate();
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [actionFilter, setActionFilter] = useState<ActionFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null);
+  // entityId → outcome, so the button reflects approvals done this session.
+  const [approvedIds, setApprovedIds] = useState<Record<string, 'approved' | 'not-pending'>>({});
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleQuickApprove = async (entry: AuditLogEntry) => {
+    setApprovingId(entry.entityId);
+    try {
+      // The feed entry may be stale — only approve if it's still pending.
+      const property = await getAdminPropertyById(entry.entityId);
+      if (property.status !== 'pending') {
+        setApprovedIds(prev => ({ ...prev, [entry.entityId]: 'not-pending' }));
+        showToast(`Property is already ${property.status}.`);
+        return;
+      }
+      await approveAdminProperty(entry.entityId);
+      setApprovedIds(prev => ({ ...prev, [entry.entityId]: 'approved' }));
+      showToast('Property approved successfully!');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to approve property.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   const fetchLogs = async (targetPage: number, action: ActionFilter) => {
     setIsLoading(true);
@@ -74,7 +128,22 @@ export const NotificationsView = () => {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-4xl">
+    <div className="space-y-8 animate-in fade-in duration-500 max-w-4xl relative">
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-8 right-8 z-[150] bg-primary text-white border border-accent/40 px-6 py-3.5 rounded-2xl shadow-luxury flex items-center gap-3 backdrop-blur-md"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
+            <span className="text-xs font-black uppercase tracking-wider">{toastMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-4xl font-black italic text-primary uppercase tracking-tighter">Activity Feed</h1>
@@ -139,6 +208,39 @@ export const NotificationsView = () => {
                       <p className="text-[9px] font-bold text-muted-text/50 uppercase tracking-widest pt-1">
                         By {entry.changedBy?.name || entry.changedBy?.email || 'System'}
                       </p>
+
+                      <div className="pt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedEntry(entry)}
+                          className="px-4 py-2 bg-[#FCFAF8] rounded-xl text-[9px] font-black uppercase tracking-wider text-primary hover:bg-accent hover:text-white transition-all cursor-pointer border border-border-misrah active:scale-95"
+                        >
+                          View Details
+                        </button>
+
+                        {isApprovableEntry(entry) && (
+                          approvedIds[entry.entityId] ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="px-4 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-2xs cursor-default"
+                            >
+                              <Check size={12} strokeWidth={3} />
+                              <span>{approvedIds[entry.entityId] === 'approved' ? 'Approved' : 'No Longer Pending'}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickApprove(entry)}
+                              disabled={approvingId === entry.entityId}
+                              className="px-4 py-2 bg-primary rounded-xl text-[9px] font-black uppercase tracking-wider text-accent hover:opacity-90 transition-all cursor-pointer shadow-xs active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              {approvingId === entry.entityId ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} strokeWidth={3} />}
+                              <span>Quick Approve</span>
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -169,6 +271,127 @@ export const NotificationsView = () => {
           )}
         </>
       )}
+
+      {/* Details Modal */}
+      <AnimatePresence>
+        {selectedEntry && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="w-full max-w-lg rounded-[36px] bg-white border border-border-misrah p-8 space-y-6 shadow-2xl relative max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-start justify-between border-b border-border-misrah/40 pb-4">
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-accent">
+                    {selectedEntry.entityType} · {selectedEntry.action}
+                  </span>
+                  <h3 className="text-xl font-black italic uppercase text-primary tracking-tight mt-0.5">
+                    {selectedEntry.entityType} {selectedEntry.action === 'create' ? 'Created' : selectedEntry.action === 'delete' ? 'Deleted' : 'Updated'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedEntry(null)}
+                  className="w-8 h-8 rounded-xl border border-border-misrah flex items-center justify-center text-muted-text hover:text-primary transition-all cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-muted-text leading-relaxed">{describeChanges(selectedEntry)}</p>
+
+                <div className="p-4 rounded-2xl bg-surface/60 border border-border-misrah space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-text font-bold">Record ID:</span>
+                    <span className="font-mono font-black text-primary truncate">{selectedEntry.entityId}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-text font-bold">Changed By:</span>
+                    <span className="font-black text-primary">{selectedEntry.changedBy?.name || selectedEntry.changedBy?.email || 'System'}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-text font-bold">When:</span>
+                    <span className="font-black text-primary">
+                      {format(parseISO(selectedEntry.changedAt), 'dd MMM yyyy, HH:mm')}
+                    </span>
+                  </div>
+                  {selectedEntry.metadata?.ip && (
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-muted-text font-bold">IP Address:</span>
+                      <span className="font-mono font-black text-primary">{selectedEntry.metadata.ip}</span>
+                    </div>
+                  )}
+                </div>
+
+                {selectedEntry.changes && Object.keys(selectedEntry.changes).length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-text">Field Changes</span>
+                    <div className="rounded-2xl border border-border-misrah divide-y divide-border-misrah/50 text-[11px]">
+                      {(Object.entries(selectedEntry.changes) as Array<[string, { old: unknown; new: unknown } | undefined]>).map(([field, change]) => (
+                        <div key={field} className="p-3 space-y-1">
+                          <div className="font-black text-primary uppercase tracking-tight">{field}</div>
+                          <div className="flex items-start gap-2 text-muted-text break-all">
+                            <span className="line-through opacity-70">{formatValue(change?.old)}</span>
+                            <ArrowRight size={12} className="shrink-0 mt-0.5 text-accent" />
+                            <span className="font-bold text-primary">{formatValue(change?.new)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center gap-3">
+                {isApprovableEntry(selectedEntry) && !approvedIds[selectedEntry.entityId] && (
+                  <button
+                    type="button"
+                    onClick={() => handleQuickApprove(selectedEntry)}
+                    disabled={approvingId === selectedEntry.entityId}
+                    className="flex-1 py-3 bg-primary text-accent rounded-xl text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+                  >
+                    {approvingId === selectedEntry.entityId ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={3} />}
+                    <span>Approve Property</span>
+                  </button>
+                )}
+
+                {isApprovableEntry(selectedEntry) && approvedIds[selectedEntry.entityId] && (
+                  <div className="flex-1 py-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5">
+                    <Check size={14} strokeWidth={3} />
+                    <span>{approvedIds[selectedEntry.entityId] === 'approved' ? 'Approved' : 'No Longer Pending'}</span>
+                  </div>
+                )}
+
+                {selectedEntry.action !== 'delete' && ENTITY_ROUTES[selectedEntry.entityType.toLowerCase()] && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const route = ENTITY_ROUTES[selectedEntry.entityType.toLowerCase()](selectedEntry.entityId);
+                      setSelectedEntry(null);
+                      navigate(route);
+                    }}
+                    className="px-4 py-3 rounded-xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Open</span>
+                    <ArrowRight size={13} />
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedEntry(null)}
+                  className="px-4 py-3 rounded-xl border border-border-misrah text-xs font-black uppercase tracking-wider text-muted-text hover:text-primary transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
@@ -118,6 +118,16 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
 
   useEffect(() => { refetch(); }, [refetch]);
   useEffect(() => { listActiveCities().then(setCities); }, []);
+
+  // ?city=<name> (e.g. from the Overview's Geo Hubs) pre-selects that city tab.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const cityParam = searchParams.get('city');
+  useEffect(() => {
+    if (!cityParam || cities.length === 0) return;
+    const match = cities.find(c => c.name.toLowerCase() === cityParam.toLowerCase());
+    if (match) setSelectedCityId(match._id);
+    setSearchParams(prev => { prev.delete('city'); return prev; }, { replace: true });
+  }, [cityParam, cities, setSearchParams]);
 
   const {
     addProperty,

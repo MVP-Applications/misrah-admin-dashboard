@@ -296,8 +296,12 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                 <h2 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">Ledger</h2>
                 <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-1.5">Asset Protocol History</p>
               </div>
-              <button className="w-12 h-12 rounded-2xl bg-white border border-border-misrah flex items-center justify-center text-primary hover:border-accent hover:shadow-lg transition-all shadow-sm">
-                <Filter size={20} />
+              <button
+                onClick={() => setIsHistoryOpen(true)}
+                title="Filter & Audit Full Ledger"
+                className="w-12 h-12 rounded-2xl bg-white border border-border-misrah flex items-center justify-center text-primary hover:border-accent hover:shadow-lg transition-all shadow-sm group"
+              >
+                <Filter size={20} className="group-hover:text-accent transition-colors" />
               </button>
            </div>
 

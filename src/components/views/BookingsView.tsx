@@ -46,6 +46,7 @@ import {
 import type { ExperienceBookingDetail, ExperienceBookingListItem } from '../../features/experienceBookings/types';
 import { listBookingStatuses, listExperienceBookingStatuses } from '../../features/enums/api';
 import type { EnumOption } from '../../api/types';
+import { GuestContactModals } from './GuestContactModals';
 
 interface BookingsViewProps {
   user: User;
@@ -80,6 +81,9 @@ function toDetailAvatar(detail: BookingDetail): string {
 
 export const BookingsView = ({ user }: BookingsViewProps) => {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  // Message & Call modals (GuestContactModals) — shared by stay and experience details.
+  const [isMessageOpen, setIsMessageOpen] = useState(false);
+  const [isCallOpen, setIsCallOpen] = useState(false);
   const [bookingDetail, setBookingDetail] = useState<BookingDetail | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -583,6 +587,26 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                   </div>
                 </div>
               </div>
+              <div className="relative z-10 mt-8">
+                <div className="grid grid-cols-2 gap-4 w-full">
+                    <button
+                      type="button"
+                      onClick={() => setIsMessageOpen(true)}
+                      className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
+                    >
+                      <MessageSquare size={18} className="text-[#D4C3B5]" />
+                      <span className="text-[10px] font-black uppercase tracking-[2px]">Message</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsCallOpen(true)}
+                      className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
+                    >
+                      <Phone size={18} className="text-[#D4C3B5]" />
+                      <span className="text-[10px] font-black uppercase tracking-[2px]">Call</span>
+                    </button>
+                  </div>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -819,6 +843,21 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
             </div>
           </div>
         )}
+
+        {detail && (
+          <GuestContactModals
+            contact={{
+              name: guestName,
+              phone: guestPhone,
+              avatar: guestAvatar,
+              subtitle: `${detail.experienceSnapshot.title} · Ref: ${detail._id.slice(-8).toUpperCase()}`,
+            }}
+            isMessageOpen={isMessageOpen}
+            isCallOpen={isCallOpen}
+            onCloseMessage={() => setIsMessageOpen(false)}
+            onCloseCall={() => setIsCallOpen(false)}
+          />
+        )}
       </div>
     );
   }
@@ -874,25 +913,23 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 w-full">
-                  <a
-                    href={
-                      bookingDetail.traveler?.phoneNumber || bookingDetail.contact?.phone
-                        ? `tel:${bookingDetail.traveler?.phoneNumber ?? bookingDetail.contact?.phone}`
-                        : undefined
-                    }
-                    aria-disabled={!(bookingDetail.traveler?.phoneNumber || bookingDetail.contact?.phone)}
-                    onClick={(e) => {
-                      if (!(bookingDetail.traveler?.phoneNumber || bookingDetail.contact?.phone)) e.preventDefault();
-                    }}
-                    className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 col-span-2"
+                  <button
+                    type="button"
+                    onClick={() => setIsMessageOpen(true)}
+                    className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
+                  >
+                    <MessageSquare size={18} className="text-[#D4C3B5]" />
+                    <span className="text-[10px] font-black uppercase tracking-[2px]">Message</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCallOpen(true)}
+                    className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
                   >
                     <Phone size={18} className="text-[#D4C3B5]" />
-                    <span className="text-[10px] font-black uppercase tracking-[2px]">Call Guest</span>
-                  </a>
+                    <span className="text-[10px] font-black uppercase tracking-[2px]">Call</span>
+                  </button>
                 </div>
-                <p className="mt-3 text-[9px] font-bold text-white/30 uppercase tracking-[1.5px]">
-                  Messaging isn't wired up yet — coming soon.
-                </p>
               </div>
             </div>
 
@@ -963,6 +1000,21 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               </button>
             )}
           </>
+        )}
+
+        {bookingDetail && (
+          <GuestContactModals
+            contact={{
+              name: bookingDetail.traveler?.name ?? bookingDetail.contact?.name ?? 'Guest',
+              phone: bookingDetail.traveler?.phoneNumber ?? bookingDetail.contact?.phone,
+              avatar: toDetailAvatar(bookingDetail),
+              subtitle: `${bookingDetail.propertySnapshot.title} · Ref: ${bookingDetail._id.slice(-8).toUpperCase()}`,
+            }}
+            isMessageOpen={isMessageOpen}
+            isCallOpen={isCallOpen}
+            onCloseMessage={() => setIsMessageOpen(false)}
+            onCloseCall={() => setIsCallOpen(false)}
+          />
         )}
       </div>
     );
