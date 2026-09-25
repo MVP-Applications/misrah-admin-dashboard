@@ -24,6 +24,67 @@
   }
 }
 
+:root.dark, html.dark, body.dark, .dark {
+  --color-primary: #1c2033;
+  --color-surface: #0a0c13;
+  --color-border-misrah: #232738;
+  --color-muted-text: #94a3b8;
+  color-scheme: dark;
+}
+
+html.dark aside,
+.dark aside {
+  background-color: #0b0d14 !important;
+  color: #ffffff !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark body, body.dark {
+  background-color: #0a0c13 !important;
+  color: #f8fafc !important;
+}
+
+html.dark #root, .dark #root {
+  background-color: #0a0c13 !important;
+  color: #f8fafc !important;
+}
+
+html.dark main, .dark main {
+  background-color: #0a0c13 !important;
+}
+
+html.dark header, .dark header {
+  background-color: rgba(14, 17, 26, 0.85) !important;
+  border-color: #232738 !important;
+}
+
+html.dark .bg-white, .dark .bg-white {
+  background-color: #141724 !important;
+}
+
+html.dark .border-border-misrah, .dark .border-border-misrah,
+html.dark .border-\[\#F2E8DF\], .dark .border-\[\#F2E8DF\] {
+  border-color: #232738 !important;
+}
+
+html.dark .text-primary, .dark .text-primary {
+  color: #f8fafc !important;
+}
+
+html.dark .text-muted-text, .dark .text-muted-text {
+  color: #94a3b8 !important;
+}
+
+html.dark .bg-surface, .dark .bg-surface {
+  background-color: #0a0c13 !important;
+}
+
+html.dark input, .dark input {
+  background-color: #10131e !important;
+  color: #f8fafc !important;
+  border-color: #232738 !important;
+}
+
 .shadow-luxury {
   box-shadow: 0 8px 32px rgba(26, 26, 46, 0.08);
 }

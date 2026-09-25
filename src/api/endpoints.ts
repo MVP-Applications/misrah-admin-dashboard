@@ -153,7 +153,13 @@ export const API_ENDPOINTS = {
   // requested directly by the team. No `/admin` prefix, mirroring
   // property-categories' plain JWT-guarded convention.
   experienceCategories: {
+    // GET = active categories only (dropdowns); POST = create. Both in the
+    // live OpenAPI spec (misra-test /api-json), as are the routes below.
     adminAll: '/experience-categories',
+    // Paginated, includes inactive — page/limit/search/isActive query params.
+    adminList: '/experience-categories/admin/all',
+    // GET one / PATCH / DELETE (soft delete).
+    adminById: (id: string) => `/experience-categories/${id}`,
   },
   // Distinct from `experiences` above (the catalog/product records) — this
   // is the guest reservation record for one. See features/experienceBookings/types.ts.

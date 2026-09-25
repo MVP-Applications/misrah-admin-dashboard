@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Edit, Trash2, Upload, X, Loader2, TriangleAlert, Users2, ImageOff } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, X, Loader2, TriangleAlert, Users2, ImageOff, Sparkles, Home } from 'lucide-react';
 import {
   listCategories,
   createCategory,
@@ -11,6 +11,7 @@ import {
 import { uploadFile } from '../../../features/properties/api';
 import type { ApiCategory } from '../../../features/categories/types';
 import { ManageCategoryPropertiesModal } from './ManageCategoryPropertiesModal';
+import { ExperienceCategoriesTab } from './ExperienceCategoriesTab';
 
 // Confirmed from misra-api-nest/src/database/seeds/property-category.seeder.ts:
 // every real seeded category's iconName is a lowercase, hyphenated slug of
@@ -32,6 +33,12 @@ interface CategoryFormState {
 const EMPTY_FORM: CategoryFormState = { nameEn: '', nameAr: '', iconUrl: '' };
 
 export const CategoriesModule = () => {
+  // 'property' = property (asset) categories, 'experience' = experience categories.
+  const [activeTab, setActiveTab] = useState<'property' | 'experience'>('experience');
+  const [experienceCount, setExperienceCount] = useState<number | null>(null);
+  // Bumped by the header button to open the experience tab's create modal.
+  const [experienceCreateRequest, setExperienceCreateRequest] = useState(0);
+
   const [categories, setCategories] = useState<ApiCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -162,18 +169,61 @@ export const CategoriesModule = () => {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
-      <header className="flex items-end justify-between">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">Asset Categories</h1>
-          <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">Classification Framework & Inventory Grouping</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-3 py-0.5 rounded-full bg-accent/20 text-accent text-[10px] font-black uppercase tracking-wider">
+              Classification Framework
+            </span>
+            <span className="text-xs font-bold text-muted-text">تصنيف وتجميع الأصول والأنشطة</span>
+          </div>
+          <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tight leading-none">
+            Category Manager
+          </h1>
+          <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">
+            {activeTab === 'experience'
+              ? `Manage Experience Categories (${experienceCount ?? 0} classifications)`
+              : `Manage Retreat & Property Categories (${categories.length} classifications)`}
+          </p>
         </div>
         <button
-          onClick={handleAddItem}
+          onClick={activeTab === 'experience' ? () => setExperienceCreateRequest(n => n + 1) : handleAddItem}
           className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
         >
-          <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Register Category
+          <Plus size={16} className="group-hover:rotate-90 transition-transform" />
+          {activeTab === 'experience' ? 'Register Experience Category' : 'Register Category'}
         </button>
       </header>
+
+      {/* Tab Switcher: Property Categories vs Experience Categories */}
+      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
+        <button
+          type="button"
+          onClick={() => setActiveTab('experience')}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'experience' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+          }`}
+        >
+          <Sparkles size={14} />
+          <span>Experience Categories{experienceCount !== null ? ` (${experienceCount})` : ''}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('property')}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'property' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+          }`}
+        >
+          <Home size={14} />
+          <span>Property Categories ({categories.length})</span>
+        </button>
+      </div>
+
+      {activeTab === 'experience' && (
+        <ExperienceCategoriesTab createRequest={experienceCreateRequest} onCountChange={setExperienceCount} />
+      )}
+
+      {activeTab === 'property' && (<>
 
       {actionError && (
         <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
@@ -258,6 +308,7 @@ export const CategoriesModule = () => {
           </AnimatePresence>
         </div>
       )}
+      </>)}
 
       <AnimatePresence>
         {isModalOpen && (

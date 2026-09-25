@@ -84,9 +84,10 @@ function to12HourTime(raw: string): string {
 }
 
 // The edit form only manages a subset of the full experience record (no UI
-// for categoryId/propertyId/images/inclusions/whatToBring/license) — since
-// PATCH is partial (UpdateExperienceRequest = Partial<...>), only send the
-// fields the form actually edits and let the backend leave the rest as-is.
+// for categoryId/images/license) — since PATCH is partial
+// (UpdateExperienceRequest = Partial<...>), only send the fields the form
+// actually edits and let the backend leave the rest as-is. propertyIds is
+// added by handleSaveEdit only when the assigned property was changed.
 function activityToUpdateRequest(activity: ActivityExperience): UpdateExperienceRequest {
   return {
     title: activity.title,
@@ -97,6 +98,8 @@ function activityToUpdateRequest(activity: ActivityExperience): UpdateExperience
     minGuests: activity.minGuests,
     maxGuests: activity.maxGuests,
     description: activity.description,
+    inclusions: activity.included || [],
+    whatToBring: activity.whatToBring || [],
     timeSlots: (activity.timeSlots || []).map(to12HourTime),
     addOns: (activity.addons || []).map(addon => ({
       title: addon.title,
@@ -176,6 +179,12 @@ export const ExperiencesView = ({
   const [addExperienceError, setAddExperienceError] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<{ propertyId: string; activity: ActivityExperience } | null>(null);
   const [isLoadingEditDetail, setIsLoadingEditDetail] = useState(false);
+  // Full propertyIds of the experience being edited — the view-model only
+  // keeps the first, and changing it must not drop any other linked properties.
+  const [editPropertyIds, setEditPropertyIds] = useState<string[]>([]);
+  // Edit Activity Inclusions & What To Bring inputs
+  const [newEditInclusion, setNewEditInclusion] = useState('');
+  const [newEditWhatToBring, setNewEditWhatToBring] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null);
@@ -350,12 +359,16 @@ export const ExperiencesView = ({
   // and surfaces a soft warning rather than blocking the edit.
   const openEditModal = async (exp: ExperienceRow) => {
     setEditingActivity({ propertyId: exp.propertyId, activity: exp });
+    setEditPropertyIds(exp.propertyId ? [exp.propertyId] : []);
+    setNewEditInclusion('');
+    setNewEditWhatToBring('');
     setEditError(null);
     setIsLoadingEditDetail(true);
     try {
       const detail = await getAdminExperienceById(exp.id);
       const mapped = apiExperienceToViewModel(detail);
       setEditingActivity({ propertyId: mapped.propertyId, activity: mapped });
+      setEditPropertyIds(detail.propertyIds || (mapped.propertyId ? [mapped.propertyId] : []));
     } catch (err: any) {
       setEditError(err?.message || 'Could not load the latest details — showing cached data.');
     } finally {
@@ -371,7 +384,17 @@ export const ExperiencesView = ({
     setIsSavingEdit(true);
     setEditError(null);
     try {
-      await updateAdminExperience(editingActivity.activity.id, activityToUpdateRequest(editingActivity.activity));
+      const payload = activityToUpdateRequest(editingActivity.activity);
+      const originalPropertyId = editingActivity.propertyId;
+      const newPropertyId = editingActivity.activity.propertyId;
+      if (newPropertyId && newPropertyId !== originalPropertyId) {
+        // Swap the primary property, keep every other linked one.
+        payload.propertyIds = [
+          newPropertyId,
+          ...editPropertyIds.filter(id => id !== originalPropertyId && id !== newPropertyId),
+        ];
+      }
+      await updateAdminExperience(editingActivity.activity.id, payload);
       setEditingActivity(null);
       await fetchExperiences(page);
     } catch (err: any) {
@@ -592,6 +615,63 @@ export const ExperiencesView = ({
       addons: getSuggestedAddons(prev.categoryId)
     }));
   };
+
+  // Inclusions helpers for Edit Modal
+  const handleAddInclusionToEdit = (text: string) => {
+    const trimmed = text.trim();
+    if (!editingActivity || !trimmed) return;
+    const currentList = editingActivity.activity.included || [];
+    if (currentList.includes(trimmed)) return;
+    setEditingActivity({
+      ...editingActivity,
+      activity: {
+        ...editingActivity.activity,
+        included: [...currentList, trimmed]
+      }
+    });
+    setNewEditInclusion('');
+  };
+
+  const handleRemoveInclusionFromEdit = (indexToRemove: number) => {
+    if (!editingActivity) return;
+    const currentList = editingActivity.activity.included || [];
+    setEditingActivity({
+      ...editingActivity,
+      activity: {
+        ...editingActivity.activity,
+        included: currentList.filter((_, idx) => idx !== indexToRemove)
+      }
+    });
+  };
+
+  // What to Bring helpers for Edit Modal
+  const handleAddWhatToBringToEdit = (text: string) => {
+    const trimmed = text.trim();
+    if (!editingActivity || !trimmed) return;
+    const currentList = editingActivity.activity.whatToBring || [];
+    if (currentList.includes(trimmed)) return;
+    setEditingActivity({
+      ...editingActivity,
+      activity: {
+        ...editingActivity.activity,
+        whatToBring: [...currentList, trimmed]
+      }
+    });
+    setNewEditWhatToBring('');
+  };
+
+  const handleRemoveWhatToBringFromEdit = (indexToRemove: number) => {
+    if (!editingActivity) return;
+    const currentList = editingActivity.activity.whatToBring || [];
+    setEditingActivity({
+      ...editingActivity,
+      activity: {
+        ...editingActivity.activity,
+        whatToBring: currentList.filter((_, idx) => idx !== indexToRemove)
+      }
+    });
+  };
+
 
   // Add-on helpers for Edit Experience Modal
   const handleAddonToEditActivity = () => {
@@ -1916,6 +1996,56 @@ export const ExperiencesView = ({
               )}
 
               <form onSubmit={handleSaveEdit} className="space-y-4">
+                {/* Property Assignment */}
+                <div className="p-4 rounded-2xl bg-surface border border-border-misrah space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-accent/20 text-accent flex items-center justify-center shrink-0">
+                        <Building2 size={20} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-muted-text">
+                          Assigned Retreat Property *
+                        </div>
+                        <div className="text-xs font-black text-primary">
+                          {editingActivity.activity.propertyName || realProperties.find(p => p._id === editingActivity.propertyId)?.title || 'Select Property'}
+                        </div>
+                      </div>
+                    </div>
+                    <select
+                      value={editingActivity.activity.propertyId || editingActivity.propertyId}
+                      onChange={e => {
+                        const selP = realProperties.find(p => p._id === e.target.value);
+                        setEditingActivity({
+                          ...editingActivity,
+                          activity: {
+                            ...editingActivity.activity,
+                            propertyId: e.target.value,
+                            propertyName: selP?.title || editingActivity.activity.propertyName,
+                          }
+                        });
+                      }}
+                      className="p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent min-w-[200px] cursor-pointer"
+                    >
+                      {!editingActivity.activity.propertyId && <option value="">Select Property</option>}
+                      {/* Keep the current property selectable even if it isn't in the first 100 loaded. */}
+                      {editingActivity.activity.propertyId && !realProperties.some(p => p._id === editingActivity.activity.propertyId) && (
+                        <option value={editingActivity.activity.propertyId}>{editingActivity.activity.propertyName}</option>
+                      )}
+                      {realProperties.map(p => (
+                        <option key={p._id} value={p._id}>
+                          {p.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editPropertyIds.length > 1 && (
+                    <p className="text-[10px] text-muted-text font-bold">
+                      Also linked to {editPropertyIds.length - 1} other {editPropertyIds.length === 2 ? 'property' : 'properties'} — those stay linked.
+                    </p>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1">Title (EN)</label>
@@ -2029,6 +2159,158 @@ export const ExperiencesView = ({
                     <option value="Draft">Draft</option>
                     <option value="SoldOut">Sold Out</option>
                   </select>
+                </div>
+
+                {/* Inclusions Management */}
+                <div className="p-4 rounded-2xl bg-[#F8F9FA] border border-border-misrah space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 size={14} className="text-emerald-600" />
+                      <span className="text-xs font-black uppercase text-primary">
+                        Experience Inclusions ({(editingActivity.activity.included || []).length})
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-text font-bold">المزايا المشمولة</span>
+                  </div>
+
+                  {/* Existing Inclusions chips */}
+                  <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-white rounded-xl border border-border-misrah">
+                    {(!editingActivity.activity.included || editingActivity.activity.included.length === 0) ? (
+                      <span className="text-xs text-muted-text/70 italic self-center">No inclusions added yet.</span>
+                    ) : (
+                      editingActivity.activity.included.map((inc, i) => (
+                        <span 
+                          key={i} 
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold"
+                        >
+                          <span>{inc}</span>
+                          <button 
+                            type="button" 
+                            onClick={() => handleRemoveInclusionFromEdit(i)}
+                            className="hover:text-danger cursor-pointer ml-0.5"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Add Inclusion Input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Add an inclusion (e.g. 5-Course Tasting Menu, Dedicated Chef)"
+                      value={newEditInclusion}
+                      onChange={e => setNewEditInclusion(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddInclusionToEdit(newEditInclusion);
+                        }
+                      }}
+                      className="flex-1 p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddInclusionToEdit(newEditInclusion)}
+                      disabled={!newEditInclusion.trim()}
+                      className="px-4 py-2 bg-primary text-accent rounded-xl text-xs font-black uppercase disabled:opacity-40 cursor-pointer"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  {/* Quick Suggestions */}
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-muted-text self-center mr-1">Quick Add:</span>
+                    {['Private Chef & Service', 'Welcome Mocktails', 'Safety Gear & Lifevests', 'Tasting Platter', 'Kitchen Cleanup', 'Dedicated Guide'].map(sug => (
+                      <button
+                        key={sug}
+                        type="button"
+                        onClick={() => handleAddInclusionToEdit(sug)}
+                        className="px-2 py-1 rounded-lg bg-white border border-border-misrah hover:border-accent text-[10px] font-bold text-muted-text hover:text-primary cursor-pointer"
+                      >
+                        + {sug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* What To Bring Management */}
+                <div className="p-4 rounded-2xl bg-[#F8F9FA] border border-border-misrah space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <AlertCircle size={14} className="text-accent" />
+                      <span className="text-xs font-black uppercase text-primary">
+                        What To Bring ({(editingActivity.activity.whatToBring || []).length})
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-text font-bold">ما يجب إحضاره</span>
+                  </div>
+
+                  {/* Existing What to Bring chips */}
+                  <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-white rounded-xl border border-border-misrah">
+                    {(!editingActivity.activity.whatToBring || editingActivity.activity.whatToBring.length === 0) ? (
+                      <span className="text-xs text-muted-text/70 italic self-center">No items required.</span>
+                    ) : (
+                      editingActivity.activity.whatToBring.map((wtb, i) => (
+                        <span 
+                          key={i} 
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold"
+                        >
+                          <span>{wtb}</span>
+                          <button 
+                            type="button" 
+                            onClick={() => handleRemoveWhatToBringFromEdit(i)}
+                            className="hover:text-danger cursor-pointer ml-0.5"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Add What to Bring Input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Add an item (e.g. Valid Emirates ID / Passport, Comfortable footwear)"
+                      value={newEditWhatToBring}
+                      onChange={e => setNewEditWhatToBring(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddWhatToBringToEdit(newEditWhatToBring);
+                        }
+                      }}
+                      className="flex-1 p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddWhatToBringToEdit(newEditWhatToBring)}
+                      disabled={!newEditWhatToBring.trim()}
+                      className="px-4 py-2 bg-primary text-accent rounded-xl text-xs font-black uppercase disabled:opacity-40 cursor-pointer"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  {/* Quick Suggestions */}
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-muted-text self-center mr-1">Quick Add:</span>
+                    {['Valid Emirates ID / Passport', 'Comfortable Shoes', 'Swimwear & Towel', 'Sunscreen & Shades', 'Camera', 'Warm Jacket'].map(sug => (
+                      <button
+                        key={sug}
+                        type="button"
+                        onClick={() => handleAddWhatToBringToEdit(sug)}
+                        className="px-2 py-1 rounded-lg bg-white border border-border-misrah hover:border-accent text-[10px] font-bold text-muted-text hover:text-primary cursor-pointer"
+                      >
+                        + {sug}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Available Time Slots Management in Edit Modal */}
