@@ -17,6 +17,9 @@ export interface ActivityAddon {
 
 export interface ActivityExperience {
   id: string;
+  // Admin approval status from the API (PENDING / APPROVED / REJECTED) —
+  // separate from `status` below, which is the Active/Paused listing state.
+  approvalStatus?: string;
   propertyId: string;
   propertyName?: string;
   hostId: string;

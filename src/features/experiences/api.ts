@@ -55,6 +55,16 @@ export async function deleteAdminExperience(id: string): Promise<void> {
   await apiClient.delete(API_ENDPOINTS.experiences.adminById(id));
 }
 
+// PATCH /admin/experiences/{id}/approve and /reject — moderation of a
+// PENDING listing. Response bodies aren't relied on; callers refetch.
+export async function approveAdminExperience(id: string): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.experiences.adminApprove(id));
+}
+
+export async function rejectAdminExperience(id: string, reason?: string): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.experiences.adminReject(id), reason ? { reason } : {});
+}
+
 // GET /experience-categories — a distinct collection from the property
 // categories in features/categories/ (see API_ENDPOINTS.experienceCategories).
 export async function listExperienceCategories(): Promise<ListExperienceCategoriesResponse> {

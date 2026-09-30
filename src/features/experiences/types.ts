@@ -30,12 +30,14 @@ export interface ListExperiencesParams {
   limit?: number;
   search?: string;
   categoryId?: string;
-  // UNCONFIRMED accepted values — this app sends the same Active/Draft/
-  // Paused/Sold Out labels ApiExperienceListItem.isActive is mapped to/from
-  // elsewhere in this app (see mappers.ts), not a value captured from a
-  // real request.
-  status?: string;
+  // Approval status filter — enum from the live OpenAPI spec
+  // (GET /admin/experiences `status`: PENDING | APPROVED | REJECTED).
+  status?: ExperienceApprovalStatus;
+  // Active/inactive filter — `isActive` query param in the live OpenAPI spec.
+  isActive?: boolean;
 }
+
+export type ExperienceApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export type ExperiencePricingModel = 'fixed' | 'per_person' | 'hourly';
 
@@ -83,6 +85,9 @@ export interface ApiExperienceListItem {
   minGuests: number;
   maxGuests: number;
   isActive?: boolean;
+  // Approval status (PENDING / APPROVED / REJECTED) — the same values the
+  // list's `status` filter takes. Field name on the record assumed to match.
+  status?: string;
   timeSlots?: string[];
   inclusions?: string[];
   whatToBring?: string[];

@@ -25,7 +25,8 @@ import {
   MapPin,
   Check,
   ChevronLeft,
-  Loader2
+  Loader2,
+  Ban
 } from 'lucide-react';
 import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
 import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
@@ -36,6 +37,8 @@ import {
   assignExperienceToProperties,
   createAdminExperience,
   deleteAdminExperience,
+  approveAdminExperience,
+  rejectAdminExperience,
   getAdminExperienceById,
   listAdminCreatedExperiences,
   listAdminExperiences,
@@ -46,6 +49,7 @@ import { apiExperienceToViewModel, ExperienceRow } from '../../features/experien
 import type {
   AdminCreatedExperience,
   ApiExperienceCategory,
+  ExperienceApprovalStatus,
   ExperiencePricingModel,
   UpdateExperienceRequest,
 } from '../../features/experiences/types';
@@ -112,6 +116,20 @@ function activityToUpdateRequest(activity: ActivityExperience): UpdateExperience
   };
 }
 
+const APPROVAL_TABS: { key: ExperienceApprovalStatus; label: string }[] = [
+  { key: 'PENDING', label: 'Pending' },
+  { key: 'APPROVED', label: 'Approved' },
+  { key: 'REJECTED', label: 'Rejected' },
+];
+
+function approvalBadgeClass(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'APPROVED': return 'bg-emerald-500/90 text-white';
+    case 'REJECTED': return 'bg-rose-500/90 text-white';
+    default: return 'bg-amber-400/90 text-primary';
+  }
+}
+
 interface ExperiencesViewProps {
   user: User;
 }
@@ -122,7 +140,20 @@ export const ExperiencesView = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  // 'all' | 'active' | 'inactive' — sent as GET /admin/experiences?isActive=.
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  // Admin approval tabs — sent as GET /admin/experiences?status=.
+  const [approvalTab, setApprovalTab] = useState<ExperienceApprovalStatus>('PENDING');
+  // Approve / reject (PATCH /admin/experiences/{id}/approve|reject)
+  const [moderatingId, setModeratingId] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; title: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [moderationToast, setModerationToast] = useState<{ message: string; isError?: boolean } | null>(null);
+  const showModerationToast = (message: string, isError = false) => {
+    setModerationToast({ message, isError });
+    setTimeout(() => setModerationToast(null), 3500);
+  };
   const [selectedPropertyFilter, setSelectedPropertyFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
@@ -143,7 +174,7 @@ export const ExperiencesView = ({
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, selectedCategory]);
+  }, [debouncedSearch, selectedCategory, approvalTab, selectedStatus]);
 
   const fetchExperiences = useCallback(
     (pageToLoad: number) => {
@@ -154,6 +185,8 @@ export const ExperiencesView = ({
         limit: EXPERIENCES_PAGE_SIZE,
         search: debouncedSearch || undefined,
         categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+        status: user.role === 'admin' ? approvalTab : undefined,
+        isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
       })
         .then((res) => {
           setExperiences(res.data.map(apiExperienceToViewModel));
@@ -166,7 +199,7 @@ export const ExperiencesView = ({
         })
         .finally(() => setIsLoadingExperiences(false));
     },
-    [debouncedSearch, selectedCategory],
+    [debouncedSearch, selectedCategory, approvalTab, selectedStatus, user.role],
   );
 
   useEffect(() => {
@@ -291,7 +324,6 @@ export const ExperiencesView = ({
   // not backend query params here, so they're refined client-side on top of
   // whatever page is currently loaded.
   const filteredExperiences = experiences.filter(exp => {
-    if (selectedStatus !== 'all' && exp.status !== selectedStatus) return false;
     if (selectedPropertyFilter !== 'all' && exp.propertyId !== selectedPropertyFilter) return false;
     return true;
   });
@@ -357,6 +389,41 @@ export const ExperiencesView = ({
   // already-known list row (instant UI), then swaps in the canonical
   // fetched record once it lands; a fetch failure just keeps the list data
   // and surfaces a soft warning rather than blocking the edit.
+  const handleApproveExperience = async (id: string, title: string) => {
+    setModeratingId(id);
+    try {
+      await approveAdminExperience(id);
+      showModerationToast(`"${title}" approved`);
+      await fetchExperiences(page);
+    } catch (err: any) {
+      showModerationToast(err?.message || 'Failed to approve this experience.', true);
+    } finally {
+      setModeratingId(null);
+    }
+  };
+
+  const openRejectModal = (id: string, title: string) => {
+    setRejectTarget({ id, title });
+    setRejectReason('');
+    setRejectError(null);
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectTarget) return;
+    setModeratingId(rejectTarget.id);
+    setRejectError(null);
+    try {
+      await rejectAdminExperience(rejectTarget.id, rejectReason.trim() || undefined);
+      showModerationToast(`"${rejectTarget.title}" rejected`);
+      setRejectTarget(null);
+      await fetchExperiences(page);
+    } catch (err: any) {
+      setRejectError(err?.message || 'Failed to reject this experience.');
+    } finally {
+      setModeratingId(null);
+    }
+  };
+
   const openEditModal = async (exp: ExperienceRow) => {
     setEditingActivity({ propertyId: exp.propertyId, activity: exp });
     setEditPropertyIds(exp.propertyId ? [exp.propertyId] : []);
@@ -745,6 +812,23 @@ export const ExperiencesView = ({
         </div>
       </div>
 
+      {/* Approval Status Tabs (admin) */}
+      {user.role === 'admin' && (
+        <div className="flex bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm w-fit">
+          {APPROVAL_TABS.map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setApprovalTab(tab.key)}
+              className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all
+                ${approvalTab === tab.key ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/60 hover:text-primary'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* KPI Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-[28px] border border-border-misrah shadow-xs space-y-2">
@@ -813,13 +897,12 @@ export const ExperiencesView = ({
             {/* Status Filter */}
             <select
               value={selectedStatus}
-              onChange={e => setSelectedStatus(e.target.value)}
+              onChange={e => setSelectedStatus(e.target.value as 'all' | 'active' | 'inactive')}
               className="py-3 px-4 bg-surface border border-border-misrah rounded-2xl text-xs font-bold text-primary outline-none focus:border-accent"
             >
               <option value="all">All Statuses</option>
-              <option value="Active">Active</option>
-              <option value="Paused">Paused</option>
-              <option value="Draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
 
             {/* View Toggle */}
@@ -932,6 +1015,11 @@ export const ExperiencesView = ({
                     <span>{exp.categoryEmoji}</span>
                     <span>{exp.categoryName}</span>
                   </span>
+                  {exp.approvalStatus && (
+                    <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-xs ${approvalBadgeClass(exp.approvalStatus)}`}>
+                      {exp.approvalStatus}
+                    </span>
+                  )}
                 </div>
 
                 <div className="absolute top-3 right-3">
@@ -1010,6 +1098,28 @@ export const ExperiencesView = ({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {user.role === 'admin' && exp.approvalStatus?.toUpperCase() !== 'APPROVED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveExperience(exp.id, exp.title)}
+                        disabled={moderatingId === exp.id}
+                        className="w-9 h-9 rounded-xl bg-emerald-500/10 hover:bg-emerald-500 text-emerald-600 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                        title="Approve Experience"
+                      >
+                        {moderatingId === exp.id ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                      </button>
+                    )}
+                    {user.role === 'admin' && exp.approvalStatus?.toUpperCase() !== 'REJECTED' && (
+                      <button
+                        type="button"
+                        onClick={() => openRejectModal(exp.id, exp.title)}
+                        disabled={moderatingId === exp.id}
+                        className="w-9 h-9 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                        title="Reject Experience"
+                      >
+                        <Ban size={15} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openEditModal(exp)}
@@ -1101,9 +1211,36 @@ export const ExperiencesView = ({
                       >
                         {togglingStatusId === exp.id ? '…' : exp.status}
                       </button>
+                      {exp.approvalStatus && (
+                        <span className={`ml-1.5 px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider ${approvalBadgeClass(exp.approvalStatus)}`}>
+                          {exp.approvalStatus}
+                        </span>
+                      )}
                     </td>
                     <td className="p-4 pr-6 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {user.role === 'admin' && exp.approvalStatus?.toUpperCase() !== 'APPROVED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveExperience(exp.id, exp.title)}
+                        disabled={moderatingId === exp.id}
+                        className="w-8 h-8 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-600 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                        title="Approve Experience"
+                      >
+                        {moderatingId === exp.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                      </button>
+                    )}
+                    {user.role === 'admin' && exp.approvalStatus?.toUpperCase() !== 'REJECTED' && (
+                      <button
+                        type="button"
+                        onClick={() => openRejectModal(exp.id, exp.title)}
+                        disabled={moderatingId === exp.id}
+                        className="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                        title="Reject Experience"
+                      >
+                        <Ban size={14} />
+                      </button>
+                    )}
                         <button
                           type="button"
                           onClick={() => openEditModal(exp)}
@@ -2560,6 +2697,96 @@ export const ExperiencesView = ({
               </form>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reject Experience Modal */}
+      <AnimatePresence>
+        {rejectTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setRejectTarget(null)}
+              className="absolute inset-0 bg-primary/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 relative z-10 shadow-luxury space-y-5"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-border-misrah">
+                <div>
+                  <h3 className="text-xl font-black italic text-primary uppercase">Reject Experience</h3>
+                  <p className="text-xs text-muted-text">{rejectTarget.title}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRejectTarget(null)}
+                  className="w-8 h-8 rounded-full bg-surface hover:bg-border-misrah flex items-center justify-center text-primary"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1">
+                  Reason (optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  placeholder="e.g. Missing valid tourism permit documentation"
+                  className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-medium text-primary outline-none focus:border-accent"
+                />
+              </div>
+
+              {rejectError && (
+                <div className="p-3 rounded-2xl bg-danger/10 border border-danger/30 text-danger text-xs font-bold flex items-center gap-2">
+                  <AlertCircle size={16} className="flex-shrink-0" />
+                  <div>{rejectError}</div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRejectTarget(null)}
+                  className="flex-1 py-3 rounded-2xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmReject}
+                  disabled={moderatingId === rejectTarget.id}
+                  className="flex-1 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black uppercase tracking-wider hover:bg-rose-500 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {moderatingId === rejectTarget.id && <Loader2 size={14} className="animate-spin" />}
+                  Reject
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {moderationToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`fixed top-6 right-6 z-[200] max-w-sm px-5 py-3.5 rounded-2xl shadow-2xl border flex items-center gap-3 ${
+              moderationToast.isError ? 'bg-danger text-white border-danger' : 'bg-[#0B0D14] text-white border-accent/30'
+            }`}
+          >
+            {moderationToast.isError ? <AlertCircle size={18} className="shrink-0" /> : <CheckCircle2 size={18} className="text-accent shrink-0" />}
+            <span className="text-xs font-bold">{moderationToast.message}</span>
+          </motion.div>
         )}
       </AnimatePresence>
 

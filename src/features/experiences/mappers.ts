@@ -62,6 +62,7 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     // (see CreateExperienceRequest in types.ts) — so Draft/Sold Out aren't
     // representable yet; anything not explicitly inactive shows as Active.
     status: item.isActive === false ? 'Paused' : 'Active',
+    approvalStatus: item.status,
     availabilityType: 'Instant',
     availableDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     timeSlots: item.timeSlots || [],
