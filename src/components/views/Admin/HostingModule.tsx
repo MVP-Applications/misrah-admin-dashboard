@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Calendar, MapPin, Plus } from 'lucide-react';
+import { Check, Calendar, MapPin, Plus, LayoutList, Home } from 'lucide-react';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { AddListingModal } from '../Properties/AddListingModal';
@@ -9,6 +9,7 @@ import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { listAdminProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CreatePropertyRequest } from '../../../features/properties/types';
+import { AssetListingsTab } from './AssetListingsTab';
 
 interface HostingModuleProps {
   user: User;
@@ -18,6 +19,8 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // 'requests' = hosting moderation queue, 'listings' = home page asset listings.
+  const [activeTab, setActiveTab] = useState<'requests' | 'listings'>('requests');
   const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,9 +44,14 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
     <div className="space-y-8 max-w-7xl mx-auto">
       <header className="flex items-end justify-between">
         <div>
-          <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">Hosting Requests</h1>
-          <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">Global Moderation Queue & Compliance Protocol</p>
+          <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">
+            {activeTab === 'requests' ? 'Hosting Requests' : 'Asset Listings'}
+          </h1>
+          <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">
+            {activeTab === 'requests' ? 'Global Moderation Queue & Compliance Protocol' : 'Home Page Sections & Curated Collections'}
+          </p>
         </div>
+        {activeTab === 'requests' && (
         <div className="flex items-center gap-6">
           <div className="flex bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm">
             {(['Pending', 'Approved', 'Rejected'] as const).map((status) => (
@@ -64,9 +72,36 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
             <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Add Hosting
           </button>
         </div>
+        )}
       </header>
 
-      {filteredProperties.length === 0 ? (
+      {/* Tab Switcher: Hosting Requests vs Asset Listings */}
+      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
+        <button
+          type="button"
+          onClick={() => setActiveTab('requests')}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'requests' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+          }`}
+        >
+          <Home size={14} />
+          <span>Hosting Requests</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('listings')}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'listings' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+          }`}
+        >
+          <LayoutList size={14} />
+          <span>Asset Listings</span>
+        </button>
+      </div>
+
+      {activeTab === 'listings' && <AssetListingsTab />}
+
+      {activeTab === 'requests' && (filteredProperties.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
           <div className="w-24 h-24 bg-surface rounded-[40px] flex items-center justify-center mx-auto mb-8 text-[#D4C3B5] ring-8 ring-surface/50">
             <Check size={40} />
@@ -148,7 +183,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
             ))}
           </AnimatePresence>
         </div>
-      )}
+      ))}
       <AnimatePresence>
         {isModalOpen && (
           <AddListingModal 

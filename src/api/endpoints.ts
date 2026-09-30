@@ -2,6 +2,10 @@
 // no component or feature module should ever hardcode a path string.
 // See ../../API_INTEGRATION.md for the conventions this supports.
 export const API_ENDPOINTS = {
+  // GET ?year&month — Admin Overview aggregates (see features/dashboard/types.ts).
+  dashboard: {
+    admin: '/admin/dashboard',
+  },
   admin: {
     auth: {
       login: '/admin/auth/login',
@@ -93,6 +97,9 @@ export const API_ENDPOINTS = {
     adminAll: '/home-page-listings',
     adminById: (id: string) => `/home-page-listings/${id}`,
     adminHosts: (id: string) => `/home-page-listings/${id}/hosts`,
+    // POST adds / DELETE removes { propertyIds } — both 200, in the live spec.
+    adminProperties: (id: string) => `/home-page-listings/${id}/properties`,
+    adminToggleActive: (id: string) => `/home-page-listings/${id}/toggle-active`,
     // Public, but used from the admin app too — it's the only endpoint that
     // returns HOST-type sections with fully populated, computed host stats
     // (totalProperties, avgRating, totalReviews). The admin GET routes above
@@ -148,6 +155,9 @@ export const API_ENDPOINTS = {
     // whichever property is selected, it does not clone a new experience
     // record the way the Bespoke/Custom form's createAdminExperience does.
     adminAssignProperties: (id: string) => `/admin/experiences/${id}/properties`,
+    // PATCH — both in the live OpenAPI spec, 200. Reject takes { reason? }.
+    adminApprove: (id: string) => `/admin/experiences/${id}/approve`,
+    adminReject: (id: string) => `/admin/experiences/${id}/reject`,
   },
   // A separate collection from `categories` (property-categories) above —
   // requested directly by the team. No `/admin` prefix, mirroring

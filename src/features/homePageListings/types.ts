@@ -5,6 +5,9 @@
 
 export type CatalogueType = 'PROPERTY' | 'HOST' | 'NONE';
 
+// Enum from CreateHomePageListingDto in the live OpenAPI spec.
+export type DisplayType = 'HORIZONTAL_SCROLL' | 'VERTICAL_SCROLL' | 'GRID' | 'LIST';
+
 export interface LocalizedName {
   en: string;
   ar: string;
@@ -54,3 +57,21 @@ export type ListTravellerHomePageListingsResponse = TravellerHomePageListing[];
 export interface ManageHostItemsRequest {
   hostIds: string[];
 }
+
+// POST /home-page-listings — CreateHomePageListingDto. Confirmed live: the
+// response is the created AdminHomePageListing (propertyIds/hostIds included).
+export interface CreateHomePageListingRequest {
+  title: LocalizedName;
+  subtitle: LocalizedName;
+  displayType: DisplayType;
+  catalogueType: CatalogueType;
+  displayOrder: number;
+  isActive?: boolean;
+}
+
+export interface ManagePropertyItemsRequest {
+  propertyIds: string[];
+}
+
+// PATCH /home-page-listings/{id} — UpdateHomePageListingDto (all optional).
+export type UpdateHomePageListingRequest = Partial<CreateHomePageListingRequest>;
