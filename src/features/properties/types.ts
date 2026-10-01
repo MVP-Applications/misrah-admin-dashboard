@@ -63,6 +63,12 @@ export interface ListPropertiesParams {
   title?: string;
 }
 
+// GET /property/my — host's own properties. Items reuse ApiPropertyListItem.
+export interface ListMyPropertiesParams {
+  page?: number;
+  limit?: number;
+}
+
 export interface ListPropertiesResponse {
   data: ApiPropertyListItem[];
   meta: { total: number; page: number; limit: number; totalPages: number };

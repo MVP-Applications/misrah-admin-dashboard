@@ -5,6 +5,7 @@ export const API_ENDPOINTS = {
   // GET ?year&month — Admin Overview aggregates (see features/dashboard/types.ts).
   dashboard: {
     admin: '/admin/dashboard',
+    hostOverview: '/host/dashboard/overview',
   },
   admin: {
     auth: {
@@ -49,10 +50,11 @@ export const API_ENDPOINTS = {
     // reschedule endpoint existed before. Requires that backend change to be
     // deployed to misra-test before this will work — see API_INTEGRATION.md.
     adminReschedule: (id: string) => `/admin/bookings/${id}/reschedule`,
-    // Host-scoped listing — confirmed live earlier, not currently called by the
-    // UI (this app has no real host-vs-admin role distinction yet). Kept here
-    // for when that's wired up.
+    // Host Hub stays — listing (page/limit/status), detail, reschedule, cancel.
     hostAll: '/booking/host',
+    hostById: (id: string) => `/booking/${id}`,
+    hostReschedule: (id: string) => `/booking/${id}/reschedule`,
+    hostCancel: (id: string) => `/booking/${id}/cancel`,
   },
   properties: {
     // GET/PATCH/POST/DELETE all confirmed to exist in misra-api-nest source
@@ -61,6 +63,11 @@ export const API_ENDPOINTS = {
     // (GET one/PATCH/DELETE) were added to the backend by this project — not yet
     // deployed to misra-test. See API_INTEGRATION.md → "Properties".
     adminAll: '/admin/properties',
+    // Host Hub: properties created by the logged-in user (page/limit). Same
+    // item shape as adminAll (ApiPropertyListItem).
+    my: '/property/my',
+    // Host Hub: GET one property by ID (PATCH/DELETE also exist in the spec).
+    byId: (id: string) => `/property/${id}`,
     adminById: (id: string) => `/admin/properties/${id}`,
     adminApprove: (id: string) => `/admin/properties/${id}/approve`,
     adminReject: (id: string) => `/admin/properties/${id}/reject`,
@@ -143,6 +150,14 @@ export const API_ENDPOINTS = {
   // checkout was available in this workspace. See experiences/types.ts.
   experiences: {
     adminAll: '/admin/experiences',
+    // Host Hub: experiences created by the logged-in host (page/limit only).
+    my: '/experience/my',
+    // Host Hub: POST creates an experience owned by the logged-in host (201).
+    hostCreate: '/experience',
+    // Host Hub: attach the host's experience to properties — { propertyIds }.
+    hostAssignProperties: (id: string) => `/experience/${id}/properties`,
+    // Host Hub: PATCH = update, DELETE = soft delete the host's own experience.
+    byId: (id: string) => `/experience/${id}`,
     adminById: (id: string) => `/admin/experiences/${id}`,
     // Confirmed live — NOT under /admin and singular ("experience"), a
     // genuinely different route from adminAll above, not a typo. Lists

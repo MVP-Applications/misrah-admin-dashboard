@@ -7,6 +7,8 @@ import {
   deleteAdminProperty,
   rejectAdminProperty,
   updateAdminProperty,
+  updateMyProperty,
+  deleteMyProperty,
 } from '../features/properties/api';
 import { hostAssignmentToAssignHostRequest, viewModelPartialToUpdateRequest } from '../features/properties/mappers';
 import type { CreatePropertyRequest, HostAssignmentSelection } from '../features/properties/types';
@@ -18,7 +20,11 @@ import type { CreatePropertyRequest, HostAssignmentSelection } from '../features
 // active-toggle, and PropertyDetailView's full edit-form save) with
 // different partial shapes — it routes to the right endpoint by inspecting
 // which fields are present rather than each call site needing its own hook.
-export const usePropertyActions = (refetch: () => void) => {
+// `options.isHost` routes edits and deletes to the Host Hub endpoints
+// (PATCH / DELETE /property/{id}) instead of /admin/properties/{id};
+// approve/reject stay admin-only.
+export const usePropertyActions = (refetch: () => void, options: { isHost?: boolean } = {}) => {
+  const updateRequest = options.isHost ? updateMyProperty : updateAdminProperty;
   const [rejectionModal, setRejectionModal] = useState<{ isOpen: boolean; propertyId: string; propertyName: string }>({
     isOpen: false,
     propertyId: '',
@@ -45,15 +51,15 @@ export const usePropertyActions = (refetch: () => void) => {
     } else if (isStatusAction && updates.status === 'Rejected') {
       await rejectAdminProperty(id, updates.rejectionReason);
     } else if ('active' in updates && keys.length === 1) {
-      await updateAdminProperty(id, { isActive: updates.active });
+      await updateRequest(id, { isActive: updates.active });
     } else {
-      await updateAdminProperty(id, viewModelPartialToUpdateRequest(updates));
+      await updateRequest(id, viewModelPartialToUpdateRequest(updates));
     }
     refetch();
   };
 
   const deleteProperty = async (id: string) => {
-    await deleteAdminProperty(id);
+    await (options.isHost ? deleteMyProperty : deleteAdminProperty)(id);
     refetch();
   };
 

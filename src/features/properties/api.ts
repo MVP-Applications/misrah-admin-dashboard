@@ -7,6 +7,7 @@ import type {
   AssignHostRequest,
   CityListItem,
   CreatePropertyRequest,
+  ListMyPropertiesParams,
   ListPropertiesParams,
   ListPropertiesResponse,
   UpdatePropertyRequest,
@@ -19,6 +20,38 @@ export async function listAdminProperties(params: ListPropertiesParams = {}): Pr
     params,
   });
   return assertResponseShape('list properties', data.data, ['data', 'meta']);
+}
+
+// GET /property/my — the logged-in host's own properties, as
+// { data: [...] } plus pagination. The pagination block wasn't captured, so
+// both conventions this backend uses (`meta: {...}` like admin properties,
+// or flat total/page/totalPages like bookings) are normalized into `meta`.
+export async function listMyProperties(params: ListMyPropertiesParams = {}): Promise<ListPropertiesResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.properties.my, { params });
+  const body = data.data as Record<string, unknown> | unknown[];
+  if (Array.isArray(body)) {
+    return { data: body as ApiPropertyListItem[], meta: { total: body.length, page: 1, limit: body.length, totalPages: 1 } };
+  }
+  const list = (assertResponseShape('list my properties', body, ['data']) as { data: ApiPropertyListItem[] }).data;
+  const meta = (body.meta ?? body) as Record<string, unknown>;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+  return {
+    data: list,
+    meta: {
+      total: num(meta.total ?? meta.totalCount, list.length),
+      page: num(meta.page ?? meta.currentPage, params.page ?? 1),
+      limit: num(meta.limit, params.limit ?? list.length),
+      totalPages: num(meta.totalPages, 1),
+    },
+  };
+}
+
+// GET /property/{id} — Host Hub property detail. Response body assumed to
+// match the admin detail's ApiPropertyListItem (not captured), so only the
+// identifying fields are asserted.
+export async function getPropertyById(id: string): Promise<ApiPropertyListItem> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<ApiPropertyListItem>>(API_ENDPOINTS.properties.byId(id));
+  return assertResponseShape('property detail', data.data, ['_id', 'title']);
 }
 
 // GET /admin/properties/{id} — added to the backend by this project, requires
@@ -45,6 +78,18 @@ export async function updateAdminProperty(id: string, payload: UpdatePropertyReq
     payload,
   );
   return assertResponseShape('update property', data.data, ['_id', 'title', 'status']);
+}
+
+// PATCH /property/{id} — Host Hub edit of the host's own property. The spec
+// names the body UpdatePropertyDto without listing fields, so it reuses the
+// admin UpdatePropertyRequest. Response not relied on — callers refetch.
+export async function updateMyProperty(id: string, payload: UpdatePropertyRequest): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.properties.byId(id), payload);
+}
+
+// DELETE /property/{id} — Host Hub delete of the host's own property (200).
+export async function deleteMyProperty(id: string): Promise<void> {
+  await apiClient.delete(API_ENDPOINTS.properties.byId(id));
 }
 
 // DELETE /admin/properties/{id} — added to the backend by this project, requires
