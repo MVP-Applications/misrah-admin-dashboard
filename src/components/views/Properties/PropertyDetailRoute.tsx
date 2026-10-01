@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Property, User } from '../../../types';
 import { PropertyDetailView } from './PropertyDetailView';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
-import { getAdminPropertyById } from '../../../features/properties/api';
+import { getAdminPropertyById, getPropertyById } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 
 interface PropertyDetailRouteProps {
@@ -20,15 +20,18 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
   const refetch = useCallback(() => {
     if (!id) return;
     setLoading(true);
-    getAdminPropertyById(id)
+    // Host Hub reads its own property via GET /property/{id}; admin via
+    // GET /admin/properties/{id}.
+    const fetchProperty = user.role === 'manager' ? getPropertyById : getAdminPropertyById;
+    fetchProperty(id)
       .then(doc => setProperty(apiPropertyToViewModel(doc)))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, user.role]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  const { updateProperty, deleteProperty, assignHost } = usePropertyActions(refetch);
+  const { updateProperty, deleteProperty, assignHost } = usePropertyActions(refetch, { isHost: user.role === 'manager' });
 
   if (loading && !property) {
     return (
@@ -58,9 +61,14 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
       property={property}
       onClose={() => navigate(-1)}
       onUpdate={updateProperty}
-      onDelete={(id) => {
-        deleteProperty(id);
-        navigate(-1);
+      onDelete={async (id) => {
+        // Only leave the page once the delete actually succeeded.
+        try {
+          await deleteProperty(id);
+          navigate(-1);
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : 'Failed to delete this property.');
+        }
       }}
       onAssignHost={assignHost}
       user={user}

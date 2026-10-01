@@ -1,5 +1,7 @@
 // GET /admin/dashboard?year&month — shape captured from a real response
-// (Admin Overview). Only the admin portal calls it.
+// (Admin Overview). GET /host/dashboard/overview?year&month returns the same
+// structure minus `header` (HostDashboardOverviewDataDto in the live spec),
+// so both portals share this type.
 
 export interface AdminDashboardParams {
   year?: number;
@@ -44,7 +46,8 @@ export interface AdminDashboardIntelItem {
 }
 
 export interface AdminDashboardData {
-  header: { liveInRegionCount: number };
+  // Admin only — absent on the host overview.
+  header?: { liveInRegionCount: number };
   kpis: {
     platformRevenue: {
       totalRevenue: number;

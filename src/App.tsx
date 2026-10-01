@@ -46,6 +46,7 @@ import { EarningsView } from './components/views/EarningsView';
 import { MessagesView } from './components/views/MessagesView';
 import { ReviewsView } from './components/views/ReviewsView';
 import { ExperiencesView } from './components/views/ExperiencesView';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { ExploreExperiencesView } from './components/views/ExploreExperiencesView';
 import { ProfileView } from './components/views/ProfileView';
 import { NotificationsView } from './components/views/NotificationsView';
@@ -449,7 +450,7 @@ function AppRoutes() {
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
-        <Route path="experiences" element={<ExperiencesView user={currentUser!} />} />
+        <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="explore-experiences" element={<ExploreExperiencesView properties={experienceProperties} onAddBooking={handleAddExperienceBooking} />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />

@@ -23,6 +23,30 @@ export async function listAdminExperiences(params: ListExperiencesParams = {}): 
   return assertResponseShape('list experiences', data.data, ['data', 'meta']);
 }
 
+// GET /experience/my?page&limit — the host's own experiences, as
+// { data: [...] } plus pagination. Items reuse ApiExperienceListItem; the
+// pagination block wasn't captured, so `meta: {...}` and flat
+// total/page/totalPages are both normalized into `meta`.
+export async function listMyExperiences(params: { page?: number; limit?: number } = {}): Promise<ListExperiencesResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.experiences.my, { params });
+  const body = data.data as Record<string, unknown> | unknown[];
+  if (Array.isArray(body)) {
+    return { data: body as ApiExperienceListItem[], meta: { total: body.length, page: 1, limit: body.length, totalPages: 1 } };
+  }
+  const list = (assertResponseShape('list my experiences', body, ['data']) as { data: ApiExperienceListItem[] }).data;
+  const meta = (body.meta ?? body) as Record<string, unknown>;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+  return {
+    data: list,
+    meta: {
+      total: num(meta.total ?? meta.totalCount, list.length),
+      page: num(meta.page ?? meta.currentPage, params.page ?? 1),
+      limit: num(meta.limit, params.limit ?? list.length),
+      totalPages: num(meta.totalPages, 1),
+    },
+  };
+}
+
 // POST /admin/experiences — confirmed live (this exact request body returns
 // 201). The response body itself wasn't captured, so this deliberately
 // doesn't parse or assert anything about it — callers should refetch the
@@ -30,6 +54,19 @@ export async function listAdminExperiences(params: ListExperiencesParams = {}): 
 // read the created record back out of this call.
 export async function createAdminExperience(payload: CreateExperienceRequest): Promise<void> {
   await apiClient.post(API_ENDPOINTS.experiences.adminAll, payload);
+}
+
+// POST /experience — Host Hub create (201). Same CreateExperienceDto as the
+// admin create minus hostId: the backend assigns the logged-in host.
+export async function createMyExperience(payload: Omit<CreateExperienceRequest, 'hostId'>): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.experiences.hostCreate, payload);
+}
+
+// POST /experience/{id}/properties — Host Hub equivalent of
+// assignExperienceToProperties (attach the host's own experience to one or
+// more of their properties). Response not parsed — callers refetch.
+export async function assignMyExperienceToProperties(id: string, payload: AssignExperiencePropertiesRequest): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.experiences.hostAssignProperties(id), payload);
 }
 
 // GET /admin/experiences/{id} — same resource as the list, UNCONFIRMED shape
@@ -46,6 +83,26 @@ export async function getAdminExperienceById(id: string): Promise<ApiExperienceL
 // response — callers should refetch the list instead.
 export async function updateAdminExperience(id: string, payload: UpdateExperienceRequest): Promise<void> {
   await apiClient.patch(API_ENDPOINTS.experiences.adminById(id), payload);
+}
+
+// GET /experience/{id} — public/traveller detail, used by the Host Hub edit
+// modal (hosts can't read /admin/experiences/{id}). Its body isn't
+// documented and may omit admin-only fields, so only _id/title are asserted
+// and the caller merges it over the already-loaded list row.
+export async function getExperienceById(id: string): Promise<ApiExperienceListItem> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<ApiExperienceListItem>>(API_ENDPOINTS.experiences.byId(id));
+  return assertResponseShape('experience detail', data.data, ['_id', 'title']);
+}
+
+// PATCH / DELETE /experience/{id} — Host Hub equivalents of the admin calls
+// above (update / soft delete the host's own experience). Same body as the
+// admin update; responses not relied on — callers refetch.
+export async function updateMyExperience(id: string, payload: UpdateExperienceRequest): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.experiences.byId(id), payload);
+}
+
+export async function deleteMyExperience(id: string): Promise<void> {
+  await apiClient.delete(API_ENDPOINTS.experiences.byId(id));
 }
 
 // DELETE /admin/experiences/{id} — confirmed live, returns 200 (not the
@@ -71,10 +128,16 @@ export async function listExperienceCategories(): Promise<ListExperienceCategori
   const { data } = await apiClient.get<ApiSuccessEnvelope<ListExperienceCategoriesResponse>>(
     API_ENDPOINTS.experienceCategories.adminAll,
   );
-  if (!Array.isArray(data.data)) {
-    throw new Error('[experience-categories] list response is not an array.');
+  // Usually a bare array; accept a { data | items | docs: [...] } wrapper too.
+  const body = data.data as unknown;
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === 'object') {
+    const wrapper = body as Record<string, unknown>;
+    for (const key of ['data', 'items', 'docs']) {
+      if (Array.isArray(wrapper[key])) return wrapper[key] as ListExperienceCategoriesResponse;
+    }
   }
-  return data.data;
+  throw new Error('[experience-categories] list response has an unexpected shape.');
 }
 
 // GET /experience/admin-created?search&categoryId — confirmed live, see

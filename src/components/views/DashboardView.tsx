@@ -27,7 +27,7 @@ import { listAdminProperties } from '../../features/properties/api';
 import { apiPropertyToViewModel } from '../../features/properties/mappers';
 import { listBookings } from '../../features/bookings/api';
 import { toLegacyBooking } from '../../features/bookings/mappers';
-import { getAdminDashboard } from '../../features/dashboard/api';
+import { getAdminDashboard, getHostDashboardOverview } from '../../features/dashboard/api';
 import type { AdminDashboardData } from '../../features/dashboard/types';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -38,11 +38,12 @@ function formatGrowth(percentage: number, isPositive: boolean, suffix: string): 
 }
 
 function titleCase(value: string): string {
-  return value.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 const INTEL_CATEGORY_STYLES: Record<string, { icon: typeof Star; color: string }> = {
   OPS: { icon: Calendar, color: 'text-info bg-info/10' },
+  HIGH_PRIORITY: { icon: Star, color: 'text-accent bg-accent/10' },
   FINANCIAL: { icon: Banknote, color: 'text-success bg-success/10' },
   REVIEW: { icon: Star, color: 'text-accent bg-accent/10' },
   COMM: { icon: MessageSquare, color: 'text-primary bg-surface' },
@@ -74,7 +75,8 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [hubBookings, setHubBookings] = useState<Booking[]>([]);
 
-  // Admin Overview aggregates — GET /admin/dashboard?year&month.
+  // Overview aggregates — admin: GET /admin/dashboard, host: GET
+  // /host/dashboard/overview (same shape, no header), both ?year&month.
   const isAdmin = user.role === 'admin';
   const now = new Date();
   const [dashYear, setDashYear] = useState(now.getFullYear());
@@ -84,11 +86,11 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAdmin) return;
     let cancelled = false;
     setIsDashboardLoading(true);
     setDashboardError(null);
-    getAdminDashboard({ year: dashYear, month: dashMonth })
+    const fetchOverview = isAdmin ? getAdminDashboard : getHostDashboardOverview;
+    fetchOverview({ year: dashYear, month: dashMonth })
       .then(data => { if (!cancelled) setDashboard(data); })
       .catch(err => { if (!cancelled) setDashboardError(err instanceof Error ? err.message : 'Failed to load dashboard.'); })
       .finally(() => { if (!cancelled) setIsDashboardLoading(false); });
@@ -176,9 +178,9 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
     }
   ];
 
-  // Admin: regions come from the dashboard API; the static config above only
-  // supplies imagery/description for cities it knows. Host: static config.
-  const hubs: GeoHubConfig[] = isAdmin && dashboard
+  // Regions come from the overview API; the static config above only
+  // supplies imagery/description for cities it knows.
+  const hubs: GeoHubConfig[] = dashboard
     ? dashboard.geoHubs.regions.map(region => {
         const known = GEO_HUBS.find(h => normalizeCity(h.name).toLowerCase() === normalizeCity(region.name).toLowerCase());
         const name = known?.name ?? titleCase(region.name);
@@ -195,7 +197,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
         };
       })
     : GEO_HUBS;
-  const activeNodesCount = isAdmin && dashboard ? dashboard.geoHubs.activeNodesCount : hubs.length;
+  const activeNodesCount = dashboard ? dashboard.geoHubs.activeNodesCount : hubs.length;
 
   useEffect(() => {
     listAdminProperties({ status: 'pending', limit: 1 }).then(r => setPendingCount(r.meta.total));
@@ -261,33 +263,31 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               <img key={i} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" src={`https://i.pravatar.cc/150?u=${i}`} alt="Active User" />
             ))}
             <div className="w-8 h-8 rounded-full border-2 border-white bg-surface flex items-center justify-center text-[10px] font-black text-muted-text shadow-sm">
-              +{isAdmin && dashboard ? dashboard.header.liveInRegionCount : 12}
+              +{dashboard?.header ? dashboard.header.liveInRegionCount : 12}
             </div>
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-primary/40 ml-1">Live in Region</p>
-          {isAdmin && (
-            <div className="flex items-center gap-2 ml-3">
-              <select
-                value={dashMonth}
-                onChange={e => setDashMonth(Number(e.target.value))}
-                className="py-2 px-3 bg-white border border-border-misrah rounded-xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
-              >
-                {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-              </select>
-              <select
-                value={dashYear}
-                onChange={e => setDashYear(Number(e.target.value))}
-                className="py-2 px-3 bg-white border border-border-misrah rounded-xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
-              >
-                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-              {isDashboardLoading && <Loader2 size={14} className="animate-spin text-accent" />}
-            </div>
-          )}
+          <div className="flex items-center gap-2 ml-3">
+            <select
+              value={dashMonth}
+              onChange={e => setDashMonth(Number(e.target.value))}
+              className="py-2 px-3 bg-white border border-border-misrah rounded-xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+            <select
+              value={dashYear}
+              onChange={e => setDashYear(Number(e.target.value))}
+              className="py-2 px-3 bg-white border border-border-misrah rounded-xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {isDashboardLoading && <Loader2 size={14} className="animate-spin text-accent" />}
+          </div>
         </div>
       </header>
 
-      {isAdmin && dashboardError && (
+      {dashboardError && (
         <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
           <TriangleAlert size={18} />
           <p className="text-[10px] font-black uppercase tracking-widest">Overview data unavailable: {dashboardError}</p>
@@ -297,46 +297,30 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           label={user.role === 'admin' ? "Platform Revenue" : "Portfolio Earnings"} 
-          value={isAdmin
-            ? (dashboard ? `${dashboard.kpis.platformRevenue.currency} ${dashboard.kpis.platformRevenue.formattedRevenue}` : '—')
-            : "35,400"}
-          change={isAdmin
-            ? (dashboard ? formatGrowth(dashboard.kpis.platformRevenue.growthPercentage, dashboard.kpis.platformRevenue.isPositiveGrowth, 'vs prev.') : '…')
-            : "↑ +12.4% vs prev."} 
+          value={dashboard ? `${dashboard.kpis.platformRevenue.currency} ${dashboard.kpis.platformRevenue.formattedRevenue}` : '—'}
+          change={dashboard ? formatGrowth(dashboard.kpis.platformRevenue.growthPercentage, dashboard.kpis.platformRevenue.isPositiveGrowth, 'vs prev.') : '…'} 
           icon={Banknote} 
           dark 
           onClick={() => navigate('/earnings')}
         />
         <StatCard 
           label={user.role === 'admin' ? "Inventory Scope" : "Property Volume"}
-          value={isAdmin && dashboard ? dashboard.kpis.inventoryScope.totalProperties.toString() : approvedCount.toString()}
-          change={`${isAdmin && dashboard ? dashboard.kpis.inventoryScope.pendingAuditCount : pendingCount} pending audit`}
+          value={dashboard ? dashboard.kpis.inventoryScope.totalProperties.toString() : approvedCount.toString()}
+          change={`${dashboard ? dashboard.kpis.inventoryScope.pendingAuditCount : pendingCount} pending audit`}
           icon={Home} 
           onClick={() => navigate('/listings')}
         />
-        {user.role === 'admin' ? (
-          <StatCard 
-            label="Compliance Queue" 
-            value={(dashboard ? dashboard.kpis.complianceQueue.count : pendingCount).toString()}
-            change={(dashboard ? dashboard.kpis.complianceQueue.needsOptimization : pendingCount > 0) ? "⚠ Needs Optimization" : "✓ Nodes Synchronized"} 
-            icon={ShieldCheck}
-            onClick={() => navigate('/admin/hosting')}
-          />
-        ) : (
-          <StatCard 
-            label="Market Velocity" 
-            value="75%" 
-            change="↑ +8.2% delta" 
-            icon={ArrowUpRight} 
-            onClick={() => navigate('/bookings')}
-          />
-        )}
+        <StatCard 
+          label="Compliance Queue" 
+          value={(dashboard ? dashboard.kpis.complianceQueue.count : pendingCount).toString()}
+          change={(dashboard ? dashboard.kpis.complianceQueue.needsOptimization : pendingCount > 0) ? "⚠ Needs Optimization" : "✓ Nodes Synchronized"} 
+          icon={ShieldCheck}
+          onClick={() => navigate(isAdmin ? '/admin/hosting' : '/listings')}
+        />
         <StatCard 
           label="Market Sentiment" 
-          value={isAdmin ? (dashboard ? dashboard.kpis.marketSentiment.score.toString() : '—') : "4.92"}
-          change={isAdmin
-            ? (dashboard ? formatGrowth(dashboard.kpis.marketSentiment.engagementGrowthPercentage, dashboard.kpis.marketSentiment.isPositiveGrowth, 'engagement') : '…')
-            : "↑ +2% engagement"} 
+          value={dashboard ? dashboard.kpis.marketSentiment.score.toString() : '—'}
+          change={dashboard ? formatGrowth(dashboard.kpis.marketSentiment.engagementGrowthPercentage, dashboard.kpis.marketSentiment.isPositiveGrowth, 'engagement') : '…'} 
           icon={Star} 
           onClick={() => navigate('/reviews')}
         />
@@ -389,7 +373,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
            </div>
            <div className="flex flex-col items-center gap-10">
              <div className="relative w-48 h-48 group">
-               {isAdmin && dashboard ? (
+               {dashboard ? (
                  <svg className="w-full h-full -rotate-90 filter drop-shadow-xl" viewBox="0 0 100 100">
                    <circle cx="50" cy="50" r="42" fill="none" stroke="#f0ece5" strokeWidth="10" />
                    {(() => {
@@ -424,14 +408,14 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                )}
                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                   <span className="text-3xl font-sans font-black italic text-primary leading-none">
-                    {isAdmin ? (dashboard ? dashboard.assetClasses.totalHubs : '—') : 8}
+                    {dashboard ? dashboard.assetClasses.totalHubs : '—'}
                   </span>
                   <span className="text-[8px] font-black uppercase text-muted-text tracking-widest mt-1">Total Hubs</span>
                </div>
              </div>
              <div className="w-full space-y-4">
-               {isAdmin ? (
-                 (dashboard?.assetClasses.classes ?? []).map(c => (
+               {dashboard ? (
+                 dashboard.assetClasses.classes.map(c => (
                    <div key={c.name} className="flex items-center justify-between">
                      <div className="flex items-center gap-3">
                        <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: c.color }} />
@@ -909,7 +893,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
             </button>
           </div>
           <div className="divide-y divide-border-misrah/50">
-            {isAdmin && dashboard ? (
+            {dashboard ? (
               dashboard.activeOps.length === 0 ? (
                 <p className="p-8 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">No active operations this period</p>
               ) : (
@@ -971,7 +955,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           </div>
           <div className="space-y-8 relative">
             <div className="absolute left-[15px] top-2 bottom-2 w-[1px] bg-border-misrah/50" />
-            {(isAdmin && dashboard
+            {(dashboard
               ? dashboard.intelFeed.map(item => ({
                   icon: (INTEL_CATEGORY_STYLES[item.category?.toUpperCase()] ?? INTEL_CATEGORY_STYLES.OPS).icon,
                   color: (INTEL_CATEGORY_STYLES[item.category?.toUpperCase()] ?? INTEL_CATEGORY_STYLES.OPS).color,

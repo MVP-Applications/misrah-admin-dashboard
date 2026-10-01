@@ -6,7 +6,7 @@ import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
-import { listAdminProperties, listActiveCities } from '../../../features/properties/api';
+import { listAdminProperties, listActiveCities, listMyProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
 
@@ -111,10 +111,24 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
 
   const refetch = useCallback(() => {
     setLoading(true);
-    listAdminProperties({ limit: 100, cityId: selectedCityId ?? undefined })
+    // Host Hub: GET /property/my (own properties only, no cityId param — so
+    // the city tab is applied client-side). Admin: GET /admin/properties.
+    const request = user.role === 'manager'
+      ? listMyProperties({ page: 1, limit: 100 }).then(res => ({
+          ...res,
+          data: selectedCityId
+            ? res.data.filter(p => {
+                const cityRef = (p as { cityId?: unknown }).cityId;
+                const id = typeof cityRef === 'string' ? cityRef : (cityRef as { _id?: string } | undefined)?._id;
+                return id === selectedCityId || p.city?._id === selectedCityId;
+              })
+            : res.data,
+        }))
+      : listAdminProperties({ limit: 100, cityId: selectedCityId ?? undefined });
+    request
       .then(res => setProperties(res.data.map(apiPropertyToViewModel)))
       .finally(() => setLoading(false));
-  }, [selectedCityId]);
+  }, [selectedCityId, user.role]);
 
   useEffect(() => { refetch(); }, [refetch]);
   useEffect(() => { listActiveCities().then(setCities); }, []);
@@ -141,11 +155,6 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
   const { approvedListings, pendingRequests } = useMemo(() => {
     let approved = properties.filter(p => p.status === 'Approved');
     let requests = properties.filter(p => !p.status || p.status === 'Pending' || p.status === 'Rejected');
-
-    if (user.role === 'manager') {
-      approved = approved.filter(p => p.hostId === user.id);
-      requests = requests.filter(p => p.hostId === user.id);
-    }
 
     return { approvedListings: approved, pendingRequests: requests };
   }, [properties, user]);

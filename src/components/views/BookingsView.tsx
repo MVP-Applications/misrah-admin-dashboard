@@ -34,7 +34,16 @@ import {
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User, Booking } from '../../types';
-import { listBookings, getBookingById, cancelBooking, rescheduleBooking } from '../../features/bookings/api';
+import {
+  listBookings,
+  listHostBookings,
+  getBookingById,
+  getHostBookingById,
+  cancelBooking,
+  cancelHostBooking,
+  rescheduleBooking,
+  rescheduleHostBooking,
+} from '../../features/bookings/api';
 import { toLegacyBooking, formatBookingDate } from '../../features/bookings/mappers';
 import type { BookingDetail } from '../../features/bookings/types';
 import {
@@ -261,13 +270,31 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const response = await listBookings({
-          page: pageToLoad,
-          limit: PAGE_SIZE,
-          search: debouncedSearch || undefined,
-          status: statusFilter !== 'all' ? statusFilter : undefined,
-        });
-        setBookings(response.data.map(toLegacyBooking));
+        // Host Hub: GET /booking/host (page/limit/status — no search param, so
+        // search is applied to the loaded page). Admin: GET /admin/bookings.
+        const isHost = user.role === 'manager';
+        const response = isHost
+          ? await listHostBookings({
+              page: pageToLoad,
+              limit: PAGE_SIZE,
+              status: statusFilter !== 'all' ? statusFilter : undefined,
+            })
+          : await listBookings({
+              page: pageToLoad,
+              limit: PAGE_SIZE,
+              search: debouncedSearch || undefined,
+              status: statusFilter !== 'all' ? statusFilter : undefined,
+            });
+        let rows = response.data.map(toLegacyBooking);
+        if (isHost && debouncedSearch) {
+          const q = debouncedSearch.toLowerCase();
+          rows = rows.filter(b =>
+            b.guestName?.toLowerCase().includes(q) ||
+            b.propertyName?.toLowerCase().includes(q) ||
+            b.id?.toLowerCase().includes(q),
+          );
+        }
+        setBookings(rows);
         setTotalPages(response.totalPages);
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : 'Failed to load bookings.');
@@ -275,7 +302,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
         setIsLoading(false);
       }
     },
-    [debouncedSearch, statusFilter],
+    [debouncedSearch, statusFilter, user.role],
   );
 
   useEffect(() => {
@@ -288,14 +315,15 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     setIsDetailLoading(true);
     setDetailError(null);
     try {
-      const detail = await getBookingById(id);
+      // Host Hub: GET /booking/{id}; admin: GET /admin/bookings/{id}.
+      const detail = await (user.role === 'manager' ? getHostBookingById : getBookingById)(id);
       setBookingDetail(detail);
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : 'Failed to load booking details.');
     } finally {
       setIsDetailLoading(false);
     }
-  }, []);
+  }, [user.role]);
 
   useEffect(() => {
     if (selectedBookingId) {
@@ -343,7 +371,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     setIsSaving(true);
     setSaveError(null);
     try {
-      await rescheduleBooking(bookingDetail._id, {
+      await (user.role === 'manager' ? rescheduleHostBooking : rescheduleBooking)(bookingDetail._id, {
         checkInDate: rescheduleCheckIn.toISOString(),
         checkOutDate: rescheduleCheckOut.toISOString(),
         guests: { adults: rescheduleAdults, children: rescheduleChildren },
@@ -366,7 +394,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     setIsCancelling(true);
     setCancelError(null);
     try {
-      await cancelBooking(bookingDetail._id, {});
+      await (user.role === 'manager' ? cancelHostBooking : cancelBooking)(bookingDetail._id, {});
       await fetchBookings(page);
       closeDetail();
     } catch (err) {

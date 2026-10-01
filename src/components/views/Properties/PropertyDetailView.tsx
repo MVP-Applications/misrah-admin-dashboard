@@ -527,7 +527,7 @@ export const PropertyDetailView = ({
               <div className="p-8 bg-white border border-border-misrah rounded-[40px] shadow-sm space-y-8">
                 <div className="flex flex-col items-center text-center">
                    <div className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mb-4">Host Quality Rating</div>
-                   <div className="text-6xl font-black italic text-primary mb-2 tracking-tighter">{property.rating || '4.9'}</div>
+                   <div className="text-6xl font-black italic text-primary mb-2 tracking-tighter">{property.rating || '0'}</div>
                    <div className="flex text-accent gap-1">
                      {[...Array(5)].map((_, i) => <CheckCircle2 key={i} size={14} fill="currentColor" />)}
                    </div>

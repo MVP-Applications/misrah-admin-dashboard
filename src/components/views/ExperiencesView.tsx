@@ -26,17 +26,25 @@ import {
   Check,
   ChevronLeft,
   Loader2,
-  Ban
+  Ban,
+  LayoutList
 } from 'lucide-react';
 import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
 import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
 import { getSuggestedAddons, CATEGORY_DEFAULT_ADDONS } from '../../data/activityAddons';
 import { STANDARD_TIME_SLOT_PRESETS, getCategoryDefaultTimeSlots } from '../../data/activityTimeSlots';
 import { Badge } from '../ui/Badge';
+import { ExperienceListingsTab } from './ExperienceListingsTab';
 import {
   assignExperienceToProperties,
   createAdminExperience,
   deleteAdminExperience,
+  listMyExperiences,
+  assignMyExperienceToProperties,
+  createMyExperience,
+  getExperienceById,
+  updateMyExperience,
+  deleteMyExperience,
   approveAdminExperience,
   rejectAdminExperience,
   getAdminExperienceById,
@@ -53,7 +61,7 @@ import type {
   ExperiencePricingModel,
   UpdateExperienceRequest,
 } from '../../features/experiences/types';
-import { listAdminProperties } from '../../features/properties/api';
+import { listAdminProperties, listMyProperties } from '../../features/properties/api';
 import type { ApiPropertyListItem } from '../../features/properties/types';
 
 const EXPERIENCES_PAGE_SIZE = 12;
@@ -144,6 +152,11 @@ export const ExperiencesView = ({
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'inactive'>('all');
   // Admin approval tabs — sent as GET /admin/experiences?status=.
   const [approvalTab, setApprovalTab] = useState<ExperienceApprovalStatus>('PENDING');
+  // Host Hub writes go to PATCH / DELETE /experience/{id}; admin to /admin/experiences/{id}.
+  const updateExperienceRequest = user.role === 'manager' ? updateMyExperience : updateAdminExperience;
+  const deleteExperienceRequest = user.role === 'manager' ? deleteMyExperience : deleteAdminExperience;
+  // Admin: 'experiences' (catalog) | 'listings' (home page experience sections, UI only).
+  const [experienceView, setExperienceView] = useState<'experiences' | 'listings'>('experiences');
   // Approve / reject (PATCH /admin/experiences/{id}/approve|reject)
   const [moderatingId, setModeratingId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; title: string } | null>(null);
@@ -180,16 +193,31 @@ export const ExperiencesView = ({
     (pageToLoad: number) => {
       setIsLoadingExperiences(true);
       setLoadError(null);
-      listAdminExperiences({
-        page: pageToLoad,
-        limit: EXPERIENCES_PAGE_SIZE,
-        search: debouncedSearch || undefined,
-        categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
-        status: user.role === 'admin' ? approvalTab : undefined,
-        isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
-      })
+      // Host Hub: GET /experience/my (page/limit only) — search, category and
+      // active filters are applied client-side to the loaded page.
+      // Admin: GET /admin/experiences with server-side filters.
+      const request = user.role === 'manager'
+        ? listMyExperiences({ page: pageToLoad, limit: EXPERIENCES_PAGE_SIZE })
+        : listAdminExperiences({
+            page: pageToLoad,
+            limit: EXPERIENCES_PAGE_SIZE,
+            search: debouncedSearch || undefined,
+            categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+            status: approvalTab,
+            isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
+          });
+      request
         .then((res) => {
-          setExperiences(res.data.map(apiExperienceToViewModel));
+          let rows = res.data.map(apiExperienceToViewModel);
+          if (user.role === 'manager') {
+            const q = debouncedSearch.toLowerCase();
+            rows = rows.filter(r =>
+              (!q || r.title.toLowerCase().includes(q)) &&
+              (selectedCategory === 'all' || r.categoryId === selectedCategory) &&
+              (selectedStatus === 'all' || (selectedStatus === 'active' ? r.status === 'Active' : r.status !== 'Active')),
+            );
+          }
+          setExperiences(rows);
           setTotalPages(res.meta.totalPages || 1);
           setTotalCount(res.meta.total || 0);
         })
@@ -238,16 +266,31 @@ export const ExperiencesView = ({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([listAdminProperties({ limit: 100 }), listExperienceCategories()])
-      .then(([propsRes, cats]) => {
-        setRealProperties(propsRes.data);
-        setExperienceCategories(cats);
-        setSelectedTargetPropertyId(prev => prev || propsRes.data[0]?._id || '');
-        setCustomForm(prev => (prev.categoryId ? prev : { ...prev, categoryId: cats[0]?._id || '' }));
-      })
-      .catch((err) => setAddExperienceError(err?.message || 'Failed to load properties/categories.'))
-      .finally(() => setIsLoadingAddModalOptions(false));
-  }, []);
+    // Loaded independently: a failed properties call (e.g. a host hitting
+    // the admin route) must not also wipe out the category filter pills.
+    // Host Hub uses GET /property/my, admin GET /admin/properties.
+    const propertiesRequest = user.role === 'manager'
+      ? listMyProperties({ page: 1, limit: 100 })
+      : listAdminProperties({ limit: 100 });
+    const errors: string[] = [];
+    Promise.all([
+      propertiesRequest
+        .then(propsRes => {
+          setRealProperties(propsRes.data);
+          setSelectedTargetPropertyId(prev => prev || propsRes.data[0]?._id || '');
+        })
+        .catch(err => { errors.push(err?.message || 'Failed to load properties.'); }),
+      listExperienceCategories()
+        .then(cats => {
+          setExperienceCategories(cats);
+          setCustomForm(prev => (prev.categoryId ? prev : { ...prev, categoryId: cats[0]?._id || '' }));
+        })
+        .catch(err => { errors.push(err?.message || 'Failed to load categories.'); }),
+    ]).finally(() => {
+      if (errors.length) setAddExperienceError(errors.join(' · '));
+      setIsLoadingAddModalOptions(false);
+    });
+  }, [user.role]);
 
   // Add experience modal internal states
   const [addMode, setAddMode] = useState<'preset' | 'custom'>('preset');
@@ -271,15 +314,40 @@ export const ExperiencesView = ({
     if (!isAddModalOpen || addMode !== 'preset') return;
     setIsLoadingPresets(true);
     setPresetsError(null);
-    listAdminCreatedExperiences({
-      search: debouncedModalSearch || undefined,
-      categoryId: modalCategory !== 'all' ? modalCategory : undefined,
-      limit: 50,
-    })
-      .then(res => setPresetItems(res.data))
+    // Host Hub: the curated catalog is the host's own experiences
+    // (GET /experience/my, page/limit only — search & category applied here).
+    // Admin: admin-created templates (GET /experience/admin-created).
+    const presetsRequest: Promise<AdminCreatedExperience[]> = user.role === 'manager'
+      ? listMyExperiences({ page: 1, limit: 50 }).then(res => {
+          const q = debouncedModalSearch.toLowerCase();
+          return res.data
+            .map(item => {
+              const raw = item as unknown as Record<string, unknown>;
+              const categoryRef = raw.categoryId;
+              const categoryId = typeof categoryRef === 'string' ? categoryRef : (categoryRef as { _id?: string } | null)?._id || '';
+              return {
+                ...item,
+                categoryId,
+                currency: item.currency || 'AED',
+                timeSlots: Array.isArray(item.timeSlots) ? item.timeSlots : [],
+                images: Array.isArray(item.images) ? item.images : [],
+              } as unknown as AdminCreatedExperience;
+            })
+            .filter(item =>
+              (!q || item.title?.toLowerCase().includes(q)) &&
+              (modalCategory === 'all' || item.categoryId === modalCategory),
+            );
+        })
+      : listAdminCreatedExperiences({
+          search: debouncedModalSearch || undefined,
+          categoryId: modalCategory !== 'all' ? modalCategory : undefined,
+          limit: 50,
+        }).then(res => res.data);
+    presetsRequest
+      .then(items => setPresetItems(items))
       .catch(err => setPresetsError(err instanceof Error ? err.message : 'Failed to load curated experiences.'))
       .finally(() => setIsLoadingPresets(false));
-  }, [isAddModalOpen, addMode, debouncedModalSearch, modalCategory]);
+  }, [isAddModalOpen, addMode, debouncedModalSearch, modalCategory, user.role]);
   const [customForm, setCustomForm] = useState({
     title: '',
     titleAr: '',
@@ -347,7 +415,7 @@ export const ExperiencesView = ({
   const handleToggleStatus = async (activityId: string, currentStatus: string) => {
     setTogglingStatusId(activityId);
     try {
-      await updateAdminExperience(activityId, { isActive: currentStatus !== 'Active' });
+      await updateExperienceRequest(activityId, { isActive: currentStatus !== 'Active' });
       await fetchExperiences(page);
     } catch (err: any) {
       alert(err?.message || 'Failed to update status.');
@@ -372,7 +440,7 @@ export const ExperiencesView = ({
     setIsDeletingExperience(true);
     setDeleteError(null);
     try {
-      await deleteAdminExperience(activityId);
+      await deleteExperienceRequest(activityId);
       setDeleteTarget(null);
       if (editingActivity && editingActivity.activity.id === activityId) {
         setEditingActivity(null);
@@ -432,10 +500,45 @@ export const ExperiencesView = ({
     setEditError(null);
     setIsLoadingEditDetail(true);
     try {
-      const detail = await getAdminExperienceById(exp.id);
-      const mapped = apiExperienceToViewModel(detail);
+      // Host Hub: public GET /experience/{id}; admin: GET /admin/experiences/{id}.
+      const isHost = user.role === 'manager';
+      const detail = isHost ? await getExperienceById(exp.id) : await getAdminExperienceById(exp.id);
+      let mapped = apiExperienceToViewModel(detail);
+      if (isHost) {
+        // The public detail may omit fields. Anything it didn't send keeps the
+        // list row's value, so a save can't silently wipe it.
+        const raw = detail as unknown as Record<string, unknown>;
+        const has = (key: string) => raw[key] !== undefined && raw[key] !== null;
+        mapped = {
+          ...mapped,
+          propertyId: has('propertyIds') ? mapped.propertyId : exp.propertyId,
+          propertyName: has('properties') ? mapped.propertyName : exp.propertyName,
+          propertyCity: has('properties') ? mapped.propertyCity : exp.propertyCity,
+          propertyImage: has('properties') || has('coverPhoto') ? mapped.propertyImage : exp.propertyImage,
+          titleAr: has('titleAr') ? mapped.titleAr : exp.titleAr,
+          categoryId: has('categoryId') ? mapped.categoryId : exp.categoryId,
+          categoryName: has('categoryId') || has('categoryName') ? mapped.categoryName : exp.categoryName,
+          categoryEmoji: has('categoryEmoji') || has('categoryId') ? mapped.categoryEmoji : exp.categoryEmoji,
+          description: has('description') ? mapped.description : exp.description,
+          price: has('price') ? mapped.price : exp.price,
+          priceType: has('priceType') ? mapped.priceType : exp.priceType,
+          duration: has('duration') ? mapped.duration : exp.duration,
+          minGuests: has('minGuests') ? mapped.minGuests : exp.minGuests,
+          maxGuests: has('maxGuests') ? mapped.maxGuests : exp.maxGuests,
+          status: has('isActive') ? mapped.status : exp.status,
+          approvalStatus: has('status') ? mapped.approvalStatus : exp.approvalStatus,
+          timeSlots: has('timeSlots') ? mapped.timeSlots : exp.timeSlots,
+          included: has('inclusions') ? mapped.included : exp.included,
+          whatToBring: has('whatToBring') ? mapped.whatToBring : exp.whatToBring,
+          addons: has('addOns') ? mapped.addons : exp.addons,
+        };
+      }
       setEditingActivity({ propertyId: mapped.propertyId, activity: mapped });
-      setEditPropertyIds(detail.propertyIds || (mapped.propertyId ? [mapped.propertyId] : []));
+      // propertyIds may be populated objects on the public detail — keep plain IDs.
+      const detailPropertyIds = (Array.isArray(detail.propertyIds) ? detail.propertyIds : [])
+        .map((p: unknown) => (typeof p === 'string' ? p : (p as { _id?: string } | null)?._id || ''))
+        .filter(Boolean);
+      setEditPropertyIds(detailPropertyIds.length ? detailPropertyIds : (mapped.propertyId ? [mapped.propertyId] : []));
     } catch (err: any) {
       setEditError(err?.message || 'Could not load the latest details — showing cached data.');
     } finally {
@@ -461,7 +564,7 @@ export const ExperiencesView = ({
           ...editPropertyIds.filter(id => id !== originalPropertyId && id !== newPropertyId),
         ];
       }
-      await updateAdminExperience(editingActivity.activity.id, payload);
+      await updateExperienceRequest(editingActivity.activity.id, payload);
       setEditingActivity(null);
       await fetchExperiences(page);
     } catch (err: any) {
@@ -486,7 +589,9 @@ export const ExperiencesView = ({
     setIsSubmittingExperience(true);
     setAddExperienceError(null);
     try {
-      await assignExperienceToProperties(preset._id, { propertyIds: [targetPropId] });
+      // Host Hub: POST /experience/{id}/properties; admin: /admin/experiences/{id}/properties.
+      const assignRequest = user.role === 'manager' ? assignMyExperienceToProperties : assignExperienceToProperties;
+      await assignRequest(preset._id, { propertyIds: [targetPropId] });
       setIsAddModalOpen(false);
       await fetchExperiences(page);
     } catch (err: any) {
@@ -526,7 +631,7 @@ export const ExperiencesView = ({
     setIsSubmittingExperience(true);
     setAddExperienceError(null);
     try {
-      await createAdminExperience({
+      const payload = {
         title: customForm.title.trim(),
         titleAr: customForm.titleAr.trim() || customForm.title.trim(),
         categoryId: customForm.categoryId,
@@ -551,8 +656,14 @@ export const ExperiencesView = ({
           pricingModel: (addon.priceType || 'fixed') as ExperiencePricingModel,
         })),
         isActive: true,
-        hostId: targetProperty.owner?._id,
-      });
+      };
+      // Host Hub: POST /experience (host taken from the session).
+      // Admin: POST /admin/experiences on behalf of the property's owner.
+      if (user.role === 'manager') {
+        await createMyExperience(payload);
+      } else {
+        await createAdminExperience({ ...payload, hostId: targetProperty.owner?._id });
+      }
       setIsAddModalOpen(false);
       setCustomForm({
         title: '',
@@ -800,7 +911,7 @@ export const ExperiencesView = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${experienceView === 'listings' ? 'hidden' : ''}`}>
           <button
             type="button"
             onClick={() => { setAddExperienceError(null); setIsAddModalOpen(true); }}
@@ -812,6 +923,40 @@ export const ExperiencesView = ({
         </div>
       </div>
 
+      {/* Experiences vs Experience Listings (admin) */}
+      {user.role === 'admin' && (
+        <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
+          <button
+            type="button"
+            onClick={() => setExperienceView('experiences')}
+            className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              experienceView === 'experiences' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+            }`}
+          >
+            <Sparkles size={14} />
+            <span>Experiences</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setExperienceView('listings')}
+            className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              experienceView === 'listings' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+            }`}
+          >
+            <LayoutList size={14} />
+            <span>Experience Listings</span>
+          </button>
+        </div>
+      )}
+
+      {/* Kept mounted while hidden so its local (unsaved) sections survive tab switches. */}
+      {user.role === 'admin' && (
+        <div className={experienceView === 'listings' ? '' : 'hidden'}>
+          <ExperienceListingsTab />
+        </div>
+      )}
+
+      <div className={experienceView === 'listings' ? 'hidden' : 'space-y-8'}>
       {/* Approval Status Tabs (admin) */}
       {user.role === 'admin' && (
         <div className="flex bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm w-fit">
@@ -946,7 +1091,7 @@ export const ExperiencesView = ({
               className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all
                 ${selectedCategory === cat._id ? 'bg-primary text-accent shadow-xs' : 'bg-surface border border-border-misrah text-muted-text hover:text-primary'}`}
             >
-              {cat.name.en}
+              {typeof cat.name === 'string' ? cat.name : cat.name?.en || cat.name?.ar || 'Unnamed'}
             </button>
           ))}
         </div>
@@ -1010,30 +1155,31 @@ export const ExperiencesView = ({
                 />
                 <div className="absolute inset-0 bg-linear-to-t from-primary/80 via-transparent to-transparent" />
                 
-                <div className="absolute top-3 left-3 flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-xl bg-white/90 backdrop-blur-sm text-primary text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                    <span>{exp.categoryEmoji}</span>
-                    <span>{exp.categoryName}</span>
+                {/* One row so the badges can't overlap: category left (truncates), status badges right. */}
+                <div className="absolute top-3 left-3 right-3 flex items-start justify-between gap-2">
+                  <span className="min-w-0 px-3 py-1 rounded-xl bg-white/90 backdrop-blur-sm text-primary text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-xs">
+                    <span className="shrink-0">{exp.categoryEmoji}</span>
+                    <span className="truncate">{exp.categoryName}</span>
                   </span>
-                  {exp.approvalStatus && (
-                    <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-xs ${approvalBadgeClass(exp.approvalStatus)}`}>
-                      {exp.approvalStatus}
-                    </span>
-                  )}
-                </div>
 
-                <div className="absolute top-3 right-3">
-                  <button
-                    type="button"
-                    disabled={togglingStatusId === exp.id}
-                    onClick={() => handleToggleStatus(exp.id, exp.status)}
-                    className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-xs disabled:opacity-60 disabled:cursor-not-allowed
-                      ${exp.status === 'Active'
-                        ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                        : 'bg-amber-500 text-white hover:bg-amber-600'}`}
-                  >
-                    {togglingStatusId === exp.id ? '…' : exp.status}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {exp.approvalStatus && (
+                      <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-xs ${approvalBadgeClass(exp.approvalStatus)}`}>
+                        {exp.approvalStatus}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={togglingStatusId === exp.id}
+                      onClick={() => handleToggleStatus(exp.id, exp.status)}
+                      className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-xs disabled:opacity-60 disabled:cursor-not-allowed
+                        ${exp.status === 'Active'
+                          ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                          : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                    >
+                      {togglingStatusId === exp.id ? '…' : exp.status}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="absolute bottom-3 left-4 right-4 text-white">
@@ -1463,7 +1609,7 @@ export const ExperiencesView = ({
                           <div>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs px-2.5 py-0.5 rounded-lg bg-white border border-border-misrah font-bold text-primary flex items-center gap-1">
-                                <Sparkles size={12} className="text-accent" /> {item.category?.name.en || 'Experience'}
+                                <Sparkles size={12} className="text-accent" /> {item.category?.name?.en || 'Experience'}
                               </span>
                               <div className="text-xs font-black text-primary">
                                 {item.currency} {item.price} <span className="text-[9px] text-muted-text font-bold">{priceTypeLabels[item.priceType]?.en}</span>
@@ -2850,6 +2996,7 @@ export const ExperiencesView = ({
           </div>
         )}
       </AnimatePresence>
+      </div>
     </motion.div>
   );
 };
