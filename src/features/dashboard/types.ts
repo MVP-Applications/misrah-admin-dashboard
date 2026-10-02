@@ -45,6 +45,17 @@ export interface AdminDashboardIntelItem {
   entityId?: string;
 }
 
+export interface AdminDashboardYieldItem {
+  propertyId: string;
+  title: string;
+  bookingsCount: number;
+  amount: number;
+  formattedAmount: string;
+  currency: string;
+  // Relative to the top property (top = 100) — drives the bar width.
+  percentage: number;
+}
+
 export interface AdminDashboardData {
   // Admin only — absent on the host overview.
   header?: { liveInRegionCount: number };
@@ -64,4 +75,85 @@ export interface AdminDashboardData {
   geoHubs: { activeNodesCount: number; regions: AdminDashboardRegion[] };
   activeOps: AdminDashboardActiveOp[];
   intelFeed: AdminDashboardIntelItem[];
+  // "Yield Distribution" panel — returned by both /admin/dashboard and
+  // /host/dashboard/overview. Optional so an older backend without it still
+  // passes the shape check.
+  yieldDistribution?: {
+    highestBookingsCount: number;
+    totalYield: number;
+    currency: string;
+    items: AdminDashboardYieldItem[];
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /host/dashboard/earnings — captured response + HostLedgerItemDto from
+// the live OpenAPI spec (ledger items were empty in the captured sample).
+// ---------------------------------------------------------------------------
+
+export type EarningsTimeframe = 'D' | 'W' | 'M' | 'Y';
+
+export interface HostEarningsParams {
+  timeframe?: EarningsTimeframe;
+  year?: number;
+  month?: number;
+  propertyId?: string;
+  ledgerPage?: number;
+  ledgerLimit?: number;
+}
+
+interface MoneyKpi {
+  amount: number;
+  formattedAmount: string;
+  currency: string;
+}
+
+export interface HostEarningsLedgerItem {
+  id: string;
+  type: 'PAYOUT' | 'BOOKING' | string;
+  title: string;
+  subtitle: string;
+  status: 'COMPLETED' | 'PROCESSING' | 'CONFIRMED' | 'PENDING' | string;
+  date: string;
+  formattedDate: string;
+  amount: number;
+  formattedAmount: string;
+  currency: string;
+  iconType: 'payout' | 'booking' | string;
+  travelerAvatarUrl?: string | null;
+}
+
+export interface HostEarningsData {
+  kpis: {
+    totalRevenue: MoneyKpi & { growthPercentage: number; isPositiveGrowth: boolean; comparisonLabel: string };
+    inEscrow: MoneyKpi & { statusLabel: string; description: string };
+    avgNightlyRate: MoneyKpi & { growthPercentage: number; isPositiveGrowth: boolean; seasonalityLabel: string };
+    activeNodes: { count: number; statusLabel: string; description: string };
+  };
+  revenueMatrix: {
+    title: string;
+    subtitle: string;
+    timeframe: string;
+    currency: string;
+    totalRevenue: number;
+    data: Array<{
+      label: string;
+      amount: number;
+      formattedAmount: string;
+      currency: string;
+      bookingsCount: number;
+      occupancyRate: number;
+    }>;
+  };
+  operationalOccupancy: { rate: number; formattedRate: string; totalBookedNights: number; totalAvailableNights: number };
+  netYieldMomentum: { momentumPercentage: number; formattedMomentum: string; isPositive: boolean };
+  ledger: {
+    title: string;
+    subtitle: string;
+    totalItems: number;
+    page: number;
+    totalPages: number;
+    viewFullHistoryLabel: string;
+    items: HostEarningsLedgerItem[];
+  };
 }

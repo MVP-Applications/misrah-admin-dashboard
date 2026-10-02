@@ -537,7 +537,9 @@ export const PropertyDetailView = ({
                 <div className="grid grid-cols-2 gap-4 pt-8 border-t border-border-misrah">
                   <div className="bg-surface p-5 rounded-2xl text-center">
                     <p className="text-[9px] font-black text-accent uppercase tracking-widest mb-1.5">Load</p>
-                    <p className="text-lg font-black italic text-primary">92.4%</p>
+                    <p className="text-lg font-black italic text-primary">
+                      {property.load !== null && property.load !== undefined ? `${Number(property.load.toFixed(1))}%` : '—'}
+                    </p>
                   </div>
                   <div className="bg-surface p-5 rounded-2xl text-center">
                     <p className="text-[9px] font-black text-accent uppercase tracking-widest mb-1.5">Rep</p>

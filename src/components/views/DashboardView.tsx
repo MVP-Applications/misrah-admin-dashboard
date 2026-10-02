@@ -18,7 +18,8 @@ import {
   Globe,
   Zap,
   Loader2,
-  TriangleAlert
+  TriangleAlert,
+  UserRound
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
@@ -40,6 +41,28 @@ function formatGrowth(percentage: number, isPositive: boolean, suffix: string): 
 function titleCase(value: string): string {
   return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+
+// Active Ops avatar: the traveller's photo when the API sends a real URL,
+// otherwise (null, a bare file ID, or a broken link) a neutral person icon.
+const TravelerAvatar = ({ url, name }: { url?: string | null; name: string }) => {
+  const [failed, setFailed] = useState(false);
+  const hasImage = !!url && /^https?:\/\//.test(url) && !failed;
+  return hasImage ? (
+    <img
+      src={url!}
+      alt={name}
+      onError={() => setFailed(true)}
+      className="w-12 h-12 rounded-2xl object-cover shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all"
+    />
+  ) : (
+    <div
+      aria-label={name}
+      className="w-12 h-12 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-muted-text/60 shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all"
+    >
+      <UserRound size={20} />
+    </div>
+  );
+};
 
 const INTEL_CATEGORY_STYLES: Record<string, { icon: typeof Star; color: string }> = {
   OPS: { icon: Calendar, color: 'text-info bg-info/10' },
@@ -339,30 +362,72 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
             </div>
           </div>
           <div className="p-10 space-y-8">
-            {[
-              { name: 'Burj View Apt.', val: 8400, percent: 82, color: 'bg-primary' },
-              { name: 'Saadiyat Retreat', val: 9100, percent: 89, color: 'bg-accent' },
-              { name: 'Jebel Jais Villa', val: 6500, percent: 63, color: 'bg-primary' },
-              { name: 'Corniche Suites', val: 3200, percent: 31, color: 'bg-muted-text' },
-              { name: 'Other Assets', val: 8200, percent: 85, color: 'bg-accent-light' },
-            ].map(item => (
-              <div key={item.name} className="space-y-3">
-                <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest">
-                  <span className="text-primary/60">{item.name}</span>
-                  <span className="text-primary">{item.val.toLocaleString()} <span className="text-muted-text/50">AED</span></span>
-                </div>
-                <div className="relative w-full h-3 bg-surface rounded-full overflow-hidden shadow-inner">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${item.percent}%` }}
-                    transition={{ duration: 1.5, ease: "circOut" }}
-                    className={`h-full ${item.color} rounded-full relative overflow-hidden`}
-                  >
-                    <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/10 to-transparent animate-shimmer" />
-                  </motion.div>
-                </div>
-              </div>
-            ))}
+            {(() => {
+              // Live from the overview API (yieldDistribution) — no placeholder data.
+              const yieldData = dashboard?.yieldDistribution;
+              const BAR_COLORS = ['bg-primary', 'bg-accent', 'bg-primary', 'bg-muted-text', 'bg-accent-light'];
+              const rows = yieldData
+                ? yieldData.items.map((item, i) => ({
+                    key: item.propertyId,
+                    name: item.title,
+                    amountLabel: item.formattedAmount,
+                    currency: item.currency || yieldData.currency,
+                    sub: `${item.bookingsCount} ${item.bookingsCount === 1 ? 'booking' : 'bookings'}`,
+                    percent: Math.max(0, Math.min(100, item.percentage)),
+                    color: BAR_COLORS[i % BAR_COLORS.length],
+                  }))
+                : [];
+
+              if (!dashboard && isDashboardLoading) {
+                return (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 size={24} className="animate-spin text-primary/30" />
+                  </div>
+                );
+              }
+
+              if (rows.length === 0) {
+                return (
+                  <p className="text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest py-10">
+                    {dashboard ? 'No yield recorded for this period' : 'Yield data unavailable'}
+                  </p>
+                );
+              }
+
+              return (
+                <>
+                  {yieldData && (
+                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-text/60 -mt-2">
+                      <span>Total Yield</span>
+                      <span className="text-primary text-sm italic">
+                        {yieldData.totalYield.toLocaleString()} <span className="text-muted-text/50 not-italic">{yieldData.currency}</span>
+                      </span>
+                    </div>
+                  )}
+                  {rows.map(item => (
+                    <div key={item.key} className="space-y-3">
+                      <div className="flex items-center justify-between gap-4 text-[11px] font-black uppercase tracking-widest">
+                        <span className="text-primary/60 truncate">
+                          {item.name}
+                          {item.sub && <span className="ml-2 text-muted-text/40 normal-case tracking-normal font-bold">· {item.sub}</span>}
+                        </span>
+                        <span className="text-primary shrink-0">{item.amountLabel} <span className="text-muted-text/50">{item.currency}</span></span>
+                      </div>
+                      <div className="relative w-full h-3 bg-surface rounded-full overflow-hidden shadow-inner">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${item.percent}%` }}
+                          transition={{ duration: 1.5, ease: "circOut" }}
+                          className={`h-full ${item.color} rounded-full relative overflow-hidden`}
+                        >
+                          <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/10 to-transparent animate-shimmer" />
+                        </motion.div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -900,12 +965,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                 dashboard.activeOps.map(op => (
                   <div key={op.bookingId} onClick={() => navigate('/bookings')} className="flex items-center gap-5 p-6 hover:bg-surface/50 transition-colors cursor-pointer group/item">
                     <div className="relative">
-                      {/* travelerAvatarUrl comes back as a bare file ID, not a URL — only use it when it is one. */}
-                      <img
-                        src={op.travelerAvatarUrl?.startsWith('http') ? op.travelerAvatarUrl : `https://i.pravatar.cc/150?u=${op.bookingId}`}
-                        alt={op.travelerName}
-                        className="w-12 h-12 rounded-2xl object-cover shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all"
-                      />
+                      <TravelerAvatar url={op.travelerAvatarUrl} name={op.travelerName} />
                       <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success rounded-full border-2 border-white" />
                     </div>
                     <div className="flex-1 min-w-0">

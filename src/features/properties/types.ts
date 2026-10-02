@@ -32,6 +32,9 @@ export interface ApiPropertyListItem {
   latitude?: number;
   longitude?: number;
   title: string;
+  // Occupancy / load percentage (e.g. 92.4) — returned by GET /property/{id};
+  // shown as "Load" in the detail page's Host Quality Rating section.
+  load?: number | string | null;
   description: string;
   propertyType: 'APARTMENT' | 'STUDIO' | 'VILLA' | 'PENTHOUSE';
   maxAdults: number;

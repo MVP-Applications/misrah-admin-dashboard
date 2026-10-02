@@ -6,6 +6,7 @@ export const API_ENDPOINTS = {
   dashboard: {
     admin: '/admin/dashboard',
     hostOverview: '/host/dashboard/overview',
+    hostEarnings: '/host/dashboard/earnings',
   },
   admin: {
     auth: {
@@ -100,6 +101,15 @@ export const API_ENDPOINTS = {
   // Same guard pattern as categories — plain JWT-guarded base routes for admin,
   // separate @Public() traveller/* routes on the same controller. Confirmed
   // already live (not added by this project).
+  // Home page sections of experiences — all routes in the live OpenAPI spec.
+  experienceListings: {
+    adminAll: '/experience-listings',
+    adminById: (id: string) => `/experience-listings/${id}`,
+    adminToggleActive: (id: string) => `/experience-listings/${id}/toggle-active`,
+    adminToggleHomepage: (id: string) => `/experience-listings/${id}/toggle-show-on-homepage`,
+    // POST adds / DELETE removes { experienceIds }.
+    adminExperiences: (id: string) => `/experience-listings/${id}/experiences`,
+  },
   homePageListings: {
     adminAll: '/home-page-listings',
     adminById: (id: string) => `/home-page-listings/${id}`,

@@ -155,7 +155,7 @@ export const ExperiencesView = ({
   // Host Hub writes go to PATCH / DELETE /experience/{id}; admin to /admin/experiences/{id}.
   const updateExperienceRequest = user.role === 'manager' ? updateMyExperience : updateAdminExperience;
   const deleteExperienceRequest = user.role === 'manager' ? deleteMyExperience : deleteAdminExperience;
-  // Admin: 'experiences' (catalog) | 'listings' (home page experience sections, UI only).
+  // Admin: 'experiences' (catalog) | 'listings' (home page experience sections, /experience-listings).
   const [experienceView, setExperienceView] = useState<'experiences' | 'listings'>('experiences');
   // Approve / reject (PATCH /admin/experiences/{id}/approve|reject)
   const [moderatingId, setModeratingId] = useState<string | null>(null);
@@ -187,17 +187,24 @@ export const ExperiencesView = ({
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, selectedCategory, approvalTab, selectedStatus]);
+  }, [debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus]);
 
   const fetchExperiences = useCallback(
     (pageToLoad: number) => {
       setIsLoadingExperiences(true);
       setLoadError(null);
-      // Host Hub: GET /experience/my (page/limit only) — search, category and
-      // active filters are applied client-side to the loaded page.
+      // Host Hub: GET /experience/my with search/categoryId/propertyId/status/isActive.
       // Admin: GET /admin/experiences with server-side filters.
       const request = user.role === 'manager'
-        ? listMyExperiences({ page: pageToLoad, limit: EXPERIENCES_PAGE_SIZE })
+        ? listMyExperiences({
+            page: pageToLoad,
+            limit: EXPERIENCES_PAGE_SIZE,
+            search: debouncedSearch || undefined,
+            categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+            propertyId: selectedPropertyFilter !== 'all' ? selectedPropertyFilter : undefined,
+            status: approvalTab,
+            isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
+          })
         : listAdminExperiences({
             page: pageToLoad,
             limit: EXPERIENCES_PAGE_SIZE,
@@ -208,16 +215,7 @@ export const ExperiencesView = ({
           });
       request
         .then((res) => {
-          let rows = res.data.map(apiExperienceToViewModel);
-          if (user.role === 'manager') {
-            const q = debouncedSearch.toLowerCase();
-            rows = rows.filter(r =>
-              (!q || r.title.toLowerCase().includes(q)) &&
-              (selectedCategory === 'all' || r.categoryId === selectedCategory) &&
-              (selectedStatus === 'all' || (selectedStatus === 'active' ? r.status === 'Active' : r.status !== 'Active')),
-            );
-          }
-          setExperiences(rows);
+          setExperiences(res.data.map(apiExperienceToViewModel));
           setTotalPages(res.meta.totalPages || 1);
           setTotalCount(res.meta.total || 0);
         })
@@ -227,7 +225,7 @@ export const ExperiencesView = ({
         })
         .finally(() => setIsLoadingExperiences(false));
     },
-    [debouncedSearch, selectedCategory, approvalTab, selectedStatus, user.role],
+    [debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus, user.role],
   );
 
   useEffect(() => {
@@ -949,7 +947,7 @@ export const ExperiencesView = ({
         </div>
       )}
 
-      {/* Kept mounted while hidden so its local (unsaved) sections survive tab switches. */}
+      {/* Kept mounted while hidden so switching tabs doesn't refetch / lose filters. */}
       {user.role === 'admin' && (
         <div className={experienceView === 'listings' ? '' : 'hidden'}>
           <ExperienceListingsTab />
@@ -957,8 +955,8 @@ export const ExperiencesView = ({
       )}
 
       <div className={experienceView === 'listings' ? 'hidden' : 'space-y-8'}>
-      {/* Approval Status Tabs (admin) */}
-      {user.role === 'admin' && (
+      {/* Approval Status Tabs — admin (/admin/experiences) and host (/experience/my) */}
+      {(
         <div className="flex bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm w-fit">
           {APPROVAL_TABS.map(tab => (
             <button
@@ -1025,18 +1023,29 @@ export const ExperiencesView = ({
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
-            {/* Property Filter — options derived from the properties visible on
-                the currently loaded page (client-side refinement only; the
-                backend has no property filter param). */}
+            {/* Property Filter — host: their own properties (/property/my), sent
+                as propertyId to /experience/my. Admin: properties visible on the
+                loaded page (client-side refinement). */}
             <select
               value={selectedPropertyFilter}
               onChange={e => setSelectedPropertyFilter(e.target.value)}
               className="py-3 px-4 bg-surface border border-border-misrah rounded-2xl text-xs font-bold text-primary outline-none focus:border-accent"
             >
-              <option value="all">All Properties (this page)</option>
-              {Array.from(new Map<string, ExperienceRow>(experiences.map(e => [e.propertyId, e])).values()).map(e => (
-                <option key={e.propertyId} value={e.propertyId}>{e.propertyName} ({e.propertyCity})</option>
-              ))}
+              {user.role === 'manager' ? (
+                <>
+                  <option value="all">All Properties</option>
+                  {realProperties.map(p => (
+                    <option key={p._id} value={p._id}>{p.title}</option>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <option value="all">All Properties (this page)</option>
+                  {Array.from(new Map<string, ExperienceRow>(experiences.map(e => [e.propertyId, e])).values()).map(e => (
+                    <option key={e.propertyId} value={e.propertyId}>{e.propertyName} ({e.propertyCity})</option>
+                  ))}
+                </>
+              )}
             </select>
 
             {/* Status Filter */}

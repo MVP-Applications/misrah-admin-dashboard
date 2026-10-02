@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Property, User } from '../../../types';
 import { PropertyDetailView } from './PropertyDetailView';
@@ -16,17 +17,27 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const latestRequestRef = useRef(0);
+
+  // Navigating to a different property: drop the old one so it isn't shown
+  // while the new one loads.
+  useEffect(() => {
+    setProperty(null);
+    setNotFound(false);
+  }, [id]);
 
   const refetch = useCallback(() => {
     if (!id) return;
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
+    setNotFound(false);
     // Host Hub reads its own property via GET /property/{id}; admin via
     // GET /admin/properties/{id}.
     const fetchProperty = user.role === 'manager' ? getPropertyById : getAdminPropertyById;
     fetchProperty(id)
-      .then(doc => setProperty(apiPropertyToViewModel(doc)))
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
+      .then(doc => { if (requestId === latestRequestRef.current) setProperty(apiPropertyToViewModel(doc)); })
+      .catch(() => { if (requestId === latestRequestRef.current) setNotFound(true); })
+      .finally(() => { if (requestId === latestRequestRef.current) setLoading(false); });
   }, [id, user.role]);
 
   useEffect(() => { refetch(); }, [refetch]);
@@ -35,7 +46,8 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
 
   if (loading && !property) {
     return (
-      <div className="bg-white rounded-[40px] border border-border-misrah p-16 text-center shadow-sm space-y-4">
+      <div className="bg-white rounded-[40px] border border-border-misrah p-16 text-center shadow-sm flex flex-col items-center gap-4">
+        <Loader2 size={36} className="animate-spin text-primary/30" />
         <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">Loading asset…</p>
       </div>
     );
@@ -57,6 +69,14 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
   }
 
   return (
+    <div className="relative">
+      {/* Background refresh (after an edit / status change) — keep the page, show a pill. */}
+      {loading && (
+        <div className="fixed top-6 right-6 z-[150] bg-primary text-white px-4 py-2.5 rounded-2xl shadow-luxury flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+          <Loader2 size={14} className="animate-spin text-accent" />
+          Refreshing…
+        </div>
+      )}
     <PropertyDetailView
       property={property}
       onClose={() => navigate(-1)}
@@ -73,5 +93,6 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
       onAssignHost={assignHost}
       user={user}
     />
+    </div>
   );
 };
