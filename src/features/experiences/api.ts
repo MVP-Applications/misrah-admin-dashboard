@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
 import type {
   ApiExperienceListItem,
+  ExperienceApprovalStatus,
   AssignExperiencePropertiesRequest,
   CreateExperienceRequest,
   ListAdminCreatedExperiencesParams,
@@ -23,11 +24,20 @@ export async function listAdminExperiences(params: ListExperiencesParams = {}): 
   return assertResponseShape('list experiences', data.data, ['data', 'meta']);
 }
 
-// GET /experience/my?page&limit — the host's own experiences, as
+// GET /experience/my?page&limit&search&categoryId&propertyId&status&isActive — the
+// host's own experiences (status = PENDING | APPROVED | REJECTED), as
 // { data: [...] } plus pagination. Items reuse ApiExperienceListItem; the
 // pagination block wasn't captured, so `meta: {...}` and flat
 // total/page/totalPages are both normalized into `meta`.
-export async function listMyExperiences(params: { page?: number; limit?: number } = {}): Promise<ListExperiencesResponse> {
+export async function listMyExperiences(params: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  categoryId?: string;
+  propertyId?: string;
+  status?: ExperienceApprovalStatus;
+  isActive?: boolean;
+} = {}): Promise<ListExperiencesResponse> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.experiences.my, { params });
   const body = data.data as Record<string, unknown> | unknown[];
   if (Array.isArray(body)) {

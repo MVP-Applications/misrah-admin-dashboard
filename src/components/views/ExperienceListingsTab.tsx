@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Plus,
@@ -12,25 +12,24 @@ import {
   X,
   Search,
   Minus,
-  AlertCircle,
+  Home,
 } from 'lucide-react';
 import { listAdminExperiences } from '../../features/experiences/api';
 import type { ApiExperienceListItem } from '../../features/experiences/types';
+import {
+  addExperiencesToListing,
+  createExperienceListing,
+  deleteExperienceListing,
+  listExperienceListings,
+  removeExperiencesFromListing,
+  toggleExperienceListingActive,
+  toggleExperienceListingHomepage,
+  updateExperienceListing,
+} from '../../features/experienceListings/api';
+import type { ExperienceListing } from '../../features/experienceListings/types';
 
 // Experience Listings — home page sections of experiences, mirroring Asset
-// Listings (Assets Queue → Asset Listings). UI ONLY: the backend's
-// /home-page-listings has no EXPERIENCE catalogue type and no route to attach
-// experiences, so sections live in local state and reset on reload. Only the
-// experience picker reads real data (GET /admin/experiences).
-
-interface ExperienceListing {
-  id: string;
-  title: { en: string; ar: string };
-  subtitle: { en: string; ar: string };
-  displayOrder: number;
-  isActive: boolean;
-  experienceIds: string[];
-}
+// Listings (Assets Queue → Asset Listings). Backed by /experience-listings.
 
 interface ListingFormState {
   titleEn: string;
@@ -39,19 +38,41 @@ interface ListingFormState {
   subtitleAr: string;
   displayOrder: number;
   isActive: boolean;
+  showOnHomepage: boolean;
 }
+
+type BoolFilter = 'all' | 'yes' | 'no';
+const toBoolParam = (f: BoolFilter) => (f === 'all' ? undefined : f === 'yes');
 
 const inputClass = 'w-full bg-surface border border-border-misrah rounded-xl px-4 py-3 text-xs font-bold text-primary outline-none focus:border-accent';
 const labelClass = 'text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1';
+const filterSelectClass = 'py-3 px-4 bg-surface border border-border-misrah rounded-2xl text-xs font-bold text-primary outline-none focus:border-accent cursor-pointer';
 
 export const ExperienceListingsTab = () => {
   const [listings, setListings] = useState<ExperienceListing[]>([]);
-  const [formTarget, setFormTarget] = useState<ExperienceListing | 'new' | null>(null);
-  const [form, setForm] = useState<ListingFormState>({ titleEn: '', titleAr: '', subtitleEn: '', subtitleAr: '', displayOrder: 1, isActive: true });
-  const [formError, setFormError] = useState<string | null>(null);
-  const [managingId, setManagingId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Real experiences for the picker (read-only).
+  // GET /experience-listings filters
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<BoolFilter>('all');
+  const [homepageFilter, setHomepageFilter] = useState<BoolFilter>('all');
+
+  const [formTarget, setFormTarget] = useState<ExperienceListing | 'new' | null>(null);
+  const [form, setForm] = useState<ListingFormState>({
+    titleEn: '', titleAr: '', subtitleEn: '', subtitleAr: '', displayOrder: 1, isActive: true, showOnHomepage: false,
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [managingId, setManagingId] = useState<string | null>(null);
+  const [mutatingExperienceId, setMutatingExperienceId] = useState<string | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
+
+  // Experiences for the picker (GET /admin/experiences, first 100).
   const [experiences, setExperiences] = useState<ApiExperienceListItem[]>([]);
   const [isLoadingExperiences, setIsLoadingExperiences] = useState(true);
   const [experiencesError, setExperiencesError] = useState<string | null>(null);
@@ -64,18 +85,43 @@ export const ExperienceListingsTab = () => {
   };
 
   useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  const fetchListings = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const result = await listExperienceListings({
+        search: debouncedSearch || undefined,
+        isActive: toBoolParam(activeFilter),
+        showOnHomepage: toBoolParam(homepageFilter),
+      });
+      setListings([...result].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load experience listings.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [debouncedSearch, activeFilter, homepageFilter]);
+
+  useEffect(() => {
+    fetchListings();
+  }, [fetchListings]);
+
+  useEffect(() => {
     listAdminExperiences({ page: 1, limit: 100 })
       .then(res => setExperiences(res.data))
       .catch(err => setExperiencesError(err?.message || 'Failed to load experiences.'))
       .finally(() => setIsLoadingExperiences(false));
   }, []);
 
-  const sortedListings = [...listings].sort((a, b) => a.displayOrder - b.displayOrder);
-  const managing = listings.find(l => l.id === managingId) ?? null;
+  const managing = listings.find(l => l._id === managingId) ?? null;
 
   const openCreate = () => {
-    const maxOrder = listings.reduce((max, l) => Math.max(max, l.displayOrder), 0);
-    setForm({ titleEn: '', titleAr: '', subtitleEn: '', subtitleAr: '', displayOrder: maxOrder + 1, isActive: true });
+    const maxOrder = listings.reduce((max, l) => Math.max(max, l.displayOrder ?? 0), 0);
+    setForm({ titleEn: '', titleAr: '', subtitleEn: '', subtitleAr: '', displayOrder: maxOrder + 1, isActive: true, showOnHomepage: false });
     setFormError(null);
     setFormTarget('new');
   };
@@ -88,12 +134,13 @@ export const ExperienceListingsTab = () => {
       subtitleAr: listing.subtitle.ar,
       displayOrder: listing.displayOrder,
       isActive: listing.isActive,
+      showOnHomepage: listing.showOnHomepage,
     });
     setFormError(null);
     setFormTarget(listing);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.titleEn.trim() || !form.titleAr.trim() || !form.subtitleEn.trim() || !form.subtitleAr.trim()) {
       setFormError('Title and subtitle are required in both English and Arabic.');
@@ -104,71 +151,140 @@ export const ExperienceListingsTab = () => {
       subtitle: { en: form.subtitleEn.trim(), ar: form.subtitleAr.trim() },
       displayOrder: Number(form.displayOrder) || 0,
       isActive: form.isActive,
+      showOnHomepage: form.showOnHomepage,
     };
-    if (formTarget === 'new') {
-      setListings(prev => [...prev, { id: `local-${Date.now()}`, experienceIds: [], ...values }]);
-      showToast(`Experience listing "${values.title.en}" created (not saved)`);
-    } else if (formTarget) {
-      const id = formTarget.id;
-      setListings(prev => prev.map(l => (l.id === id ? { ...l, ...values } : l)));
-      showToast(`Experience listing "${values.title.en}" updated (not saved)`);
+    setIsSaving(true);
+    setFormError(null);
+    try {
+      if (formTarget === 'new') {
+        await createExperienceListing({ ...values, experienceIds: [] });
+        showToast(`Experience listing "${values.title.en}" created`);
+      } else if (formTarget) {
+        await updateExperienceListing(formTarget._id, values);
+        showToast(`Experience listing "${values.title.en}" updated`);
+      }
+      setFormTarget(null);
+      await fetchListings();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save this experience listing.');
+    } finally {
+      setIsSaving(false);
     }
-    setFormTarget(null);
+  };
+
+  // Shared runner for the per-card actions (delete / toggles).
+  const runCardAction = async (id: string, action: () => Promise<void>, successMessage?: string) => {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await action();
+      if (successMessage) showToast(successMessage);
+      await fetchListings();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed.');
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const handleDelete = (listing: ExperienceListing) => {
-    if (!window.confirm(`Delete experience listing "${listing.title.en}"?`)) return;
-    setListings(prev => prev.filter(l => l.id !== listing.id));
-    showToast(`Experience listing "${listing.title.en}" deleted`);
+    if (!window.confirm(`Delete experience listing "${listing.title.en}"? It will be removed from the traveller app.`)) return;
+    runCardAction(listing._id, () => deleteExperienceListing(listing._id), `Experience listing "${listing.title.en}" deleted`);
   };
 
-  const toggleActive = (id: string) => {
-    setListings(prev => prev.map(l => (l.id === id ? { ...l, isActive: !l.isActive } : l)));
-  };
-
-  const setExperienceAssigned = (listingId: string, experienceId: string, assigned: boolean) => {
-    setListings(prev =>
-      prev.map(l => {
-        if (l.id !== listingId) return l;
-        const ids = assigned ? [...l.experienceIds, experienceId] : l.experienceIds.filter(x => x !== experienceId);
-        return { ...l, experienceIds: Array.from(new Set(ids)) };
-      }),
-    );
+  const setExperienceAssigned = async (listingId: string, experienceId: string, assigned: boolean) => {
+    setMutatingExperienceId(experienceId);
+    setManageError(null);
+    try {
+      if (assigned) {
+        await addExperiencesToListing(listingId, { experienceIds: [experienceId] });
+      } else {
+        await removeExperiencesFromListing(listingId, { experienceIds: [experienceId] });
+      }
+      // Reflect immediately, then reconcile with the server.
+      setListings(prev =>
+        prev.map(l => {
+          if (l._id !== listingId) return l;
+          const ids = assigned ? Array.from(new Set([...l.experienceIds, experienceId])) : l.experienceIds.filter(x => x !== experienceId);
+          return { ...l, experienceIds: ids, experienceCount: ids.length };
+        }),
+      );
+      fetchListings();
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : `Failed to ${assigned ? 'add' : 'remove'} this experience.`);
+    } finally {
+      setMutatingExperienceId(null);
+    }
   };
 
   const searchTerm = search.trim().toLowerCase();
   const assignedExperiences = managing ? experiences.filter(x => managing.experienceIds.includes(x._id)) : [];
+  // Assigned IDs the picker can't name (outside the first 100 loaded).
+  const unknownAssignedCount = managing ? managing.experienceIds.length - assignedExperiences.length : 0;
   const candidateExperiences = managing
     ? experiences.filter(x => !managing.experienceIds.includes(x._id) && (searchTerm === '' || x.title.toLowerCase().includes(searchTerm)))
     : [];
 
   return (
     <div className="space-y-6">
-      {/* Not-connected notice */}
-      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-        <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-        <p className="text-[11px] font-bold text-amber-800 leading-relaxed">
-          Preview only — experience listings aren't supported by the API yet. Sections you create here aren't saved and will be
-          lost when you leave the page.
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-[10px] font-black text-muted-text uppercase tracking-[2px]">
-          {listings.length} home page {listings.length === 1 ? 'section' : 'sections'}
-        </p>
+      {/* Filters + create */}
+      <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-3 flex-1">
+          <div className="relative flex-1 max-w-md">
+            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
+            <input
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="Search listings..."
+              className="w-full bg-surface border border-border-misrah rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
+            />
+          </div>
+          <select value={activeFilter} onChange={e => setActiveFilter(e.target.value as BoolFilter)} className={filterSelectClass}>
+            <option value="all">ALL STATUSES</option>
+            <option value="yes">ACTIVE</option>
+            <option value="no">INACTIVE</option>
+          </select>
+          <select value={homepageFilter} onChange={e => setHomepageFilter(e.target.value as BoolFilter)} className={filterSelectClass}>
+            <option value="all">ALL</option>
+            <option value="yes">ON HOMEPAGE</option>
+            <option value="no">NOT ON HOMEPAGE</option>
+          </select>
+        </div>
         <button
           onClick={openCreate}
-          className="bg-primary text-accent px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
+          className="bg-primary text-accent px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group shrink-0"
         >
           <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Create Experience Listing
         </button>
       </div>
 
-      {sortedListings.length === 0 ? (
+      {actionError && (
+        <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
+          <TriangleAlert size={18} />
+          <p className="text-[10px] font-black uppercase tracking-widest">{actionError}</p>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
+          <Loader2 size={40} className="animate-spin mx-auto text-primary/30" />
+        </div>
+      ) : loadError ? (
+        <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">
+          <TriangleAlert size={40} className="mx-auto text-danger" />
+          <h3 className="text-xl font-black italic text-danger uppercase">Failed To Load</h3>
+          <p className="text-[10px] font-bold text-danger/70 uppercase tracking-widest">{loadError}</p>
+          <button
+            onClick={fetchListings}
+            className="mt-4 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-white hover:opacity-90 transition-all"
+          >
+            Retry
+          </button>
+        </div>
+      ) : listings.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-24 text-center shadow-sm space-y-4">
           <LayoutList size={40} className="mx-auto text-muted-text/30" />
-          <p className="text-xs font-bold text-muted-text/60 uppercase tracking-widest">No experience listings yet.</p>
+          <p className="text-xs font-bold text-muted-text/60 uppercase tracking-widest">No experience listings found.</p>
           <button
             onClick={openCreate}
             className="px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-accent hover:opacity-90 transition-all inline-flex items-center gap-2"
@@ -178,57 +294,78 @@ export const ExperienceListingsTab = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {sortedListings.map(listing => (
-            <div
-              key={listing.id}
-              className={`bg-white rounded-[36px] border border-border-misrah p-7 shadow-sm hover:shadow-luxury transition-all flex flex-col gap-5 ${!listing.isActive ? 'opacity-60' : ''}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-accent">#{listing.displayOrder} · Horizontal Scroll</span>
-                  <h3 className="text-lg font-black italic text-primary uppercase tracking-tight truncate mt-0.5">{listing.title.en}</h3>
-                  <p className="text-xs text-muted-text truncate">{listing.subtitle.en}</p>
-                </div>
-                <div className="flex items-start gap-3 shrink-0">
-                  <div className="text-right" dir="rtl">
-                    <p className="text-sm font-bold text-primary font-arabic">{listing.title.ar}</p>
-                    <p className="text-[10px] text-muted-text font-arabic">{listing.subtitle.ar}</p>
+          {listings.map(listing => {
+            const count = listing.experienceCount ?? listing.experienceIds.length;
+            const isBusy = busyId === listing._id;
+            return (
+              <div
+                key={listing._id}
+                className={`bg-white rounded-[36px] border border-border-misrah p-7 shadow-sm hover:shadow-luxury transition-all flex flex-col gap-5 ${!listing.isActive ? 'opacity-60' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-accent">#{listing.displayOrder} · Horizontal Scroll</span>
+                    <h3 className="text-lg font-black italic text-primary uppercase tracking-tight truncate mt-0.5">{listing.title.en}</h3>
+                    <p className="text-xs text-muted-text truncate">{listing.subtitle.en}</p>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <button onClick={() => openEdit(listing)} title="Edit listing" className="p-2 rounded-lg text-muted-text hover:text-primary hover:bg-surface transition-colors">
-                      <Edit size={14} />
-                    </button>
-                    <button onClick={() => handleDelete(listing)} title="Delete listing" className="p-2 rounded-lg text-muted-text hover:text-danger hover:bg-danger/10 transition-colors">
-                      <Trash2 size={14} />
-                    </button>
+                  <div className="flex items-start gap-3 shrink-0">
+                    <div className="text-right" dir="rtl">
+                      <p className="text-sm font-bold text-primary font-arabic">{listing.title.ar}</p>
+                      <p className="text-[10px] text-muted-text font-arabic">{listing.subtitle.ar}</p>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <button onClick={() => openEdit(listing)} title="Edit listing" className="p-2 rounded-lg text-muted-text hover:text-primary hover:bg-surface transition-colors">
+                        <Edit size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(listing)}
+                        disabled={isBusy}
+                        title="Delete listing"
+                        className="p-2 rounded-lg text-muted-text hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
+                      >
+                        {isBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-3 py-1 rounded-full bg-surface border border-border-misrah text-[9px] font-black uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Sparkles size={11} /> EXPERIENCE
-                </span>
-                <span className="px-3 py-1 rounded-full bg-accent/10 text-accent text-[9px] font-black uppercase tracking-wider">
-                  {listing.experienceIds.length} {listing.experienceIds.length === 1 ? 'Experience' : 'Experiences'}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-surface border border-border-misrah text-[9px] font-black uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Sparkles size={11} /> EXPERIENCE
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-accent/10 text-accent text-[9px] font-black uppercase tracking-wider">
+                    {count} {count === 1 ? 'Experience' : 'Experiences'}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <button
+                      onClick={() => runCardAction(listing._id, () => toggleExperienceListingHomepage(listing._id))}
+                      disabled={isBusy}
+                      title={listing.showOnHomepage ? 'Remove from homepage' : 'Show on homepage'}
+                      className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[2px] transition-all disabled:opacity-50 flex items-center gap-1
+                        ${listing.showOnHomepage ? 'bg-primary text-accent' : 'bg-muted-text/10 text-muted-text'}`}
+                    >
+                      <Home size={10} /> {listing.showOnHomepage ? 'Homepage' : 'Hidden'}
+                    </button>
+                    <button
+                      onClick={() => runCardAction(listing._id, () => toggleExperienceListingActive(listing._id))}
+                      disabled={isBusy}
+                      className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[2px] transition-all disabled:opacity-50
+                        ${listing.isActive ? 'bg-success/10 text-success' : 'bg-muted-text/10 text-muted-text'}`}
+                    >
+                      {listing.isActive ? 'Active' : 'Inactive'}
+                    </button>
+                  </div>
+                </div>
+
                 <button
-                  onClick={() => toggleActive(listing.id)}
-                  className={`ml-auto px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[2px] transition-all
-                    ${listing.isActive ? 'bg-success/10 text-success' : 'bg-muted-text/10 text-muted-text'}`}
+                  onClick={() => { setSearch(''); setManageError(null); setManagingId(listing._id); }}
+                  className="mt-auto w-full py-3 rounded-2xl border border-border-misrah hover:border-accent text-[10px] font-black uppercase tracking-[2px] text-primary transition-all flex items-center justify-center gap-2"
                 >
-                  {listing.isActive ? 'Active' : 'Inactive'}
+                  <Plus size={14} className="text-accent" /> Manage Experiences
                 </button>
               </div>
-
-              <button
-                onClick={() => { setSearch(''); setManagingId(listing.id); }}
-                className="mt-auto w-full py-3 rounded-2xl border border-border-misrah hover:border-accent text-[10px] font-black uppercase tracking-[2px] text-primary transition-all flex items-center justify-center gap-2"
-              >
-                <Plus size={14} className="text-accent" /> Manage Experiences
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -262,19 +399,19 @@ export const ExperienceListingsTab = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Title (English) *</label>
-                    <input value={form.titleEn} onChange={e => setForm({ ...form, titleEn: e.target.value })} placeholder="e.g. Desert Adventures" className={inputClass} />
+                    <input value={form.titleEn} onChange={e => setForm({ ...form, titleEn: e.target.value })} placeholder="e.g. Local Discoveries" className={inputClass} />
                   </div>
                   <div>
                     <label className={labelClass}>Title (Arabic) *</label>
-                    <input value={form.titleAr} onChange={e => setForm({ ...form, titleAr: e.target.value })} placeholder="مغامرات الصحراء" dir="rtl" className={`${inputClass} font-arabic`} />
+                    <input value={form.titleAr} onChange={e => setForm({ ...form, titleAr: e.target.value })} placeholder="الاكتشافات المحلية" dir="rtl" className={`${inputClass} font-arabic`} />
                   </div>
                   <div>
                     <label className={labelClass}>Subtitle (English) *</label>
-                    <input value={form.subtitleEn} onChange={e => setForm({ ...form, subtitleEn: e.target.value })} placeholder="e.g. Curated dune escapes" className={inputClass} />
+                    <input value={form.subtitleEn} onChange={e => setForm({ ...form, subtitleEn: e.target.value })} placeholder="e.g. Trending in UAE" className={inputClass} />
                   </div>
                   <div>
                     <label className={labelClass}>Subtitle (Arabic) *</label>
-                    <input value={form.subtitleAr} onChange={e => setForm({ ...form, subtitleAr: e.target.value })} placeholder="رحلات مختارة في الكثبان" dir="rtl" className={`${inputClass} font-arabic`} />
+                    <input value={form.subtitleAr} onChange={e => setForm({ ...form, subtitleAr: e.target.value })} placeholder="الأكثر رواجاً في الإمارات" dir="rtl" className={`${inputClass} font-arabic`} />
                   </div>
                 </div>
 
@@ -291,13 +428,26 @@ export const ExperienceListingsTab = () => {
                   <input type="checkbox" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} className="w-4 h-4 accent-accent" />
                 </label>
 
+                <label className="flex items-center justify-between p-4 rounded-2xl bg-surface border border-border-misrah cursor-pointer">
+                  <div>
+                    <span className="text-xs font-black uppercase text-primary">Show On Homepage</span>
+                    <p className="text-[10px] text-muted-text font-bold">Feature this section on the traveller home screen</p>
+                  </div>
+                  <input type="checkbox" checked={form.showOnHomepage} onChange={e => setForm({ ...form, showOnHomepage: e.target.checked })} className="w-4 h-4 accent-accent" />
+                </label>
+
                 {formError && <p className="text-[10px] font-black text-danger uppercase tracking-widest text-center">{formError}</p>}
 
                 <div className="flex gap-3 pt-3 border-t border-border-misrah">
                   <button type="button" onClick={() => setFormTarget(null)} className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface cursor-pointer">
                     Cancel
                   </button>
-                  <button type="submit" className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md cursor-pointer">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving && <Loader2 size={14} className="animate-spin" />}
                     {formTarget === 'new' ? 'Create Experience Listing' : 'Save Changes'}
                   </button>
                 </div>
@@ -317,6 +467,13 @@ export const ExperienceListingsTab = () => {
               <h2 className="text-2xl font-black italic text-primary uppercase mb-1">{managing.title.en}</h2>
               <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-widest mb-8">Manage Experiences In This Listing</p>
 
+              {manageError && (
+                <div className="bg-danger/5 border border-danger/20 rounded-2xl p-4 flex items-center gap-3 text-danger mb-4">
+                  <TriangleAlert size={16} />
+                  <p className="text-[10px] font-black uppercase tracking-widest">{manageError}</p>
+                </div>
+              )}
+
               {isLoadingExperiences ? (
                 <div className="flex-1 flex items-center justify-center py-16">
                   <Loader2 size={32} className="animate-spin text-primary/30" />
@@ -329,8 +486,8 @@ export const ExperienceListingsTab = () => {
               ) : (
                 <div className="flex-1 overflow-y-auto space-y-8 pr-1">
                   <div className="space-y-3">
-                    <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px]">Assigned ({assignedExperiences.length})</h3>
-                    {assignedExperiences.length === 0 ? (
+                    <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px]">Assigned ({managing.experienceIds.length})</h3>
+                    {assignedExperiences.length === 0 && unknownAssignedCount === 0 ? (
                       <p className="text-[10px] font-bold text-muted-text/50 uppercase tracking-widest px-1">No experiences assigned yet</p>
                     ) : (
                       <div className="space-y-2">
@@ -338,13 +495,19 @@ export const ExperienceListingsTab = () => {
                           <div key={x._id} className="flex items-center justify-between bg-surface rounded-2xl px-5 py-3">
                             <span className="text-xs font-bold text-primary truncate">{x.title}</span>
                             <button
-                              onClick={() => setExperienceAssigned(managing.id, x._id, false)}
-                              className="w-8 h-8 rounded-lg bg-danger/10 text-danger flex items-center justify-center hover:bg-danger hover:text-white transition-all shrink-0"
+                              onClick={() => setExperienceAssigned(managing._id, x._id, false)}
+                              disabled={mutatingExperienceId === x._id}
+                              className="w-8 h-8 rounded-lg bg-danger/10 text-danger flex items-center justify-center hover:bg-danger hover:text-white transition-all shrink-0 disabled:opacity-50"
                             >
-                              <Minus size={14} />
+                              {mutatingExperienceId === x._id ? <Loader2 size={14} className="animate-spin" /> : <Minus size={14} />}
                             </button>
                           </div>
                         ))}
+                        {unknownAssignedCount > 0 && (
+                          <p className="text-[10px] font-bold text-muted-text/60 px-1">
+                            + {unknownAssignedCount} more not in the first 100 loaded experiences
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -368,10 +531,11 @@ export const ExperienceListingsTab = () => {
                           <div key={x._id} className="flex items-center justify-between bg-surface rounded-2xl px-5 py-3">
                             <span className="text-xs font-bold text-primary truncate">{x.title}</span>
                             <button
-                              onClick={() => setExperienceAssigned(managing.id, x._id, true)}
-                              className="w-8 h-8 rounded-lg bg-success/10 text-success flex items-center justify-center hover:bg-success hover:text-white transition-all shrink-0"
+                              onClick={() => setExperienceAssigned(managing._id, x._id, true)}
+                              disabled={mutatingExperienceId === x._id}
+                              className="w-8 h-8 rounded-lg bg-success/10 text-success flex items-center justify-center hover:bg-success hover:text-white transition-all shrink-0 disabled:opacity-50"
                             >
-                              <Plus size={14} />
+                              {mutatingExperienceId === x._id ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                             </button>
                           </div>
                         ))

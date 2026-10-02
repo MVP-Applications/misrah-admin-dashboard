@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck } from 'lucide-react';
+import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck, Loader2 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
@@ -109,7 +109,11 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Guards against an older (slower) city request overwriting a newer one.
+  const latestRequestRef = useRef(0);
+
   const refetch = useCallback(() => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     // Host Hub: GET /property/my (own properties only, no cityId param — so
     // the city tab is applied client-side). Admin: GET /admin/properties.
@@ -126,8 +130,12 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
         }))
       : listAdminProperties({ limit: 100, cityId: selectedCityId ?? undefined });
     request
-      .then(res => setProperties(res.data.map(apiPropertyToViewModel)))
-      .finally(() => setLoading(false));
+      .then(res => {
+        if (requestId === latestRequestRef.current) setProperties(res.data.map(apiPropertyToViewModel));
+      })
+      .finally(() => {
+        if (requestId === latestRequestRef.current) setLoading(false);
+      });
   }, [selectedCityId, user.role]);
 
   useEffect(() => { refetch(); }, [refetch]);
@@ -229,11 +237,15 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
         </div>
       </div>
 
-      {loading && properties.length === 0 && (
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50 py-10 text-center">Loading assets…</p>
+      {/* Shown on every load (incl. switching city), not just the first one. */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <Loader2 size={32} className="animate-spin text-primary/30" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50">Loading assets…</p>
+        </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 ${loading ? 'hidden' : ''}`}>
         <AnimatePresence mode="popLayout">
           {(isRequestsView ? pendingRequests : approvedListings).map(property => {
             if (property.status === 'Pending' || (!property.status)) {

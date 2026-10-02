@@ -82,6 +82,8 @@ export interface User {
 
 export interface Property {
   id: string;
+  // Occupancy / load percentage from the property detail API (null = not provided).
+  load?: number | null;
   name: string;
   city: string;
   type: string;

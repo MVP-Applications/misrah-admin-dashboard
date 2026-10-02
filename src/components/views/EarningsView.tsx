@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { 
   Plus, 
@@ -23,11 +23,19 @@ import {
   ShieldCheck,
   Calendar,
   Building2,
-  ArrowRight
+  ArrowRight,
+  Loader2,
+  TriangleAlert,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
 import { User } from '../../types';
+import { getHostEarnings } from '../../features/dashboard/api';
+import type { EarningsTimeframe, HostEarningsData } from '../../features/dashboard/types';
+
+const LEDGER_PAGE_SIZE = 7;
 
 interface EarningsViewProps {
   user: User;
@@ -50,6 +58,34 @@ interface TransactionRecord {
 }
 
 export const EarningsView = ({ user }: EarningsViewProps) => {
+  // Host Hub: live data from GET /host/dashboard/earnings. Admin keeps the
+  // sample data below (no admin earnings endpoint yet).
+  const isHost = user.role === 'manager';
+  const now = new Date();
+  const [timeframe, setTimeframe] = useState<EarningsTimeframe>('M');
+  const [earningsYear, setEarningsYear] = useState(now.getFullYear());
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [earnings, setEarnings] = useState<HostEarningsData | null>(null);
+  const [isEarningsLoading, setIsEarningsLoading] = useState(false);
+  const [earningsError, setEarningsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isHost) return;
+    let cancelled = false;
+    setIsEarningsLoading(true);
+    setEarningsError(null);
+    getHostEarnings({ timeframe, year: earningsYear, ledgerPage, ledgerLimit: LEDGER_PAGE_SIZE })
+      .then(data => { if (!cancelled) setEarnings(data); })
+      .catch(err => { if (!cancelled) setEarningsError(err instanceof Error ? err.message : 'Failed to load earnings.'); })
+      .finally(() => { if (!cancelled) setIsEarningsLoading(false); });
+    return () => { cancelled = true; };
+  }, [isHost, timeframe, earningsYear, ledgerPage]);
+
+  // Year change → back to the first ledger page.
+  useEffect(() => { setLedgerPage(1); }, [earningsYear]);
+
+  const matrixRows = earnings?.revenueMatrix.data ?? [];
+  const matrixMax = matrixRows.reduce((max, r) => Math.max(max, r.amount), 0);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawStep, setWithdrawStep] = useState<'form' | 'processing' | 'success'>('form');
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -180,7 +216,19 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
             {user.role === 'admin' ? 'Total Treasury Monitoring' : 'Personal Revenue Analytics'}
           </p>
         </div>
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-4 items-center">
+          {isHost && (
+            <div className="flex items-center gap-2">
+              <select
+                value={earningsYear}
+                onChange={e => setEarningsYear(Number(e.target.value))}
+                className="py-3 px-4 bg-white border border-border-misrah rounded-2xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {isEarningsLoading && <Loader2 size={16} className="animate-spin text-accent" />}
+            </div>
+          )}
           <button className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-border-misrah bg-white text-[10px] font-black uppercase tracking-[3px] hover:border-accent hover:shadow-lg transition-all shadow-sm group">
             <Download size={14} className="group-hover:-translate-y-0.5 transition-transform" />
             Audit Report
@@ -209,14 +257,49 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
         )}
       </AnimatePresence>
 
+      {isHost && earningsError && (
+        <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
+          <TriangleAlert size={18} />
+          <p className="text-[10px] font-black uppercase tracking-widest">Earnings data unavailable: {earningsError}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Total Revenue (AED)" value="35,400" change="↑ +12.5% VS DEC" icon={Wallet} dark />
-        <StatCard label="In Escrow" value="12,150" change="SETTLEMENT FLOW" icon={History} />
-        <StatCard label="Avg. Nightly Rate" value="1,150" change="↓ -2.1% SEASONALITY" icon={TrendingUp} />
-        {user.role === 'admin' ? (
-          <StatCard label="Total Refunded" value="2,050" change="↑ +5.2% SYSTEM" icon={RotateCcw} />
+        {isHost ? (
+          <>
+            <StatCard
+              label={`Total Revenue (${earnings?.kpis.totalRevenue.currency ?? 'AED'})`}
+              value={earnings ? earnings.kpis.totalRevenue.formattedAmount : '—'}
+              change={earnings ? earnings.kpis.totalRevenue.comparisonLabel : '…'}
+              icon={Wallet}
+              dark
+            />
+            <StatCard
+              label="In Escrow"
+              value={earnings ? earnings.kpis.inEscrow.formattedAmount : '—'}
+              change={earnings ? earnings.kpis.inEscrow.statusLabel : '…'}
+              icon={History}
+            />
+            <StatCard
+              label="Avg. Nightly Rate"
+              value={earnings ? earnings.kpis.avgNightlyRate.formattedAmount : '—'}
+              change={earnings ? earnings.kpis.avgNightlyRate.seasonalityLabel : '…'}
+              icon={TrendingUp}
+            />
+            <StatCard
+              label="Active Nodes"
+              value={earnings ? earnings.kpis.activeNodes.count.toString() : '—'}
+              change={earnings ? earnings.kpis.activeNodes.statusLabel : '…'}
+              icon={CheckCircle2}
+            />
+          </>
         ) : (
-           <StatCard label="Active Nodes" value="8" change="FULLY DEPLOYED" icon={CheckCircle2} />
+          <>
+            <StatCard label="Total Revenue (AED)" value="35,400" change="↑ +12.5% VS DEC" icon={Wallet} dark />
+            <StatCard label="In Escrow" value="12,150" change="SETTLEMENT FLOW" icon={History} />
+            <StatCard label="Avg. Nightly Rate" value="1,150" change="↓ -2.1% SEASONALITY" icon={TrendingUp} />
+            <StatCard label="Total Refunded" value="2,050" change="↑ +5.2% SYSTEM" icon={RotateCcw} />
+          </>
         )}
       </div>
 
@@ -233,15 +316,44 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                 </div>
               </div>
               <div className="flex bg-surface p-1.5 rounded-2xl border border-border-misrah/50 shadow-inner group">
-                 {['D', 'W', 'M', 'Y'].map(t => (
-                   <button key={t} className={`w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${t === 'M' ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/40 hover:text-primary hover:bg-white'}`}>{t}</button>
-                 ))}
+                 {(['D', 'W', 'M', 'Y'] as EarningsTimeframe[]).map(t => {
+                   const isSelected = isHost ? timeframe === t : t === 'M';
+                   return (
+                     <button
+                       key={t}
+                       type="button"
+                       onClick={() => isHost && setTimeframe(t)}
+                       title={{ D: 'Daily', W: 'Weekly', M: 'Monthly', Y: 'Yearly' }[t]}
+                       className={`w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${isSelected ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/40 hover:text-primary hover:bg-white'}`}
+                     >
+                       {t}
+                     </button>
+                   );
+                 })}
               </div>
            </div>
            
            <div className="flex-1 p-10 flex flex-col overflow-hidden">
               <div className="flex items-end gap-3 h-64 mb-16 px-2 shrink-0">
-                {[45, 62, 38, 85, 42, 59, 73, 91, 55, 68, 82, 95].map((val, i) => (
+                {isHost ? (
+                  matrixRows.length === 0 ? (
+                    <p className="w-full self-center text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
+                      {isEarningsLoading ? 'Loading…' : 'No revenue data for this period'}
+                    </p>
+                  ) : matrixRows.map((row, i) => (
+                    <div key={`${row.label}-${i}`} className="flex-1 flex flex-col items-center gap-4 group h-full min-w-0" title={`${row.label}: ${row.formattedAmount} ${row.currency} · ${row.bookingsCount} bookings · ${row.occupancyRate}% occupancy`}>
+                      <div className="w-full relative bg-surface/50 rounded-2xl overflow-hidden h-full border border-border-misrah/10">
+                        <motion.div
+                          initial={{ height: 0 }}
+                          animate={{ height: `${matrixMax > 0 ? Math.max(2, (row.amount / matrixMax) * 100) : 0}%` }}
+                          transition={{ duration: 1, delay: i * 0.05 }}
+                          className="absolute inset-x-0 bottom-0 bg-linear-to-t from-primary/30 via-primary/60 to-accent rounded-t-xl group-hover:from-primary group-hover:to-accent transition-all duration-700"
+                        />
+                      </div>
+                      <span className="text-[9px] font-black text-muted-text/30 group-hover:text-primary transition-colors tracking-[1px] uppercase truncate max-w-full">{row.label}</span>
+                    </div>
+                  ))
+                ) : [45, 62, 38, 85, 42, 59, 73, 91, 55, 68, 82, 95].map((val, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-4 group h-full">
                     <div className="w-full relative bg-surface/50 rounded-2xl overflow-hidden h-full border border-border-misrah/10">
                        <motion.div 
@@ -265,10 +377,14 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                       <ArrowUpRight size={18} />
                     </div>
                   </div>
-                  <div className="relative z-10 text-5xl font-sans font-black italic text-primary">92.4%</div>
+                  <div className="relative z-10 text-5xl font-sans font-black italic text-primary">
+                    {isHost ? (earnings ? earnings.operationalOccupancy.formattedRate : '—') : '92.4%'}
+                  </div>
                   <div className="relative z-10 text-[9px] font-black text-success uppercase tracking-[3px] mt-4 px-4 py-2 bg-success/10 rounded-full w-fit flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                    Above Forecast
+                    {isHost
+                      ? (earnings ? `${earnings.operationalOccupancy.totalBookedNights} / ${earnings.operationalOccupancy.totalAvailableNights} nights booked` : '…')
+                      : 'Above Forecast'}
                   </div>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-success/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 </div>
@@ -279,10 +395,16 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                       <TrendingUp size={18} />
                     </div>
                   </div>
-                  <div className="relative z-10 text-5xl font-sans font-black italic text-primary">+8.4<span className="text-lg not-italic font-sans opacity-40 ml-1">%</span></div>
+                  <div className="relative z-10 text-5xl font-sans font-black italic text-primary">
+                    {isHost
+                      ? (earnings ? earnings.netYieldMomentum.formattedMomentum : '—')
+                      : <>+8.4<span className="text-lg not-italic font-sans opacity-40 ml-1">%</span></>}
+                  </div>
                   <div className="relative z-10 text-[9px] font-black text-secondary uppercase tracking-[3px] mt-4 px-4 py-2 bg-secondary/10 rounded-full w-fit flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-                    Sector Leading
+                    {isHost
+                      ? (earnings ? (earnings.netYieldMomentum.isPositive ? 'Positive Momentum' : 'Negative Momentum') : '…')
+                      : 'Sector Leading'}
                   </div>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 </div>
@@ -296,6 +418,7 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                 <h2 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">Ledger</h2>
                 <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-1.5">Asset Protocol History</p>
               </div>
+              {!isHost && (
               <button
                 onClick={() => setIsHistoryOpen(true)}
                 title="Filter & Audit Full Ledger"
@@ -303,9 +426,65 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
               >
                 <Filter size={20} className="group-hover:text-accent transition-colors" />
               </button>
+              )}
            </div>
 
            <div className="divide-y divide-border-misrah/30 overflow-y-auto flex-1 scrollbar-hide">
+             {isHost ? (
+               <>
+                 {(earnings?.ledger.items ?? []).length === 0 ? (
+                   <p className="p-10 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
+                     {isEarningsLoading ? 'Loading…' : 'No ledger entries for this period'}
+                   </p>
+                 ) : earnings!.ledger.items.map(item => {
+                   const isPayout = item.type?.toUpperCase() === 'PAYOUT';
+                   const status = item.status?.toUpperCase();
+                   return (
+                     <div key={item.id} className="p-8 h-20 flex items-center justify-between hover:bg-surface/50 transition-all group border-l-4 border-l-transparent hover:border-l-accent animate-in fade-in duration-500">
+                       <div className="flex items-center gap-6 min-w-0">
+                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-500 shrink-0
+                           ${isPayout ? 'bg-primary border-primary text-accent shadow-lg shadow-primary/20' : 'bg-surface border-border-misrah text-accent shadow-inner group-hover:bg-white group-hover:border-accent'}`}>
+                           {isPayout ? <ArrowDownRight size={18} /> : <Banknote size={18} />}
+                         </div>
+                         <div className="min-w-0">
+                           <div className="flex items-center gap-3">
+                             <span className="text-[11px] font-black text-primary uppercase tracking-tight truncate">{item.title}</span>
+                             <Badge variant={status === 'COMPLETED' || status === 'CONFIRMED' ? 'green' : 'gold'} className="scale-75 origin-left">{item.status}</Badge>
+                           </div>
+                           <p className="text-[8px] font-black text-muted-text/50 uppercase tracking-[3px] truncate">{item.formattedDate} · {item.subtitle}</p>
+                         </div>
+                       </div>
+                       <div className={`text-xl font-sans font-black italic shrink-0 ${isPayout || item.amount < 0 ? 'text-primary' : 'text-accent'}`}>
+                         {item.formattedAmount}
+                       </div>
+                     </div>
+                   );
+                 })}
+                 {earnings && earnings.ledger.totalPages > 1 && (
+                   <div className="p-4 bg-surface/30 flex items-center justify-between gap-3">
+                     <button
+                       type="button"
+                       onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
+                       disabled={ledgerPage <= 1 || isEarningsLoading}
+                       className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+                     >
+                       <ChevronLeft size={16} />
+                     </button>
+                     <span className="text-[10px] font-black text-primary uppercase tracking-[3px] text-center">
+                       {earnings.ledger.viewFullHistoryLabel} · Page {earnings.ledger.page} / {earnings.ledger.totalPages}
+                     </span>
+                     <button
+                       type="button"
+                       onClick={() => setLedgerPage(p => Math.min(earnings.ledger.totalPages, p + 1))}
+                       disabled={ledgerPage >= earnings.ledger.totalPages || isEarningsLoading}
+                       className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+                     >
+                       <ChevronRight size={16} />
+                     </button>
+                   </div>
+                 )}
+               </>
+             ) : (<>
              {transactions.slice(0, 7).map(tx => (
                <div key={tx.id} className="p-8 h-20 flex items-center justify-between hover:bg-surface/50 transition-all group cursor-pointer border-l-4 border-l-transparent hover:border-l-accent animate-in fade-in duration-500">
                   <div className="flex items-center gap-6">
@@ -346,6 +525,7 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                </button>
              </div>
+             </>)}
            </div>
         </div>
       </div>

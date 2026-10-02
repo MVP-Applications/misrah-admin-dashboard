@@ -19,6 +19,7 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     city: doc.city?.name ?? 'Unknown',
     type: doc.propertyType,
     rating: doc.avgRating ?? 0,
+    load: doc.load === null || doc.load === undefined || doc.load === '' || !Number.isFinite(Number(doc.load)) ? null : Number(doc.load),
     reviews: doc.reviewCount ?? 0,
     price: doc.pricing.basePrice,
     beds: doc.beds,
