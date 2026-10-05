@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sparkles, 
@@ -22,20 +22,25 @@ import {
   Crown,
   Leaf,
   Camera,
-  Smartphone
+  Smartphone,
+  Loader2,
+  TriangleAlert,
+  ChevronLeft
 } from 'lucide-react';
 import { Property, ActivityExperience, PriceType, Booking } from '../../types';
-import { ACTIVITY_CATEGORIES, CategoryDefinition } from '../../data/activityCategories';
+import { listAllExperiences, listExperienceCategories } from '../../features/experiences/api';
+import { apiExperienceToViewModel } from '../../features/experiences/mappers';
+import type { ApiExperienceCategory } from '../../features/experiences/types';
+
+const PAGE_SIZE = 12;
 import { Badge } from '../ui/Badge';
 
 interface ExploreExperiencesViewProps {
-  properties: Property[];
   onOpenMobilePreview?: (propertyId?: string, activityId?: string) => void;
   onAddBooking?: (booking: Booking) => void;
 }
 
 export const ExploreExperiencesView = ({
-  properties,
   onOpenMobilePreview,
   onAddBooking
 }: ExploreExperiencesViewProps) => {
@@ -49,25 +54,60 @@ export const ExploreExperiencesView = ({
   const [bookingSlot, setBookingSlot] = useState('Evening (19:00 - 21:00)');
   const [bookingGuests, setBookingGuests] = useState(4);
 
-  // Flatten all active experiences
-  const allExperiences = properties.flatMap(p => 
-    (p.activities || []).filter(a => a.status === 'Active').map(a => ({
-      ...a,
-      property: p
-    }))
-  );
+  // Live catalog — GET /experience/all (active only), shared by admin & host.
+  type ExploreExperience = ActivityExperience & { property: Property };
+  const [experiences, setExperiences] = useState<ExploreExperience[]>([]);
+  const [categories, setCategories] = useState<ApiExperienceCategory[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  const filteredExperiences = allExperiences.filter(exp => {
-    if (selectedCategory !== 'all' && exp.categoryId !== selectedCategory) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = exp.title.toLowerCase().includes(q) || (exp.titleAr && exp.titleAr.includes(q));
-      const matchCat = exp.categoryName.toLowerCase().includes(q);
-      const matchProp = exp.property.name.toLowerCase().includes(q) || exp.property.city.toLowerCase().includes(q);
-      if (!matchTitle && !matchCat && !matchProp) return false;
-    }
-    return true;
-  });
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, selectedCategory]);
+
+  useEffect(() => {
+    listExperienceCategories().then(setCategories).catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError(null);
+    listAllExperiences({
+      page,
+      limit: PAGE_SIZE,
+      search: debouncedSearch || undefined,
+      categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+      isActive: true,
+    })
+      .then(res => {
+        if (cancelled) return;
+        setExperiences(res.data.map(item => {
+          const row = apiExperienceToViewModel(item);
+          // The booking modal below expects a property — build it from the row.
+          const property = { id: row.propertyId, name: row.propertyName, city: row.propertyCity, image: row.propertyImage } as Property;
+          return { ...row, property };
+        }));
+        setTotalPages(res.meta.totalPages || 1);
+        setTotalCount(res.meta.total || res.data.length);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setExperiences([]);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load experiences.');
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [page, debouncedSearch, selectedCategory]);
+
+  const filteredExperiences = experiences;
 
   const priceTypeLabels: Record<PriceType, { en: string; ar: string }> = {
     per_person: { en: '/ person', ar: 'لكل شخص' },
@@ -76,7 +116,7 @@ export const ExploreExperiencesView = ({
     fixed: { en: 'total', ar: 'شامل' }
   };
 
-  const handleBookExperience = (activity: ActivityExperience & { property: Property }) => {
+  const handleBookExperience = (activity: ExploreExperience) => {
     setSelectedActivity(activity);
     setActivePropertyForBooking(activity.property);
     const slots = (activity.timeSlots && activity.timeSlots.length > 0)
@@ -148,34 +188,46 @@ export const ExploreExperiencesView = ({
               : 'bg-white border border-border-misrah text-muted-text hover:text-primary'}`}
         >
           <Sparkles size={14} />
-          All Categories ({allExperiences.length})
+          All Categories{selectedCategory === 'all' && !isLoading ? ` (${totalCount})` : ''}
         </button>
 
-        {ACTIVITY_CATEGORIES.map(cat => {
-          const count = allExperiences.filter(e => e.categoryId === cat.id).length;
+        {/* GET /experience-categories — ids match /experience/all's categoryId. */}
+        {categories.map(cat => {
+          const label = typeof cat.name === 'string' ? cat.name : cat.name?.en || cat.name?.ar || 'Unnamed';
           return (
             <button
-              key={cat.id}
+              key={cat._id}
               type="button"
-              onClick={() => setSelectedCategory(cat.id)}
+              onClick={() => setSelectedCategory(cat._id)}
               className={`px-4 py-2.5 rounded-2xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-2
-                ${selectedCategory === cat.id 
+                ${selectedCategory === cat._id 
                   ? 'bg-primary text-accent shadow-md' 
                   : 'bg-white border border-border-misrah text-muted-text hover:text-primary'}`}
             >
-              <span>{cat.emoji}</span>
-              <span>{cat.nameEn}</span>
-              <span className="opacity-60 text-[10px]">({count})</span>
+              {cat.iconName && /\p{Extended_Pictographic}/u.test(cat.iconName) && <span>{cat.iconName}</span>}
+              <span>{label}</span>
+              {selectedCategory === cat._id && !isLoading && <span className="opacity-60 text-[10px]">({totalCount})</span>}
             </button>
           );
         })}
       </div>
 
       {/* Experiences Grid */}
-      {filteredExperiences.length === 0 ? (
+      {isLoading ? (
+        <div className="p-24 flex items-center justify-center">
+          <Loader2 size={32} className="animate-spin text-primary/30" />
+        </div>
+      ) : loadError ? (
+        <div className="p-16 bg-danger/5 rounded-[36px] border border-danger/20 text-center space-y-3">
+          <TriangleAlert size={32} className="mx-auto text-danger" />
+          <p className="text-xs font-bold text-danger">{loadError}</p>
+        </div>
+      ) : filteredExperiences.length === 0 ? (
         <div className="p-16 bg-white rounded-[36px] border border-dashed border-border-misrah text-center space-y-3">
           <Sparkles size={32} className="mx-auto text-accent" />
-          <h3 className="text-lg font-black text-primary uppercase">No experiences match "{searchQuery}"</h3>
+          <h3 className="text-lg font-black text-primary uppercase">
+            {debouncedSearch ? `No experiences match "${debouncedSearch}"` : 'No experiences found'}
+          </h3>
           <p className="text-xs text-muted-text">Try searching for other keywords or select another category</p>
         </div>
       ) : (
@@ -262,6 +314,28 @@ export const ExploreExperiencesView = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {!isLoading && !loadError && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-[10px] font-black text-muted-text uppercase tracking-widest">Page {page} of {totalPages}</span>
+          <button
+            type="button"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+          >
+            <ChevronRight size={16} />
+          </button>
         </div>
       )}
 

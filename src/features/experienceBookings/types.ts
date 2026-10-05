@@ -148,3 +148,33 @@ export type ExperienceBookingDetail = ExperienceBookingListItem;
 export interface CancelExperienceBookingRequest {
   reason?: string;
 }
+
+// PATCH /experience-booking/{id}/reschedule — RescheduleExperienceBookingDto
+// (live spec; date + timeSlot required). The preview route takes the same
+// body minus `pricing`.
+export interface RescheduleExperienceBookingRequest {
+  date: string; // YYYY-MM-DD
+  timeSlot: string; // e.g. "04:30 PM"
+  guestCount?: number;
+  addOns?: Array<{ addOnId: string; quantity: number }>;
+  reason?: string;
+  pricing?: { totalPayable: number };
+}
+
+// GET /experience-booking/availability/{experienceId}?date=YYYY-MM-DD —
+// captured response (public).
+export interface ExperienceAvailabilitySlot {
+  timeSlot: string; // e.g. "05:00 PM" — the value reschedule's timeSlot takes
+  startTime: string;
+  endTime: string;
+  isAvailable: boolean;
+}
+
+export interface ExperienceAvailability {
+  experienceId: string;
+  date: string;
+  duration: number;
+  maxGuests: number;
+  isDateAvailable: boolean;
+  slots: ExperienceAvailabilitySlot[];
+}
