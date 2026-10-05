@@ -36,13 +36,18 @@ jobs:
           VITE_API_KEY: ${{ vars.VITE_API_KEY }}
         run: npm run build
 
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      # Password auth via sshpass — burnett01/rsync-deployments only supports keys.
+      # SSHPASS is read by `sshpass -e` so the password never appears on the command line.
       - name: Deploy over SSH
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avzr --delete
-          path: dist/
-          remote_path: /home/mvp-server/misrah-admin-dashboard-staging
-          remote_host: ${{ secrets.STAGING_HOST }}
-          remote_user: ${{ secrets.STAGING_USER }}
-          remote_key: ${{ secrets.STAGING_SSH_KEY }}
-          remote_port: ${{ secrets.STAGING_PORT }}
+        env:
+          SSHPASS: ${{ secrets.STAGING_PASSWORD }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          STAGING_PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          sshpass -e rsync -avzr --delete \
+            -e "ssh -p $STAGING_PORT -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30" \
+            dist/ "$STAGING_USER@$STAGING_HOST:/home/mvp-server/misrah-admin-dashboard-staging"
