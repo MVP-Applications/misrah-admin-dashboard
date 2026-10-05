@@ -24,7 +24,7 @@ import {
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
 import { User, Booking, Property } from '../../types';
-import { listAdminProperties } from '../../features/properties/api';
+import { listAdminProperties, listMyProperties } from '../../features/properties/api';
 import { apiPropertyToViewModel } from '../../features/properties/mappers';
 import { listBookings } from '../../features/bookings/api';
 import { toLegacyBooking } from '../../features/bookings/mappers';
@@ -85,8 +85,18 @@ interface GeoHubConfig {
   latency: string;
   coordinates: string;
   topAreas: string[];
-  // From GET /admin/dashboard geoHubs (admin) — overrides the client-side count.
+  // From the overview API's geoHubs.regions — when present these override the
+  // static config / client-side fallbacks in the cards and hub inspector.
   propertyCount?: number;
+  cityId?: string;
+  country?: string;
+  nodeStatus?: string;
+  occupancyFormatted?: string;
+  occupancyIndex?: string;
+  formattedAvgDailyRate?: string;
+  avgDailyRateLabel?: string;
+  liveBookingsCount?: number;
+  formattedLiveBookingsAmount?: string;
 }
 
 export const DashboardView = ({ user }: DashboardViewProps) => {
@@ -142,7 +152,8 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
   };
 
   const getCityProperties = (cityName: string) => {
-    return properties.filter(p => normalizeCity(p.city) === normalizeCity(cityName));
+    const target = normalizeCity(cityName).toLowerCase();
+    return properties.filter(p => normalizeCity(p.city).toLowerCase() === target);
   };
 
   const getCityBookings = (cityName: string) => {
@@ -209,14 +220,23 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
         const name = known?.name ?? titleCase(region.name);
         return {
           name,
-          tag: known?.tag ?? 'Regional Node',
+          tag: region.categoryTag || known?.tag || 'Regional Node',
           img: region.imageUrl || known?.img || '',
-          occupancy: known?.occupancy ?? 0,
-          description: known?.description ?? `Misrah retreats and experiences across ${name}.`,
+          occupancy: region.occupancyRate ?? known?.occupancy ?? 0,
+          description: region.description || known?.description || `Misrah retreats and experiences across ${name}.`,
           latency: known?.latency ?? '—',
-          coordinates: known?.coordinates ?? '—',
+          coordinates: region.formattedCoordinates || known?.coordinates || '—',
           topAreas: known?.topAreas ?? [],
           propertyCount: region.propertyCount,
+          cityId: region.cityId,
+          country: region.country,
+          nodeStatus: region.nodeStatus,
+          occupancyFormatted: region.occupancyFormatted,
+          occupancyIndex: region.occupancyIndex,
+          formattedAvgDailyRate: region.formattedAvgDailyRate,
+          avgDailyRateLabel: region.avgDailyRateLabel,
+          liveBookingsCount: region.liveBookingsCount,
+          formattedLiveBookingsAmount: region.formattedLiveBookingsAmount,
         };
       })
     : GEO_HUBS;
@@ -226,7 +246,10 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
     listAdminProperties({ status: 'pending', limit: 1 }).then(r => setPendingCount(r.meta.total));
     listAdminProperties({ status: 'approved', limit: 1 }).then(r => setApprovedCount(r.meta.total));
     listBookings({ page: 1, limit: 4 }).then(r => setRecentBookings(r.data.map(toLegacyBooking)));
-    listAdminProperties({ limit: 100 }).then(r => setProperties(r.data.map(apiPropertyToViewModel)));
+    // Hub inspector's property list — host reads its own (/property/my).
+    (user.role === 'manager' ? listMyProperties({ page: 1, limit: 100 }) : listAdminProperties({ limit: 100 }))
+      .then(r => setProperties(r.data.map(apiPropertyToViewModel)))
+      .catch(() => setProperties([]));
     listBookings({ page: 1, limit: 100 }).then(r => setHubBookings(r.data.map(toLegacyBooking)));
   }, []);
 
@@ -647,7 +670,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                       </span>
                       <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-success" />
-                        {selectedHub.latency}
+                        {selectedHub.nodeStatus || selectedHub.latency}
                       </span>
                     </div>
                     <button 
@@ -659,7 +682,9 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                   </div>
 
                   <div>
-                    <span className="text-[10px] font-black uppercase tracking-[3px] text-white/60">United Arab Emirates</span>
+                    <span className="text-[10px] font-black uppercase tracking-[3px] text-white/60">
+                      {selectedHub.country === 'UAE' || !selectedHub.country ? 'United Arab Emirates' : selectedHub.country}
+                    </span>
                     <h2 className="text-3xl sm:text-4xl font-black italic text-white uppercase tracking-tight drop-shadow-md">
                       {selectedHub.name} Geo Hub
                     </h2>
@@ -690,55 +715,42 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                           {selectedHub.propertyCount ?? hubProps.length}
                         </p>
                         <span className="text-[9px] font-bold text-success flex items-center gap-1 mt-1">
-                          <CheckCircle2 size={10} /> Active Node
+                          <CheckCircle2 size={10} /> {selectedHub.nodeStatus || 'Active Node'}
                         </span>
                       </div>
 
                       <div className="p-4 rounded-2xl bg-surface border border-border-misrah">
                         <span className="text-[9px] font-black uppercase tracking-wider text-muted-text">Occupancy</span>
                         <p className="text-xl font-black italic text-primary mt-1">
-                          {selectedHub.occupancy}%
+                          {selectedHub.occupancyFormatted || `${selectedHub.occupancy}%`}
                         </p>
-                        <span className="text-[9px] font-bold text-accent flex items-center gap-1 mt-1">
-                          <TrendingUp size={10} /> +5.2% index
-                        </span>
+                        {selectedHub.occupancyIndex && (
+                          <span className="text-[9px] font-bold text-accent flex items-center gap-1 mt-1">
+                            <TrendingUp size={10} /> {selectedHub.occupancyIndex}
+                          </span>
+                        )}
                       </div>
 
                       <div className="p-4 rounded-2xl bg-surface border border-border-misrah">
                         <span className="text-[9px] font-black uppercase tracking-wider text-muted-text">Avg Daily Rate</span>
                         <p className="text-xl font-black italic text-primary mt-1">
-                          {avgPrice > 0 ? `AED ${avgPrice.toLocaleString()}` : '—'}
+                          {selectedHub.formattedAvgDailyRate || (avgPrice > 0 ? `AED ${avgPrice.toLocaleString()}` : '—')}
                         </p>
-                        <span className="text-[9px] font-bold text-muted-text mt-1">Per night</span>
+                        <span className="text-[9px] font-bold text-muted-text mt-1">{selectedHub.avgDailyRateLabel || 'Per night'}</span>
                       </div>
 
                       <div className="p-4 rounded-2xl bg-surface border border-border-misrah">
                         <span className="text-[9px] font-black uppercase tracking-wider text-muted-text">Live Bookings</span>
                         <p className="text-xl font-black italic text-primary mt-1">
-                          {cityBookings.length}
+                          {selectedHub.liveBookingsCount ?? cityBookings.length}
                         </p>
                         <span className="text-[9px] font-bold text-primary/70 mt-1">
-                          {`AED ${totalRev.toLocaleString()}`}
+                          {selectedHub.formattedLiveBookingsAmount || `AED ${totalRev.toLocaleString()}`}
                         </span>
                       </div>
                     </div>
                   );
                 })()}
-
-                {/* Key Sub-Locations */}
-                <div className="space-y-2.5">
-                  <span className="text-[10px] font-black uppercase tracking-[2px] text-muted-text/70">
-                    Prime Sub-Territories & Coordinates ({selectedHub.coordinates})
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedHub.topAreas.map((area, idx) => (
-                      <span key={idx} className="px-3 py-1.5 rounded-xl bg-[#FCFAF8] border border-border-misrah text-[11px] font-black uppercase text-primary tracking-wider flex items-center gap-1.5">
-                        <MapPin size={11} className="text-accent" />
-                        {area}
-                      </span>
-                    ))}
-                  </div>
-                </div>
 
                 {/* Properties in this Geo Hub */}
                 <div className="space-y-3 pt-2">
@@ -756,6 +768,13 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                   </div>
 
                   <div className="space-y-2.5">
+                    {getCityProperties(selectedHub.name).length === 0 && (
+                      <p className="p-4 rounded-2xl border border-dashed border-border-misrah text-center text-[10px] font-bold text-muted-text/60 uppercase tracking-widest">
+                        {(selectedHub.propertyCount ?? 0) > 0
+                          ? `${selectedHub.propertyCount} ${selectedHub.propertyCount === 1 ? 'property' : 'properties'} — open Listings to view`
+                          : 'No properties in this hub yet'}
+                      </p>
+                    )}
                     {getCityProperties(selectedHub.name).slice(0, 3).map(prop => (
                       <div 
                         key={prop.id}
@@ -885,14 +904,14 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                           </span>
                           <span className="text-[9px] font-black text-success uppercase tracking-widest flex items-center gap-1">
                             <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                            {hub.latency}
+                            {hub.nodeStatus || hub.latency}
                           </span>
                         </div>
                         <h4 className="text-lg font-black italic text-primary uppercase tracking-tight">
                           {hub.name}
                         </h4>
                         <p className="text-[10px] font-medium text-muted-text mt-1">
-                          {count} registered properties · {hub.occupancy}% occupancy
+                          {count} registered {count === 1 ? 'property' : 'properties'} · {hub.occupancyFormatted || `${hub.occupancy}%`} occupancy
                         </p>
                       </div>
 

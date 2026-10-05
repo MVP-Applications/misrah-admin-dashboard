@@ -21,6 +21,24 @@ export interface AdminDashboardRegion {
   name: string;
   propertyCount: number;
   imageUrl: string | null;
+  // Hub inspector details (captured response) — optional so an older
+  // backend without them still passes; the UI falls back per field.
+  country?: string;
+  description?: string;
+  categoryTag?: string | null;
+  latitude?: number;
+  longitude?: number;
+  formattedCoordinates?: string;
+  nodeStatus?: string;
+  occupancyRate?: number;
+  occupancyFormatted?: string;
+  occupancyIndex?: string;
+  avgDailyRate?: number;
+  formattedAvgDailyRate?: string;
+  avgDailyRateLabel?: string;
+  liveBookingsCount?: number;
+  liveBookingsAmount?: number;
+  formattedLiveBookingsAmount?: string;
 }
 
 export interface AdminDashboardActiveOp {
