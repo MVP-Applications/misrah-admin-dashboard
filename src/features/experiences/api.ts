@@ -57,6 +57,36 @@ export async function listMyExperiences(params: {
   };
 }
 
+// GET /experience/all?page&limit&search&categoryId&isActive — Guest Explore
+// catalog (admin + host). Body is { data: [...] } plus pagination; same
+// normalization as listMyExperiences since the pagination block wasn't
+// captured. Items reuse ApiExperienceListItem.
+export async function listAllExperiences(params: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  categoryId?: string;
+  isActive?: boolean;
+} = {}): Promise<ListExperiencesResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.experiences.all, { params });
+  const body = data.data as Record<string, unknown> | unknown[];
+  if (Array.isArray(body)) {
+    return { data: body as ApiExperienceListItem[], meta: { total: body.length, page: 1, limit: body.length, totalPages: 1 } };
+  }
+  const list = (assertResponseShape('list all experiences', body, ['data']) as { data: ApiExperienceListItem[] }).data;
+  const meta = (body.meta ?? body) as Record<string, unknown>;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+  return {
+    data: list,
+    meta: {
+      total: num(meta.total ?? meta.totalCount, list.length),
+      page: num(meta.page ?? meta.currentPage, params.page ?? 1),
+      limit: num(meta.limit, params.limit ?? list.length),
+      totalPages: num(meta.totalPages, 1),
+    },
+  };
+}
+
 // POST /admin/experiences — confirmed live (this exact request body returns
 // 201). The response body itself wasn't captured, so this deliberately
 // doesn't parse or assert anything about it — callers should refetch the

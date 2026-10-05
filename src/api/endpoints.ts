@@ -162,6 +162,8 @@ export const API_ENDPOINTS = {
     adminAll: '/admin/experiences',
     // Host Hub: experiences created by the logged-in host (page/limit only).
     my: '/experience/my',
+    // Guest Explore catalog — page/limit/search/categoryId/isActive.
+    all: '/experience/all',
     // Host Hub: POST creates an experience owned by the logged-in host (201).
     hostCreate: '/experience',
     // Host Hub: attach the host's experience to properties — { propertyIds }.
@@ -199,6 +201,17 @@ export const API_ENDPOINTS = {
   // Distinct from `experiences` above (the catalog/product records) — this
   // is the guest reservation record for one. See features/experienceBookings/types.ts.
   experienceBookings: {
+    // Host Hub list — page/limit/status (live OpenAPI spec).
+    hostAll: '/experience-booking/host',
+    // Host Hub: GET detail, PATCH cancel ({ reason }).
+    hostById: (id: string) => `/experience-booking/${id}`,
+    hostCancel: (id: string) => `/experience-booking/${id}/cancel`,
+    // Traveler/Host: PATCH reschedule (date, timeSlot, guestCount, addOns,
+    // reason, pricing) and a no-save pricing preview (POST).
+    reschedule: (id: string) => `/experience-booking/${id}/reschedule`,
+    reschedulePreview: (id: string) => `/experience-booking/${id}/reschedule/preview`,
+    // Public: generated time slots + capacity for an experience on ?date=.
+    availability: (experienceId: string) => `/experience-booking/availability/${experienceId}`,
     adminAll: '/admin/experience-bookings',
     adminById: (id: string) => `/admin/experience-bookings/${id}`,
     adminComplete: (id: string) => `/admin/experience-bookings/${id}/complete`,

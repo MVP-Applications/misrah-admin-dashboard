@@ -451,7 +451,7 @@ function AppRoutes() {
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
         <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
-        <Route path="explore-experiences" element={<ExploreExperiencesView properties={experienceProperties} onAddBooking={handleAddExperienceBooking} />} />
+        <Route path="explore-experiences" element={<ExploreExperiencesView onAddBooking={handleAddExperienceBooking} />} />
         <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />

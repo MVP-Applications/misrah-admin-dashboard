@@ -51,11 +51,15 @@ import {
   completeExperienceBooking,
   getExperienceBookingById,
   listExperienceBookings,
+  listHostExperienceBookings,
+  getHostExperienceBookingById,
+  cancelHostExperienceBooking,
 } from '../../features/experienceBookings/api';
 import type { ExperienceBookingDetail, ExperienceBookingListItem } from '../../features/experienceBookings/types';
 import { listBookingStatuses, listExperienceBookingStatuses } from '../../features/enums/api';
 import type { EnumOption } from '../../api/types';
 import { GuestContactModals } from './GuestContactModals';
+import { ExperienceBookingManageView } from './ExperienceBookingManageView';
 
 interface BookingsViewProps {
   user: User;
@@ -174,6 +178,10 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
   // selectedBookingId/bookingDetail pair above.
   const [selectedExperienceBookingId, setSelectedExperienceBookingId] = useState<string | null>(null);
   const [experienceBookingDetail, setExperienceBookingDetail] = useState<ExperienceBookingDetail | null>(null);
+  // Manage / reschedule view for the open experience booking.
+  const [isManagingExperience, setIsManagingExperience] = useState(false);
+  // Opening / closing a different booking always starts on its details.
+  useEffect(() => { setIsManagingExperience(false); }, [selectedExperienceBookingId]);
   const [isExpDetailLoading, setIsExpDetailLoading] = useState(false);
   const [expDetailError, setExpDetailError] = useState<string | null>(null);
 
@@ -181,14 +189,15 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     setIsExpDetailLoading(true);
     setExpDetailError(null);
     try {
-      const detail = await getExperienceBookingById(id);
+      // Host Hub: GET /experience-booking/{id}; admin: /admin/experience-bookings/{id}.
+      const detail = await (user.role === 'manager' ? getHostExperienceBookingById : getExperienceBookingById)(id);
       setExperienceBookingDetail(detail);
     } catch (err) {
       setExpDetailError(err instanceof Error ? err.message : 'Failed to load experience booking details.');
     } finally {
       setIsExpDetailLoading(false);
     }
-  }, []);
+  }, [user.role]);
 
   useEffect(() => {
     if (selectedExperienceBookingId) {
@@ -226,7 +235,10 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     setIsCancellingExpBooking(true);
     setExpActionError(null);
     try {
-      await cancelExperienceBooking(expBookingToCancel._id, { reason: expCancelReason.trim() || undefined });
+      await (user.role === 'manager' ? cancelHostExperienceBooking : cancelExperienceBooking)(
+        expBookingToCancel._id,
+        { reason: expCancelReason.trim() || undefined },
+      );
       await fetchExperienceBookingDetail(expBookingToCancel._id);
       fetchExperienceBookings(expPage);
       setExpBookingToCancel(null);
@@ -242,21 +254,41 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     (pageToLoad: number) => {
       setIsExpLoading(true);
       setExpLoadError(null);
-      listExperienceBookings({
-        page: pageToLoad,
-        limit: PAGE_SIZE,
-        search: debouncedSearch || undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-      })
+      // Host Hub: GET /experience-booking/host (page/limit/status — no search
+      // param, so search is applied to the loaded page). Admin: GET
+      // /admin/experience-bookings with server-side search.
+      const isHost = user.role === 'manager';
+      const request = isHost
+        ? listHostExperienceBookings({
+            page: pageToLoad,
+            limit: PAGE_SIZE,
+            status: statusFilter !== 'all' ? statusFilter : undefined,
+          })
+        : listExperienceBookings({
+            page: pageToLoad,
+            limit: PAGE_SIZE,
+            search: debouncedSearch || undefined,
+            status: statusFilter !== 'all' ? statusFilter : undefined,
+          });
+      request
         .then((res) => {
-          setExperienceBookings(res.data);
+          let rows = res.data;
+          if (isHost && debouncedSearch) {
+            const q = debouncedSearch.toLowerCase();
+            rows = rows.filter(b => {
+              const raw = b as unknown as Record<string, any>;
+              return [raw.traveler?.name, raw.contact?.name, raw.experienceSnapshot?.title, raw._id]
+                .some(v => typeof v === 'string' && v.toLowerCase().includes(q));
+            });
+          }
+          setExperienceBookings(rows);
           setExpTotalPages(res.totalPages || 1);
           setExpTotalCount(res.totalCount || 0);
         })
         .catch((err) => setExpLoadError(err instanceof Error ? err.message : 'Failed to load experience bookings.'))
         .finally(() => setIsExpLoading(false));
     },
-    [debouncedSearch, statusFilter],
+    [debouncedSearch, statusFilter, user.role],
   );
 
   useEffect(() => {
@@ -548,6 +580,20 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     );
   }
 
+  if (selectedExperienceBookingId && isManagingExperience && experienceBookingDetail) {
+    return (
+      <ExperienceBookingManageView
+        detail={experienceBookingDetail}
+        onBack={() => setIsManagingExperience(false)}
+        onSaved={async () => {
+          setIsManagingExperience(false);
+          await fetchExperienceBookingDetail(experienceBookingDetail._id);
+          fetchExperienceBookings(expPage);
+        }}
+      />
+    );
+  }
+
   if (selectedExperienceBookingId) {
     const detail = experienceBookingDetail;
     const guestName = detail?.traveler?.name ?? detail?.contact?.name ?? 'Guest';
@@ -638,7 +684,18 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px] px-2">Experience Details</h3>
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px]">Experience Details</h3>
+                {detail.status !== cancelledStatusValue && detail.status !== completedStatusValue && (
+                  <button
+                    type="button"
+                    onClick={() => setIsManagingExperience(true)}
+                    className="text-[10px] font-black uppercase tracking-[1.5px] text-primary border-b-2 border-primary/20 hover:border-accent transition-colors"
+                  >
+                    Manage
+                  </button>
+                )}
+              </div>
 
               <div className="bg-[#F8F9FA] rounded-[40px] p-6 sm:p-8 space-y-6 border border-[#F2E8DF]">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 p-4 rounded-3xl bg-white border border-[#F2E8DF] shadow-xs">
