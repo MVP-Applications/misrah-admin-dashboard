@@ -21,6 +21,27 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
 
 const PAGE_SIZE = 12;
 
+// Defensive display helpers — a review with a deleted guest/property, a
+// missing date, or an odd rating must not crash the whole page.
+const relativeTime = (value?: string | null) => {
+  if (!value) return '';
+  try {
+    const date = parseISO(value);
+    return Number.isNaN(date.getTime()) ? '' : formatDistanceToNowStrict(date, { addSuffix: true });
+  } catch {
+    return '';
+  }
+};
+
+const stars = (rating: unknown) => {
+  const n = Math.round(Number(rating));
+  return '★'.repeat(Number.isFinite(n) ? Math.min(5, Math.max(0, n)) : 0);
+};
+
+const guestName = (review: AdminReviewListItem) => review.user?.name || review.user?.email || 'Unknown Guest';
+const guestSeed = (review: AdminReviewListItem) => review.user?._id || review._id;
+const propertyTitle = (review: AdminReviewListItem) => review.property?.title || 'Unknown Property';
+
 export const ReviewsView = ({ user }: ReviewsViewProps) => {
   const [reviews, setReviews] = useState<AdminReviewListItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -115,11 +136,11 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
       }));
       setActiveReplyReview({
         id: review._id,
-        guest: review.user.name || review.user.email || 'Guest',
-        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${review.user._id}`,
-        rating: review.rating,
-        date: formatDistanceToNowStrict(parseISO(review.createdAt), { addSuffix: true }),
-        property: review.property.title || 'Unknown Property',
+        guest: guestName(review),
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`,
+        rating: Number(review.rating) || 0,
+        date: relativeTime(review.createdAt),
+        property: propertyTitle(review),
         comment: review.comment || '',
         tags: [],
         helpfulCount: helpful[review._id]?.count ?? 0,
@@ -212,18 +233,18 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <img
-                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${review.user._id}`}
+                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`}
                               className="w-12 h-12 rounded-2xl object-cover border-2 border-surface shadow-sm"
-                              alt={review.user.name}
+                              alt={guestName(review)}
                             />
                             <div>
                               <h4 className="text-[13px] font-black text-primary uppercase tracking-tight">
-                                {review.user.name || review.user.email || 'Unknown Guest'}
+                                {guestName(review)}
                               </h4>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <div className="flex text-accent scale-75 origin-left">{'★'.repeat(review.rating)}</div>
+                                <div className="flex text-accent scale-75 origin-left">{stars(review.rating)}</div>
                                 <span className="text-[9px] font-bold text-muted-text uppercase">
-                                  {formatDistanceToNowStrict(parseISO(review.createdAt), { addSuffix: true })}
+                                  {relativeTime(review.createdAt)}
                                 </span>
                               </div>
                             </div>
@@ -252,7 +273,7 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
 
                         <div className="space-y-2">
                           <p className="text-[10px] font-black text-accent uppercase tracking-[1px] opacity-80">
-                            {review.property.title || 'Unknown Property'}
+                            {propertyTitle(review)}
                           </p>
                           {review.comment && (
                             <p className="text-[13px] font-medium leading-relaxed text-primary/80 italic line-clamp-3">

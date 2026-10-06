@@ -194,17 +194,16 @@ export const ExperienceBookingManageView = ({ detail, onBack, onSaved }: Experie
 
   const originalTotal = pricing?.totalPayable ?? 0;
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  // Saved total = current total + the server's priceDifference (what the
-  // backend re-validates). Falls back to a server-given new total; never to
-  // the local estimate, which caused "Price mismatch" rejections.
-  const serverTotal = preview
-    ? preview.priceDifference !== null
-      ? round2(originalTotal + preview.priceDifference)
-      : preview.newTotal
-    : null;
-  const totalPayable = serverTotal ?? estimatedTotal;
-  const difference = preview?.priceDifference ?? round2(totalPayable - originalTotal);
-  const isPriceConfirmed = serverTotal !== null;
+  // The reschedule body's pricing.totalPayable must be the preview's
+  // priceDifference (what the backend re-validates) — not the new total.
+  // Saving waits for it; the local estimate is display-only.
+  const previewDifference = preview?.priceDifference ?? null;
+  const isPriceConfirmed = previewDifference !== null;
+  // Display: new total = current total + server difference (or server total / estimate).
+  const totalPayable = isPriceConfirmed
+    ? round2(originalTotal + (previewDifference as number))
+    : preview?.newTotal ?? estimatedTotal;
+  const difference = previewDifference ?? round2(totalPayable - originalTotal);
 
   const handleSave = async () => {
     if (!date || !timeSlot) {
@@ -236,7 +235,8 @@ export const ExperienceBookingManageView = ({ detail, onBack, onSaved }: Experie
         guestCount,
         addOns: addOnsPayload,
         reason: reason.trim() || undefined,
-        pricing: { totalPayable },
+        // Backend expects the preview's price difference here.
+        pricing: { totalPayable: previewDifference as number },
       }, currency);
       onSaved();
     } catch (err) {

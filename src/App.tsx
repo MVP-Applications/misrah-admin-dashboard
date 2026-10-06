@@ -20,7 +20,8 @@ import {
   Compass,
   X,
   TrendingUp,
-  ArrowUpRight
+  ArrowUpRight,
+  TicketPercent
 } from 'lucide-react';
 
 // Types
@@ -56,6 +57,7 @@ import { LoginView } from './components/views/LoginView';
 // Admin Modules
 import { CategoriesModule } from './components/views/Admin/CategoriesModule';
 import { BannersModule } from './components/views/Admin/BannersModule';
+import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
 
@@ -147,6 +149,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 </h4>
                 <SidebarItem icon={Layout} label="Categories" active={location.pathname === '/admin/categories'} onClick={() => navigate('/admin/categories')} />
                 <SidebarItem icon={ImageIcon} label="Banners" active={location.pathname === '/admin/banners'} onClick={() => navigate('/admin/banners')} />
+                <SidebarItem icon={TicketPercent} label="Promo Codes" active={location.pathname === '/admin/promo-codes'} onClick={() => navigate('/admin/promo-codes')} />
                 <SidebarItem icon={Users} label="Elite Nodes" active={location.pathname === '/admin/elite-nodes'} onClick={() => navigate('/admin/elite-nodes')} />
                 <SidebarItem icon={Sparkles} label="Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
                 <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
@@ -447,12 +450,13 @@ function AppRoutes() {
         <Route path="listings/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/categories" element={<CategoriesModule />} />
         <Route path="admin/banners" element={<BannersModule />} />
+        <Route path="admin/promo-codes" element={<PromoCodesModule />} />
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
         <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="explore-experiences" element={<ExploreExperiencesView onAddBooking={handleAddExperienceBooking} />} />
-        <Route path="reviews" element={<ReviewsView user={currentUser!} />} />
+        <Route path="reviews" element={<ErrorBoundary label="Reviews"><ReviewsView user={currentUser!} /></ErrorBoundary>} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />
         <Route path="notifications" element={<NotificationsView />} />
