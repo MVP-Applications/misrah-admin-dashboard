@@ -19,11 +19,13 @@ import {
 } from 'lucide-react';
 import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
+import { useLanguage } from '../../i18n/LanguageContext';
 import { sendHostLoginOtp } from '../../features/auth/api';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
   const { login, loginWithMock } = useAuth();
+  const { t, language, setLanguage } = useLanguage();
 
   // Which portal the person is signing into — passed through to
   // AuthContext's login(), which picks between the two portals' separate
@@ -204,6 +206,15 @@ export const LoginView = () => {
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-accent/10 rounded-full blur-[160px] -translate-y-1/2 translate-x-1/2 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[650px] h-[650px] bg-accent/10 rounded-full blur-[140px] translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 
+      {/* Language switch — persists and flips the whole app (Arabic = RTL). */}
+      <button
+        type="button"
+        onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
+        className="absolute top-6 right-6 rtl:right-auto rtl:left-6 z-20 px-4 py-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-white text-xs font-bold transition-colors"
+      >
+        {t('login.language')}
+      </button>
+
       <div className="w-full max-w-lg relative z-10 my-4 space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
@@ -214,7 +225,7 @@ export const LoginView = () => {
             Misrah Elite
           </h1>
           <p className="text-[10px] font-black text-accent uppercase tracking-[3px] opacity-90">
-            Unified Hospitality Management Portal
+            {t('login.subtitle')}
           </p>
         </div>
 
@@ -262,14 +273,14 @@ export const LoginView = () => {
                     Recovery Email or Phone Number *
                   </label>
                   <div className="relative">
-                    <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                    <Mail size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
                       type="text"
                       required
                       value={recoveryTarget}
                       onChange={e => setRecoveryTarget(e.target.value)}
                       placeholder="e.g. admin@misrah.ae or +971 50 123 4567"
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 py-3.5 text-xs font-bold text-white placeholder:text-white/30 focus:outline-hidden focus:border-accent"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-xs font-bold text-white placeholder:text-white/30 focus:outline-hidden focus:border-accent"
                     />
                   </div>
                 </div>
@@ -306,7 +317,7 @@ export const LoginView = () => {
                     4-Digit Verification Code *
                   </label>
                   <div className="relative">
-                    <KeyRound size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                    <KeyRound size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
                       type="text"
                       maxLength={6}
@@ -314,7 +325,7 @@ export const LoginView = () => {
                       value={recoveryOtp}
                       onChange={e => setRecoveryOtp(e.target.value)}
                       placeholder="4829"
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 py-3.5 text-sm tracking-[6px] font-mono font-bold text-accent placeholder:text-white/20 focus:outline-hidden focus:border-accent"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-sm tracking-[6px] font-mono font-bold text-accent placeholder:text-white/20 focus:outline-hidden focus:border-accent"
                     />
                   </div>
 
@@ -367,7 +378,7 @@ export const LoginView = () => {
                       New Password *
                     </label>
                     <div className="relative">
-                      <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                      <Lock size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                       <input
                         type={showNewPass ? 'text' : 'password'}
                         required
@@ -379,7 +390,7 @@ export const LoginView = () => {
                       <button
                         type="button"
                         onClick={() => setShowNewPass(!showNewPass)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
+                        className="absolute right-4 rtl:right-auto rtl:left-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
                       >
                         {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -391,14 +402,14 @@ export const LoginView = () => {
                       Confirm New Password *
                     </label>
                     <div className="relative">
-                      <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                      <Lock size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                       <input
                         type={showNewPass ? 'text' : 'password'}
                         required
                         value={confirmResetPassword}
                         onChange={e => setConfirmResetPassword(e.target.value)}
                         placeholder="Re-enter new password"
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 py-3.5 text-xs font-bold text-white placeholder:text-white/30 focus:outline-hidden focus:border-accent"
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-xs font-bold text-white placeholder:text-white/30 focus:outline-hidden focus:border-accent"
                       />
                     </div>
                   </div>
@@ -453,8 +464,8 @@ export const LoginView = () => {
             {/* Portal Selector: Admin HQ signs in via POST /admin/auth/login, Host Hub via POST /host/auth/login */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-white/50 px-1">
-                <span>Select Destination Portal</span>
-                <span className="text-accent text-[9px]">Admin or Host</span>
+                <span>{t('login.portal')}</span>
+                <span className="text-accent text-[9px]">{t('login.portalHint')}</span>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 {/* Admin Portal */}
@@ -468,13 +479,13 @@ export const LoginView = () => {
                   }`}
                 >
                   {selectedRole === 'admin' && (
-                    <CheckCircle2 size={14} className="absolute top-3 right-3 text-accent stroke-[3]" />
+                    <CheckCircle2 size={14} className="absolute top-3 right-3 rtl:right-auto rtl:left-3 text-accent stroke-[3]" />
                   )}
                   <div className="flex items-center gap-2 mb-1">
                     <Shield size={16} className={selectedRole === 'admin' ? 'text-accent' : 'text-white/40'} />
-                    <span className="text-xs font-black uppercase tracking-tight text-white">Admin HQ</span>
+                    <span className="text-xs font-black uppercase tracking-tight text-white">{t('login.adminHq')}</span>
                   </div>
-                  <p className="text-[9px] text-white/50 line-clamp-1">Regional HQ & System Ops</p>
+                  <p className="text-[9px] text-white/50 line-clamp-1">{t('login.adminHqDesc')}</p>
                 </button>
 
                 {/* Host Portal */}
@@ -488,13 +499,13 @@ export const LoginView = () => {
                   }`}
                 >
                   {selectedRole === 'manager' && (
-                    <CheckCircle2 size={14} className="absolute top-3 right-3 text-accent stroke-[3]" />
+                    <CheckCircle2 size={14} className="absolute top-3 right-3 rtl:right-auto rtl:left-3 text-accent stroke-[3]" />
                   )}
                   <div className="flex items-center gap-2 mb-1">
                     <Home size={16} className={selectedRole === 'manager' ? 'text-accent' : 'text-white/40'} />
-                    <span className="text-xs font-black uppercase tracking-tight text-white">Host Hub</span>
+                    <span className="text-xs font-black uppercase tracking-tight text-white">{t('login.hostHub')}</span>
                   </div>
-                  <p className="text-[9px] text-white/50 line-clamp-1">Properties & Experiences</p>
+                  <p className="text-[9px] text-white/50 line-clamp-1">{t('login.hostHubDesc')}</p>
                 </button>
               </div>
             </div>
@@ -511,10 +522,10 @@ export const LoginView = () => {
               {/* Single Unified Identifier Field */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-wider text-white/60 block px-1">
-                  Email or Phone Number
+                  {t('login.identifier')}
                 </label>
                 <div className="relative">
-                  <UserCheck size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                  <UserCheck size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                   <input
                     type="text"
                     required
@@ -522,7 +533,7 @@ export const LoginView = () => {
                     value={emailOrPhone}
                     onChange={(e) => setEmailOrPhone(e.target.value)}
                     disabled={isSubmitting}
-                    className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/15 rounded-2xl text-xs font-medium text-white placeholder:text-white/30 outline-none focus:border-accent focus:bg-white/10 transition-colors disabled:opacity-50"
+                    className="w-full pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3 bg-white/5 border border-white/15 rounded-2xl text-xs font-medium text-white placeholder:text-white/30 outline-none focus:border-accent focus:bg-white/10 transition-colors disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -531,10 +542,10 @@ export const LoginView = () => {
               {!useOtp ? (
                 <div className="space-y-1.5">
                   <label htmlFor="password" className="text-[10px] font-black uppercase tracking-wider text-white/60 block px-1">
-                    Password
+                    {t('login.password')}
                   </label>
                   <div className="relative">
-                    <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" />
+                    <Lock size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
                       id="password"
                       type={showPassword ? 'text' : 'password'}
@@ -549,7 +560,7 @@ export const LoginView = () => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
+                      className="absolute right-4 rtl:right-auto rtl:left-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -561,7 +572,7 @@ export const LoginView = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase text-white/70 flex items-center gap-1.5">
                       <Smartphone size={13} className="text-accent" />
-                      <span>SMS Verification Code</span>
+                      <span>{t('login.smsCode')}</span>
                     </span>
                     {!otpSent ? (
                       <button
@@ -571,7 +582,7 @@ export const LoginView = () => {
                         className="text-[10px] font-black uppercase tracking-wider text-accent hover:underline disabled:opacity-50 flex items-center gap-1"
                       >
                         {isSendingOtp && <Loader2 size={11} className="animate-spin" />}
-                        {isSendingOtp ? 'Sending' : 'Send Code'}
+                        {isSendingOtp ? 'Sending' : t('login.sendCode')}
                       </button>
                     ) : selectedRole === 'manager' ? (
                       <button
@@ -621,7 +632,7 @@ export const LoginView = () => {
                   }}
                   className="text-white/60 hover:text-accent font-bold transition-colors"
                 >
-                  {useOtp ? '← Switch to Password Login' : 'Sign in with SMS Code instead'}
+                  {useOtp ? t('login.usePassword') : t('login.useSms')}
                 </button>
 
                 {!useOtp && (
@@ -630,7 +641,7 @@ export const LoginView = () => {
                     onClick={handleOpenForgotPassword}
                     className="text-accent hover:underline font-bold"
                   >
-                    Forgot Password?
+                    {t('login.forgot')}
                   </button>
                 )}
               </div>
@@ -644,7 +655,7 @@ export const LoginView = () => {
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="rounded accent-accent w-3.5 h-3.5"
                   />
-                  <span>Remember this device</span>
+                  <span>{t('login.remember')}</span>
                 </label>
               </div>
 
@@ -657,11 +668,11 @@ export const LoginView = () => {
                 {isSubmitting ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>Authenticating</span>
+                    <span>{t('login.authenticating')}</span>
                   </>
                 ) : (
                   <>
-                    <span>Sign In as {selectedRole === 'admin' ? 'Admin HQ' : 'Host Hub'}</span>
+                    <span>{t('login.signInAs', { portal: selectedRole === 'admin' ? t('login.adminHq') : t('login.hostHub') })}</span>
                     <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                   </>
                 )}

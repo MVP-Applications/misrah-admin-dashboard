@@ -41,3 +41,16 @@ export async function autologin(): Promise<AutologinResponse> {
 export async function sendHostLoginOtp(payload: HostOtpSendRequest): Promise<void> {
   await apiClient.post(API_ENDPOINTS.host.auth.otpSend, payload);
 }
+
+// Password change via the reset flow (host → /host/auth/*, admin → /admin/auth/*):
+//   1. POST …/forgot-password { email }  → backend emails a reset token
+//   2. POST …/reset-password  { token, newPassword } with that emailed token
+export async function requestPasswordReset(email: string, role: UserRole): Promise<void> {
+  const url = role === 'manager' ? API_ENDPOINTS.host.auth.forgotPassword : API_ENDPOINTS.admin.auth.forgotPassword;
+  await apiClient.post(url, { email });
+}
+
+export async function resetPassword(token: string, newPassword: string, role: UserRole): Promise<void> {
+  const url = role === 'manager' ? API_ENDPOINTS.host.auth.resetPassword : API_ENDPOINTS.admin.auth.resetPassword;
+  await apiClient.post(url, { token, newPassword });
+}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -48,6 +48,10 @@ import { MessagesView } from './components/views/MessagesView';
 import { ReviewsView } from './components/views/ReviewsView';
 import { ExperiencesView } from './components/views/ExperiencesView';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { getMyProfile } from './features/profile/api';
+import { setPreferredCurrencyCode } from './api/currency';
+import { useLanguage } from './i18n/LanguageContext';
+import type { TranslationKey } from './i18n/translations';
 import { ExploreExperiencesView } from './components/views/ExploreExperiencesView';
 import { ProfileView } from './components/views/ProfileView';
 import { NotificationsView } from './components/views/NotificationsView';
@@ -61,42 +65,44 @@ import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
 
-const PAGE_TITLES: Record<string, string> = {
-  '/dashboard': 'dashboard',
-  '/bookings': 'bookings',
-  '/listings': 'listings',
-  '/admin/categories': 'categories',
-  '/admin/banners': 'banners',
-  '/admin/hosting': 'hosting',
-  '/admin/elite-nodes': 'elite nodes',
-  '/experiences': 'experiences',
-  '/explore-experiences': 'guest explore',
-  '/reviews': 'reviews',
-  '/earnings': 'earnings',
-  '/profile': 'profile',
-  '/settings': 'settings',
-  '/notifications': 'notifications',
-  '/messages': 'messages',
+const PAGE_TITLES: Record<string, TranslationKey> = {
+  '/dashboard': 'page.dashboard',
+  '/bookings': 'page.bookings',
+  '/listings': 'page.listings',
+  '/admin/categories': 'page.categories',
+  '/admin/banners': 'page.banners',
+  '/admin/promo-codes': 'page.promoCodes',
+  '/admin/hosting': 'page.hosting',
+  '/admin/elite-nodes': 'page.eliteNodes',
+  '/experiences': 'page.experiences',
+  '/explore-experiences': 'page.guestExplore',
+  '/reviews': 'page.reviews',
+  '/earnings': 'page.earnings',
+  '/profile': 'page.profile',
+  '/settings': 'page.settings',
+  '/notifications': 'page.notifications',
+  '/messages': 'page.messages',
 };
 
-const getPageTitle = (pathname: string) => {
+const getPageTitleKey = (pathname: string): TranslationKey | null => {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname];
-  if (pathname.startsWith('/listings/')) return 'listings';
-  if (pathname.startsWith('/admin/hosting/')) return 'hosting';
-  return '';
+  if (pathname.startsWith('/listings/')) return 'page.listings';
+  if (pathname.startsWith('/admin/hosting/')) return 'page.hosting';
+  return null;
 };
 
 const NotFound = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   return (
     <div className="bg-white rounded-[40px] border border-border-misrah p-16 text-center shadow-sm space-y-4">
-      <h2 className="text-xl font-black italic text-primary uppercase">Page Not Found</h2>
-      <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">This route does not exist</p>
+      <h2 className="text-xl font-black italic text-primary uppercase">{t('notFound.title')}</h2>
+      <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">{t('notFound.body')}</p>
       <button
         onClick={() => navigate('/dashboard')}
         className="mt-4 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-white hover:opacity-90 transition-all"
       >
-        Return to Dashboard
+        {t('notFound.back')}
       </button>
     </div>
   );
@@ -111,6 +117,15 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isAiOpen, setIsAiOpen] = useState(false);
+  const { t, isRtl } = useLanguage();
+
+  // Seed the preferred currency (applied to price APIs by apiClient) from
+  // the profile once per session; keeps the stored value if it fails.
+  useEffect(() => {
+    getMyProfile()
+      .then(p => { if (p.currency) setPreferredCurrencyCode(p.currency); })
+      .catch(() => undefined);
+  }, []);
 
   const isListingsActive = location.pathname === '/listings' || location.pathname.startsWith('/listings/');
   const isHostingActive = location.pathname === '/admin/hosting' || location.pathname.startsWith('/admin/hosting/');
@@ -118,14 +133,14 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-64 bg-primary text-white flex flex-col fixed inset-y-0 left-0 z-50 shadow-2xl">
+      <aside className="w-64 bg-primary text-white flex flex-col fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 z-50 shadow-2xl">
         <div className="p-8 pb-6 border-b border-white/5">
           <div className="text-2xl font-sans font-black italic text-accent leading-none group cursor-pointer">
             Misrah
             <span className="inline-block w-1.5 h-1.5 bg-accent rounded-full ml-1"></span>
           </div>
           <div className="text-[9px] font-black tracking-[4px] text-white/20 uppercase mt-2 italic px-0.5">
-            {user.role === 'admin' ? 'Regional / HQ' : 'Host / Portfolio'}
+            {user.role === 'admin' ? t('nav.region.admin') : t('nav.region.host')}
           </div>
         </div>
 
@@ -135,33 +150,33 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
-                  Management
+                  {t('nav.section.management')}
                 </h4>
-                <SidebarItem icon={LayoutDashboard} label="Overview" active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
-                <SidebarItem icon={Calendar} label="Bookings" active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} />
-                <SidebarItem icon={Home} label="Assets Queue" active={isHostingActive} onClick={() => navigate('/admin/hosting')} />
+                <SidebarItem icon={LayoutDashboard} label={t('nav.overview')} active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
+                <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} />
+                <SidebarItem icon={Home} label={t('nav.assetsQueue')} active={isHostingActive} onClick={() => navigate('/admin/hosting')} />
               </section>
 
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
-                  Operations
+                  {t('nav.section.operations')}
                 </h4>
-                <SidebarItem icon={Layout} label="Categories" active={location.pathname === '/admin/categories'} onClick={() => navigate('/admin/categories')} />
-                <SidebarItem icon={ImageIcon} label="Banners" active={location.pathname === '/admin/banners'} onClick={() => navigate('/admin/banners')} />
-                <SidebarItem icon={TicketPercent} label="Promo Codes" active={location.pathname === '/admin/promo-codes'} onClick={() => navigate('/admin/promo-codes')} />
-                <SidebarItem icon={Users} label="Elite Nodes" active={location.pathname === '/admin/elite-nodes'} onClick={() => navigate('/admin/elite-nodes')} />
-                <SidebarItem icon={Sparkles} label="Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
-                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
+                <SidebarItem icon={Layout} label={t('nav.categories')} active={location.pathname === '/admin/categories'} onClick={() => navigate('/admin/categories')} />
+                <SidebarItem icon={ImageIcon} label={t('nav.banners')} active={location.pathname === '/admin/banners'} onClick={() => navigate('/admin/banners')} />
+                <SidebarItem icon={TicketPercent} label={t('nav.promoCodes')} active={location.pathname === '/admin/promo-codes'} onClick={() => navigate('/admin/promo-codes')} />
+                <SidebarItem icon={Users} label={t('nav.eliteNodes')} active={location.pathname === '/admin/elite-nodes'} onClick={() => navigate('/admin/elite-nodes')} />
+                <SidebarItem icon={Sparkles} label={t('nav.experiences')} active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
+                <SidebarItem icon={Compass} label={t('nav.guestExplore')} active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
               </section>
 
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
-                  Analytic Hub
+                  {t('nav.section.analytics')}
                 </h4>
-                <SidebarItem icon={Star} label="Reviews" active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
-                <SidebarItem icon={Banknote} label="Earnings" active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
+                <SidebarItem icon={Star} label={t('nav.reviews')} active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
+                <SidebarItem icon={Banknote} label={t('nav.earnings')} active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
               </section>
             </>
           ) : (
@@ -169,22 +184,22 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
-                  Portfolio
+                  {t('nav.section.portfolio')}
                 </h4>
-                <SidebarItem icon={LayoutDashboard} label="Overview" active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
-                <SidebarItem icon={Home} label="My Listings" active={isListingsActive} onClick={() => navigate('/listings')} />
-                  <SidebarItem icon={Sparkles} label="My Experiences" active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
-                <SidebarItem icon={Calendar} label="Bookings" active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
-                <SidebarItem icon={Banknote} label="Earnings" active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
+                <SidebarItem icon={LayoutDashboard} label={t('nav.overview')} active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
+                <SidebarItem icon={Home} label={t('nav.myListings')} active={isListingsActive} onClick={() => navigate('/listings')} />
+                  <SidebarItem icon={Sparkles} label={t('nav.myExperiences')} active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
+                <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
+                <SidebarItem icon={Banknote} label={t('nav.earnings')} active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
               </section>
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
                   <span className="w-4 h-[1px] bg-white/10"></span>
-                  Direct Lines
+                  {t('nav.section.directLines')}
                 </h4>
-                <SidebarItem icon={Compass} label="Guest Explore" active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
-                <SidebarItem icon={MessageSquare} label="Messages" active={location.pathname === '/messages'} onClick={() => navigate('/messages')} badge="1" />
-                <SidebarItem icon={Star} label="Reviews" active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
+                <SidebarItem icon={Compass} label={t('nav.guestExplore')} active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
+                <SidebarItem icon={MessageSquare} label={t('nav.messages')} active={location.pathname === '/messages'} onClick={() => navigate('/messages')} badge="1" />
+                <SidebarItem icon={Star} label={t('nav.reviews')} active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
               </section>
             </>
           )}
@@ -192,10 +207,10 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
           <section className="space-y-1">
             <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
               <span className="w-4 h-[1px] bg-white/10"></span>
-              Identity
+              {t('nav.section.identity')}
             </h4>
-            <SidebarItem icon={User} label="Profile" active={location.pathname === '/profile'} onClick={() => navigate('/profile')} />
-            <SidebarItem icon={Settings} label="Settings" active={location.pathname === '/settings'} onClick={() => navigate('/settings')} />
+            <SidebarItem icon={User} label={t('nav.profile')} active={location.pathname === '/profile'} onClick={() => navigate('/profile')} />
+            <SidebarItem icon={Settings} label={t('nav.settings')} active={location.pathname === '/settings'} onClick={() => navigate('/settings')} />
           </section>
         </nav>
 
@@ -211,7 +226,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
 
             <div className="flex-1 min-w-0">
               <div className="text-[10px] font-black text-white uppercase tracking-tight truncate">{user.name}</div>
-              <div className="text-[8px] font-bold text-accent uppercase tracking-[2px] mt-0.5 opacity-60">Sign Out</div>
+              <div className="text-[8px] font-bold text-accent uppercase tracking-[2px] mt-0.5 opacity-60">{t('nav.signOut')}</div>
             </div>
 
             <div className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 text-white/20 group-hover:bg-accent/10 group-hover:text-accent transition-all">
@@ -231,22 +246,22 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
           this whole element, and with it the page, wider than the viewport
           instead of being clipped/scrolled by the inner `overflow-x-hidden`
           wrapper below. */}
-      <main className="flex-1 min-w-0 ml-64 flex flex-col min-h-screen">
+      <main className="flex-1 min-w-0 ml-64 rtl:ml-0 rtl:mr-64 flex flex-col min-h-screen">
         {/* Topbar */}
         <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-border-misrah h-20 flex items-center justify-between px-10">
           <div className="flex items-center gap-3">
             <div className="w-1 h-6 bg-accent rounded-full"></div>
             <div className="text-[11px] font-black uppercase tracking-[4px] text-primary/40 italic">
-               {getPageTitle(location.pathname)}
+               {(() => { const key = getPageTitleKey(location.pathname); return key ? t(key) : ''; })()}
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="relative group hidden md:block">
-              <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
+              <Search size={14} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
               <input
                 type="text"
-                placeholder="Secure search..."
-                className="pl-11 pr-5 py-2.5 bg-surface/50 border border-border-misrah rounded-2xl text-[10px] w-72 focus:outline-none focus:border-accent focus:bg-white transition-all font-black uppercase tracking-widest shadow-inner"
+                placeholder={t('top.search')}
+                className="pl-11 pr-5 rtl:pl-5 rtl:pr-11 py-2.5 bg-surface/50 border border-border-misrah rounded-2xl text-[10px] w-72 focus:outline-none focus:border-accent focus:bg-white transition-all font-black uppercase tracking-widest shadow-inner"
               />
             </div>
             <div className="h-8 w-[1px] bg-border-misrah/50 mx-2"></div>
@@ -296,11 +311,11 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
               className="fixed inset-0 bg-primary/20 backdrop-blur-sm z-[60]"
             />
             <motion.aside
-              initial={{ x: '100%' }}
+              initial={{ x: isRtl ? '-100%' : '100%' }}
               animate={{ x: 0 }}
-              exit={{ x: '100%' }}
+              exit={{ x: isRtl ? '-100%' : '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 right-0 w-full max-w-md bg-white z-[70] shadow-luxury flex flex-col"
+              className="fixed inset-y-0 right-0 rtl:right-auto rtl:left-0 w-full max-w-md bg-white z-[70] shadow-luxury flex flex-col"
             >
               <div className="p-8 border-b border-border-misrah flex items-center justify-between bg-[#1A2B47] text-white">
                 <div className="flex items-center gap-3">
@@ -461,7 +476,7 @@ function AppRoutes() {
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />
         <Route path="notifications" element={<NotificationsView />} />
         <Route path="settings" element={<SettingsView />} />
-        <Route path="messages" element={<MessagesView user={currentUser!} />} />
+        <Route path="messages" element={<ErrorBoundary label="Messages"><MessagesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

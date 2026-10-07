@@ -2,6 +2,8 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { env } from '../config/env';
 import { assertResponseShape } from './assertShape';
 import { API_ENDPOINTS } from './endpoints';
+import { getPreferredCurrency, routeAcceptsCurrency } from './currency';
+import { getCurrentLanguage } from '../i18n/LanguageContext';
 import * as tokenStorage from '../features/auth/tokenStorage';
 import type { ApiError, ApiErrorResponse, ApiSuccessEnvelope } from './types';
 
@@ -19,6 +21,17 @@ apiClient.interceptors.request.use((config) => {
   const accessToken = tokenStorage.getAccessToken();
   if (accessToken) {
     config.headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+  // UI language, so the backend can localize (name.en / name.ar) if it supports it.
+  config.headers.set('Accept-Language', getCurrentLanguage());
+  // Preferred currency on every price-bearing route (see ./currency.ts),
+  // unless the caller passed one explicitly.
+  const currency = getPreferredCurrency();
+  if (currency && routeAcceptsCurrency(config.method, config.url)) {
+    const params = (config.params ?? {}) as Record<string, unknown>;
+    if (params.currency === undefined || params.currency === null || params.currency === '') {
+      config.params = { ...params, currency };
+    }
   }
   return config;
 });

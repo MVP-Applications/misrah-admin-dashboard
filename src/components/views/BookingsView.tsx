@@ -584,6 +584,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     return (
       <ExperienceBookingManageView
         detail={experienceBookingDetail}
+        isAdmin={user.role === 'admin'}
         onBack={() => setIsManagingExperience(false)}
         onSaved={async () => {
           setIsManagingExperience(false);

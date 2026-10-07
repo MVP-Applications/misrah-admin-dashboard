@@ -29,6 +29,7 @@ import { apiPropertyToViewModel } from '../../features/properties/mappers';
 import { listBookings } from '../../features/bookings/api';
 import { toLegacyBooking } from '../../features/bookings/mappers';
 import { getAdminDashboard, getHostDashboardOverview } from '../../features/dashboard/api';
+import { useLanguage } from '../../i18n/LanguageContext';
 import type { AdminDashboardData } from '../../features/dashboard/types';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -101,6 +102,7 @@ interface GeoHubConfig {
 
 export const DashboardView = ({ user }: DashboardViewProps) => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [pendingCount, setPendingCount] = useState(0);
   const [approvedCount, setApprovedCount] = useState(0);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
@@ -293,12 +295,12 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
 
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h1 className="text-4xl md:text-5xl font-sans font-black italic text-primary uppercase tracking-tighter leading-[0.9]">Marhaba, {user.name.split(' ')[0]} 🌅</h1>
+          <h1 className="text-4xl md:text-5xl font-sans font-black italic text-primary uppercase tracking-tighter leading-[0.9]">{t('dash.greeting', { name: user.name.split(' ')[0] })}</h1>
           <p className="text-muted-text text-[11px] font-black uppercase tracking-[4px] mt-3 opacity-60 flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse"></span>
             {user.role === 'admin' 
-              ? 'Unified Control Node / Global Intelligence' 
-              : "Portfolio Synced / Local Operations Center"} 
+              ? t('dash.tagline.admin')
+              : t('dash.tagline.host')} 
             <span className="mx-2 opacity-20">|</span>
             {format(new Date(), 'EEEE, d MMMM yyyy').toUpperCase()}
           </p>
@@ -312,7 +314,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               +{dashboard?.header ? dashboard.header.liveInRegionCount : 12}
             </div>
           </div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-primary/40 ml-1">Live in Region</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-primary/40 ml-1">{t('dash.liveInRegion')}</p>
           <div className="flex items-center gap-2 ml-3">
             <select
               value={dashMonth}
@@ -336,13 +338,13 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
       {dashboardError && (
         <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
           <TriangleAlert size={18} />
-          <p className="text-[10px] font-black uppercase tracking-widest">Overview data unavailable: {dashboardError}</p>
+          <p className="text-[10px] font-black uppercase tracking-widest">{t('dash.unavailable', { error: dashboardError })}</p>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
-          label={user.role === 'admin' ? "Platform Revenue" : "Portfolio Earnings"} 
+          label={user.role === 'admin' ? t('dash.kpi.platformRevenue') : t('dash.kpi.portfolioEarnings')}
           value={dashboard ? `${dashboard.kpis.platformRevenue.currency} ${dashboard.kpis.platformRevenue.formattedRevenue}` : '—'}
           change={dashboard ? formatGrowth(dashboard.kpis.platformRevenue.growthPercentage, dashboard.kpis.platformRevenue.isPositiveGrowth, 'vs prev.') : '…'} 
           icon={Banknote} 
@@ -350,21 +352,21 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           onClick={() => navigate('/earnings')}
         />
         <StatCard 
-          label={user.role === 'admin' ? "Inventory Scope" : "Property Volume"}
+          label={user.role === 'admin' ? t('dash.kpi.inventoryScope') : t('dash.kpi.propertyVolume')}
           value={dashboard ? dashboard.kpis.inventoryScope.totalProperties.toString() : approvedCount.toString()}
-          change={`${dashboard ? dashboard.kpis.inventoryScope.pendingAuditCount : pendingCount} pending audit`}
+          change={t('dash.kpi.pendingAudit', { count: dashboard ? dashboard.kpis.inventoryScope.pendingAuditCount : pendingCount })}
           icon={Home} 
           onClick={() => navigate('/listings')}
         />
         <StatCard 
-          label="Compliance Queue" 
+          label={t('dash.kpi.complianceQueue')}
           value={(dashboard ? dashboard.kpis.complianceQueue.count : pendingCount).toString()}
-          change={(dashboard ? dashboard.kpis.complianceQueue.needsOptimization : pendingCount > 0) ? "⚠ Needs Optimization" : "✓ Nodes Synchronized"} 
+          change={(dashboard ? dashboard.kpis.complianceQueue.needsOptimization : pendingCount > 0) ? t('dash.kpi.needsOptimization') : t('dash.kpi.synchronized')}
           icon={ShieldCheck}
           onClick={() => navigate(isAdmin ? '/admin/hosting' : '/listings')}
         />
         <StatCard 
-          label="Market Sentiment" 
+          label={t('dash.kpi.marketSentiment')}
           value={dashboard ? dashboard.kpis.marketSentiment.score.toString() : '—'}
           change={dashboard ? formatGrowth(dashboard.kpis.marketSentiment.engagementGrowthPercentage, dashboard.kpis.marketSentiment.isPositiveGrowth, 'engagement') : '…'} 
           icon={Star} 
@@ -376,12 +378,12 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
         <div className="lg:col-span-2 bg-white rounded-[40px] border border-border-misrah overflow-hidden shadow-sm hover:shadow-luxury transition-all duration-500 group">
           <div className="flex items-center justify-between p-8 border-b border-border-misrah bg-surface/30">
             <div>
-              <h2 className="text-xl font-sans font-black italic text-primary uppercase">Yield Distribution</h2>
-              <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">Performance matrix by asset node</p>
+              <h2 className="text-xl font-sans font-black italic text-primary uppercase">{t('dash.yield.title')}</h2>
+              <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{t('dash.yield.subtitle')}</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-accent animate-pulse"></span>
-              <span className="text-[10px] font-black text-primary uppercase tracking-[2px]">Real-time Yield</span>
+              <span className="text-[10px] font-black text-primary uppercase tracking-[2px]">{t('dash.yield.realtime')}</span>
             </div>
           </div>
           <div className="p-10 space-y-8">
@@ -412,7 +414,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               if (rows.length === 0) {
                 return (
                   <p className="text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest py-10">
-                    {dashboard ? 'No yield recorded for this period' : 'Yield data unavailable'}
+                    {dashboard ? t('dash.yield.empty') : t('dash.yield.unavailable')}
                   </p>
                 );
               }
@@ -421,7 +423,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                 <>
                   {yieldData && (
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-text/60 -mt-2">
-                      <span>Total Yield</span>
+                      <span>{t('dash.yield.total')}</span>
                       <span className="text-primary text-sm italic">
                         {yieldData.totalYield.toLocaleString()} <span className="text-muted-text/50 not-italic">{yieldData.currency}</span>
                       </span>
@@ -456,8 +458,8 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
 
         <div className="bg-white rounded-[40px] border border-border-misrah p-8 shadow-sm hover:shadow-luxury transition-all duration-500">
            <div className="mb-8">
-             <h2 className="text-xl font-sans font-black italic text-primary uppercase">Asset Classes</h2>
-             <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">Portfolio diversification</p>
+             <h2 className="text-xl font-sans font-black italic text-primary uppercase">{t('dash.assets.title')}</h2>
+             <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{t('dash.assets.subtitle')}</p>
            </div>
            <div className="flex flex-col items-center gap-10">
              <div className="relative w-48 h-48 group">
@@ -498,7 +500,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                   <span className="text-3xl font-sans font-black italic text-primary leading-none">
                     {dashboard ? dashboard.assetClasses.totalHubs : '—'}
                   </span>
-                  <span className="text-[8px] font-black uppercase text-muted-text tracking-widest mt-1">Total Hubs</span>
+                  <span className="text-[8px] font-black uppercase text-muted-text tracking-widest mt-1">{t('dash.assets.totalHubs')}</span>
                </div>
              </div>
              <div className="w-full space-y-4">
@@ -551,8 +553,8 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
       <div className="bg-white rounded-[40px] border border-border-misrah p-10 shadow-sm hover:shadow-luxury transition-all duration-500">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">Geo Hubs</h2>
-            <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-1.5">Top performing regions</p>
+            <h2 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">{t('dash.geo.title')}</h2>
+            <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-1.5">{t('dash.geo.subtitle')}</p>
           </div>
           
           {/* Active Nodes Network Fleet Pill */}
@@ -567,7 +569,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
             </span>
             <span className="text-[9px] font-black text-primary group-hover:text-accent uppercase tracking-widest transition-colors">
-              Active nodes ({activeNodesCount})
+              {t('dash.geo.activeNodes', { count: activeNodesCount })}
             </span>
             <ChevronRight size={12} className="text-muted-text group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
           </button>
@@ -966,20 +968,20 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
         <div className="bg-white rounded-[40px] border border-border-misrah shadow-sm overflow-hidden hover:shadow-luxury transition-all duration-500 group">
           <div className="flex items-center justify-between p-8 border-b border-border-misrah bg-surface/30">
             <div>
-              <h2 className="text-xl font-sans font-black italic text-primary uppercase">Active Ops</h2>
-              <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">Live reservation tracking</p>
+              <h2 className="text-xl font-sans font-black italic text-primary uppercase">{t('dash.ops.title')}</h2>
+              <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{t('dash.ops.subtitle')}</p>
             </div>
             <button 
               onClick={() => navigate('/bookings')} 
               className="text-[10px] font-black text-accent uppercase tracking-widest hover:scale-105 transition-transform"
             >
-              Audit All
+              {t('dash.ops.auditAll')}
             </button>
           </div>
           <div className="divide-y divide-border-misrah/50">
             {dashboard ? (
               dashboard.activeOps.length === 0 ? (
-                <p className="p-8 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">No active operations this period</p>
+                <p className="p-8 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">{t('dash.ops.empty')}</p>
               ) : (
                 dashboard.activeOps.map(op => (
                   <div key={op.bookingId} onClick={() => navigate('/bookings')} className="flex items-center gap-5 p-6 hover:bg-surface/50 transition-colors cursor-pointer group/item">
@@ -1029,8 +1031,8 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
 
         <div className="bg-white rounded-[40px] border border-border-misrah p-8 shadow-sm hover:shadow-luxury transition-all duration-500">
           <div className="mb-8">
-            <h2 className="text-xl font-sans font-black italic text-primary uppercase">Intel Feed</h2>
-            <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">Global event logging</p>
+            <h2 className="text-xl font-sans font-black italic text-primary uppercase">{t('dash.feed.title')}</h2>
+            <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{t('dash.feed.subtitle')}</p>
           </div>
           <div className="space-y-8 relative">
             <div className="absolute left-[15px] top-2 bottom-2 w-[1px] bg-border-misrah/50" />

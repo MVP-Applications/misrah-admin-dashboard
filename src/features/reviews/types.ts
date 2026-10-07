@@ -26,8 +26,35 @@ export interface AdminReviewListItem {
   // backend) — never a hard delete.
   deletedAt?: string | null;
   repliesCount: number;
-  user: { _id: string; name?: string; email?: string };
-  property: { _id: string; title?: string; userId?: string };
+  user: { _id: string; name?: string; email?: string; profileImage?: string | null } | null;
+  property: { _id: string; title?: string; userId?: string; propertyType?: string } | null;
+  // Present on host reviews (GET /review/host): experience reviews carry
+  // `experience` instead of `property`, and replies come inline.
+  experience?: { _id: string; title?: string } | null;
+  replies?: ReviewReply[];
+}
+
+export interface ReviewReply {
+  _id: string;
+  message: string;
+  createdAt: string;
+  user?: { _id: string; name?: string; email?: string };
+}
+
+// GET /review/host — captured response (double-nested data.data).
+export interface HostReviewsResult {
+  overallRating: { averageRating: number; totalReviews: number };
+  currentPage: number;
+  totalCount: number;
+  totalPages: number;
+  data: AdminReviewListItem[];
+}
+
+export interface ListHostReviewsParams {
+  page?: number;
+  limit?: number;
+  propertyId?: string;
+  experienceId?: string;
 }
 
 export interface ListReviewsResponse {
