@@ -22,7 +22,7 @@ export const SidebarItem = ({ icon: Icon, label, active, onClick, badge }: any) 
     <span className="relative z-10 text-[11px] font-black uppercase tracking-widest">{label}</span>
     
     {badge && (
-      <span className="relative z-10 ml-auto bg-accent text-primary text-[9px] font-black px-2 py-0.5 rounded-lg shadow-sm">
+      <span className="relative z-10 ms-auto bg-accent text-primary text-[9px] font-black px-2 py-0.5 rounded-lg shadow-sm">
         {badge}
       </span>
     )}

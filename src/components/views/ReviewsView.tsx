@@ -3,7 +3,7 @@ import { formatDistanceToNowStrict, parseISO } from 'date-fns';
 import { Trash2, Undo2, Loader2, TriangleAlert, EyeOff, ThumbsUp, MessageCircle } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User } from '../../types';
-import { listReviews, hideReview, restoreReview, getReviewById } from '../../features/reviews/api';
+import { listReviews, listHostReviews, hideReview, restoreReview, getReviewById, replyToReview } from '../../features/reviews/api';
 import type { AdminReviewListItem } from '../../features/reviews/types';
 import { PrivateReplyModal, ReviewItem, PrivateReply } from './PrivateReplyModal';
 
@@ -40,7 +40,10 @@ const stars = (rating: unknown) => {
 
 const guestName = (review: AdminReviewListItem) => review.user?.name || review.user?.email || 'Unknown Guest';
 const guestSeed = (review: AdminReviewListItem) => review.user?._id || review._id;
-const propertyTitle = (review: AdminReviewListItem) => review.property?.title || 'Unknown Property';
+const propertyTitle = (review: AdminReviewListItem) =>
+  review.property?.title || review.experience?.title || 'Unknown Property';
+const guestAvatar = (review: AdminReviewListItem) =>
+  review.user?.profileImage || `https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`;
 
 export const ReviewsView = ({ user }: ReviewsViewProps) => {
   const [reviews, setReviews] = useState<AdminReviewListItem[]>([]);
@@ -53,19 +56,26 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+  // Host Hub reads GET /review/host (own reviews + overall rating); the
+  // visible/hidden moderation tabs and hide/restore are admin-only.
+  const isHost = user.role === 'manager';
+  const [hostOverall, setHostOverall] = useState<{ averageRating: number; totalReviews: number } | null>(null);
 
-  // Helpful votes — local only, the reviews API has no helpful/vote field.
-  const [helpful, setHelpful] = useState<Record<string, { isHelpful: boolean; count: number }>>({});
   const [activeReplyReview, setActiveReplyReview] = useState<ReviewItem | null>(null);
   const [loadingReplyId, setLoadingReplyId] = useState<string | null>(null);
-  // Replies sent from this screen — kept locally, no admin reply-create
-  // endpoint exists yet. Merged on top of the API's replies.
-  const [localReplies, setLocalReplies] = useState<Record<string, PrivateReply[]>>({});
 
   const fetchReviews = async (targetPage: number, status: StatusFilter) => {
     setIsLoading(true);
     setLoadError(null);
     try {
+      if (isHost) {
+        const result = await listHostReviews({ page: targetPage, limit: PAGE_SIZE });
+        setReviews(result.data);
+        setTotalCount(result.totalCount);
+        setTotalPages(result.totalPages || 1);
+        setHostOverall(result.overallRating);
+        return;
+      }
       const [listResult, hiddenResult] = await Promise.all([
         listReviews({ page: targetPage, limit: PAGE_SIZE, status }),
         // Kept separate from the main filtered query so the "Hidden" count in
@@ -110,42 +120,33 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
     }
   };
 
-  const handleToggleHelpful = (reviewId: string) => {
-    setHelpful(prev => {
-      const current = prev[reviewId] ?? { isHelpful: false, count: 0 };
-      const isHelpful = !current.isHelpful;
-      return { ...prev, [reviewId]: { isHelpful, count: isHelpful ? current.count + 1 : Math.max(0, current.count - 1) } };
-    });
-  };
-
   // Opens the reply modal with the review's existing thread from
   // GET /admin/reviews/:id (the list endpoint only returns a count).
   const handleOpenReply = async (review: AdminReviewListItem) => {
     setLoadingReplyId(review._id);
     setActionError(null);
     try {
-      const detail = await getReviewById(review._id);
-      const apiReplies: PrivateReply[] = detail.replies.map(r => ({
+      // Host reviews already include their replies; admin needs the detail call.
+      const replies = review.replies ?? (await getReviewById(review._id)).replies;
+      const apiReplies: PrivateReply[] = replies.map(r => ({
         id: r._id,
         author: r.user?.name || r.user?.email || 'Misrah Team',
         role: 'Reply',
         channel: 'In-App Message',
-        date: formatDistanceToNowStrict(parseISO(r.createdAt), { addSuffix: true }),
+        date: relativeTime(r.createdAt),
         message: r.message,
         status: 'Delivered',
       }));
       setActiveReplyReview({
         id: review._id,
         guest: guestName(review),
-        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`,
+        avatar: guestAvatar(review),
         rating: Number(review.rating) || 0,
         date: relativeTime(review.createdAt),
         property: propertyTitle(review),
         comment: review.comment || '',
         tags: [],
-        helpfulCount: helpful[review._id]?.count ?? 0,
-        isHelpful: helpful[review._id]?.isHelpful ?? false,
-        replies: [...(localReplies[review._id] ?? []), ...apiReplies],
+        replies: apiReplies,
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to load review replies.');
@@ -154,9 +155,13 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
     }
   };
 
-  const handleSendReply = (reviewId: string, newReply: PrivateReply) => {
-    setLocalReplies(prev => ({ ...prev, [reviewId]: [newReply, ...(prev[reviewId] ?? [])] }));
+  // PATCH /review/{id}/reply — throws on failure so the modal can show it;
+  // on success the reply is shown immediately and the list is refetched so
+  // reply counts / inline host replies come back from the server.
+  const handleSendReply = async (reviewId: string, newReply: PrivateReply) => {
+    await replyToReview(reviewId, newReply.message);
     setActiveReplyReview(prev => (prev && prev.id === reviewId ? { ...prev, replies: [newReply, ...prev.replies] } : prev));
+    fetchReviews(page, statusFilter);
   };
 
   return (
@@ -166,6 +171,7 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
           <h1 className="text-4xl font-black italic text-primary uppercase tracking-tighter leading-none">Guest Sentiment</h1>
           <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">Verified Community Feedback</p>
         </div>
+        {!isHost && (
         <div className="flex gap-2 bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm">
           {STATUS_TABS.map((tab) => (
             <button
@@ -179,6 +185,7 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
             </button>
           ))}
         </div>
+        )}
       </header>
 
       {loadError && (
@@ -191,6 +198,18 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
       {!loadError && (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-1 space-y-6">
+            {isHost ? (
+              <div className="bg-[#1A2B47] rounded-[40px] p-8 text-center border border-primary/10 shadow-xl shadow-primary/20">
+                <p className="text-[10px] font-black text-accent uppercase tracking-[2px] mb-4">Overall Rating</p>
+                <div className="text-7xl font-black italic text-white leading-none">
+                  {hostOverall ? hostOverall.averageRating.toFixed(1) : '—'}
+                </div>
+                <div className="flex justify-center text-accent text-lg mt-2">{stars(hostOverall?.averageRating ?? 0)}</div>
+                <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mt-3">
+                  {hostOverall ? `${hostOverall.totalReviews} ${hostOverall.totalReviews === 1 ? 'Review' : 'Reviews'}` : 'Total Reviews'}
+                </p>
+              </div>
+            ) : (
             <div className="bg-[#1A2B47] rounded-[40px] p-8 text-center border border-primary/10 shadow-xl shadow-primary/20">
               <p className="text-[10px] font-black text-accent uppercase tracking-[2px] mb-4">Moderation Overview</p>
               <div className="text-7xl font-black italic text-white leading-none">{totalCount}</div>
@@ -200,6 +219,7 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                 <span className="text-xs font-bold">{hiddenCount} hidden</span>
               </div>
             </div>
+            )}
 
             {actionError && (
               <div className="bg-danger/5 border border-danger/20 rounded-2xl p-4 flex items-center gap-3 text-danger">
@@ -233,7 +253,7 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <img
-                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`}
+                              src={guestAvatar(review)}
                               className="w-12 h-12 rounded-2xl object-cover border-2 border-surface shadow-sm"
                               alt={guestName(review)}
                             />
@@ -289,23 +309,12 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                         )}
                       </div>
 
-                      {/* Interactive Action Bar: Helpful & Private Reply */}
+                      {/* Interactive Action Bar: Private Reply */}
                       <div className="flex items-center justify-between gap-4 mt-8 pt-6 border-t border-border-misrah/50">
                         <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleHelpful(review._id)}
-                            className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-3.5 py-2 rounded-xl transition-all cursor-pointer select-none
-                              ${helpful[review._id]?.isHelpful
-                                ? 'bg-accent/15 text-accent border border-accent/30 scale-105 shadow-xs'
-                                : 'text-primary/60 hover:text-primary hover:bg-surface border border-transparent'}`}
-                          >
-                            <ThumbsUp size={14} className={helpful[review._id]?.isHelpful ? 'fill-current text-accent' : ''} />
-                            <span>Helpful ({helpful[review._id]?.count ?? 0})</span>
-                          </button>
 
                           {(() => {
-                            const replyCount = review.repliesCount + (localReplies[review._id]?.length ?? 0);
+                            const replyCount = review.repliesCount;
                             return (
                               <button
                                 type="button"

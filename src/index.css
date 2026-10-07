@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Kufi+Arabic:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -93,3 +93,38 @@ html.dark input, .dark input {
   display: none;
 }
 
+
+/* ---------------------------------------------------------------------------
+   Arabic (html[lang="ar"][dir="rtl"], set by i18n/LanguageContext).
+   - Arabic font for everything (Inter has no Arabic glyphs).
+   - letter-spacing breaks Arabic letter joining, and the faux-italic /
+     uppercase styling the Latin UI uses doesn't apply to Arabic — neutralize.
+   --------------------------------------------------------------------------- */
+html[lang="ar"] *,
+html[lang="ar"] ::before,
+html[lang="ar"] ::after {
+  font-family: "Noto Kufi Arabic", "Inter", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0 !important;
+}
+
+html[lang="ar"] .italic {
+  font-style: normal;
+}
+
+html[lang="ar"] input,
+html[lang="ar"] textarea {
+  text-align: start;
+}
+
+/* Mirror direction-bearing icons in RTL (back/forward chevrons, arrows).
+   Tailwind v4's rotate-* uses the `rotate` property, so this transform
+   composes with it (a rotate-180 "back" chevron still points back). */
+html[dir="rtl"] .lucide-chevron-right,
+html[dir="rtl"] .lucide-chevron-left,
+html[dir="rtl"] .lucide-arrow-right,
+html[dir="rtl"] .lucide-arrow-left,
+html[dir="rtl"] .lucide-arrow-up-right,
+html[dir="rtl"] .lucide-arrow-down-right,
+html[dir="rtl"] .lucide-corner-down-right {
+  transform: scaleX(-1);
+}

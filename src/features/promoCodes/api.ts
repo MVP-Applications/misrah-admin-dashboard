@@ -1,76 +1,105 @@
-import type { CreatePromoCodeRequest, ListPromoCodesParams, PromoCode, UpdatePromoCodeRequest } from './types';
+import { apiClient } from '../../api/client';
+import { API_ENDPOINTS } from '../../api/endpoints';
+import type { ApiSuccessEnvelope } from '../../api/types';
+import type {
+  ApiPromoCode,
+  CreatePromoCodeRequest,
+  ListPromoCodesParams,
+  ListPromoCodesResult,
+  PromoCode,
+  UpdatePromoCodeRequest,
+} from './types';
 
-// LOCAL STAND-IN FOR A PROMO CODE API.
-// The backend has no promo-code endpoints yet (not in the live OpenAPI spec),
-// so this persists to localStorage in this browser only — nothing reaches the
-// server or the traveller app. Every function is async and shaped like the
-// other feature api.ts modules, so wiring the real routes later only means
-// replacing these bodies with apiClient calls (+ adding API_ENDPOINTS entries).
+// Admin promo codes — /admin/promo-codes (list/get/create/update/delete,
+// /{id}/toggle-active). Mutations' responses aren't relied on beyond success;
+// the page refetches.
 
-const STORAGE_KEY = 'misrah_admin_promo_codes';
+const toDateInput = (iso?: string) => (iso ? iso.slice(0, 10) : '');
 
-function readAll(): PromoCode[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeAll(codes: PromoCode[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
-  } catch {
-    throw new Error('Could not save promo codes in this browser (storage unavailable).');
-  }
-}
-
-const normalizeCode = (code: string) => code.trim().toUpperCase().replace(/\s+/g, '');
-
-function assertUniqueCode(codes: PromoCode[], code: string, ignoreId?: string) {
-  if (codes.some(c => c.code === code && c._id !== ignoreId)) {
-    throw new Error(`Promo code "${code}" already exists.`);
-  }
-}
-
-export async function listPromoCodes(params: ListPromoCodesParams = {}): Promise<PromoCode[]> {
-  const q = params.search?.trim().toLowerCase();
-  return readAll()
-    .filter(c => params.isActive === undefined || c.isActive === params.isActive)
-    .filter(c => !q || c.code.toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function createPromoCode(payload: CreatePromoCodeRequest): Promise<PromoCode> {
-  const codes = readAll();
-  const code = normalizeCode(payload.code);
-  assertUniqueCode(codes, code);
-  const now = new Date().toISOString();
-  const created: PromoCode = {
-    ...payload,
-    code,
-    _id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    usedCount: 0,
-    createdAt: now,
-    updatedAt: now,
+function fromApi(p: ApiPromoCode): PromoCode {
+  return {
+    _id: p._id,
+    code: p.code,
+    description: p.description,
+    discountType: p.discountType,
+    discountValue: Number(p.discountValue) || 0,
+    maxDiscountAmount: p.maxDiscountAmount ?? null,
+    minBookingAmount: p.minBookingAmount ?? null,
+    currency: p.currency || 'AED',
+    appliesTo: p.appliesTo || 'ALL',
+    validFrom: toDateInput(p.validFrom),
+    validUntil: toDateInput(p.validUntil),
+    usageLimit: p.totalUsageLimit ?? null,
+    perUserLimit: p.usesPerGuest ?? null,
+    usedCount: p.usedCount ?? 0,
+    isActive: p.isActive,
+    computedStatus: p.computedStatus?.toLowerCase(),
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
   };
-  writeAll([created, ...codes]);
-  return created;
 }
 
-export async function updatePromoCode(id: string, payload: UpdatePromoCodeRequest): Promise<PromoCode> {
-  const codes = readAll();
-  const existing = codes.find(c => c._id === id);
-  if (!existing) throw new Error('Promo code not found.');
-  const code = payload.code !== undefined ? normalizeCode(payload.code) : existing.code;
-  assertUniqueCode(codes, code, id);
-  const updated: PromoCode = { ...existing, ...payload, code, updatedAt: new Date().toISOString() };
-  writeAll(codes.map(c => (c._id === id ? updated : c)));
-  return updated;
+// UI dates are whole days: valid from start of day, until end of day (UTC),
+// matching the spec's examples.
+function toApi(payload: UpdatePromoCodeRequest): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const set = (key: string, value: unknown) => { if (value !== undefined) body[key] = value; };
+  set('code', payload.code?.trim().toUpperCase());
+  set('description', payload.description);
+  set('appliesTo', payload.appliesTo);
+  set('discountType', payload.discountType);
+  set('discountValue', payload.discountValue);
+  set('maxDiscountAmount', payload.maxDiscountAmount);
+  set('minBookingAmount', payload.minBookingAmount);
+  set('validFrom', payload.validFrom ? `${payload.validFrom}T00:00:00.000Z` : undefined);
+  set('validUntil', payload.validUntil ? `${payload.validUntil}T23:59:59.999Z` : undefined);
+  set('totalUsageLimit', payload.usageLimit);
+  set('usesPerGuest', payload.perUserLimit);
+  set('isActive', payload.isActive);
+  set('currency', payload.currency);
+  return body;
 }
 
+// GET /admin/promo-codes — pagination envelope not documented: accepts a
+// bare array or { data | items | promoCodes: [...] } with total/totalCount
+// and totalPages (flat or under meta).
+export async function listPromoCodes(params: ListPromoCodesParams = {}): Promise<ListPromoCodesResult> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.promoCodes.adminAll, { params });
+  const body = data.data as unknown;
+  let list: ApiPromoCode[] = [];
+  let meta: Record<string, unknown> = {};
+  if (Array.isArray(body)) {
+    list = body as ApiPromoCode[];
+  } else if (body && typeof body === 'object') {
+    const obj = body as Record<string, unknown>;
+    const found = ['data', 'items', 'promoCodes', 'docs'].map(k => obj[k]).find(Array.isArray);
+    if (!found) throw new Error('[promo-codes] list response has an unexpected shape.');
+    list = found as ApiPromoCode[];
+    meta = (obj.meta as Record<string, unknown>) ?? obj;
+  }
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+  return {
+    data: list.map(fromApi),
+    totalCount: num(meta.total ?? meta.totalCount, list.length),
+    totalPages: num(meta.totalPages, 1),
+  };
+}
+
+export async function createPromoCode(payload: CreatePromoCodeRequest): Promise<PromoCode | null> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<ApiPromoCode>>(API_ENDPOINTS.promoCodes.adminAll, toApi(payload));
+  return data.data?._id ? fromApi(data.data) : null;
+}
+
+export async function updatePromoCode(id: string, payload: UpdatePromoCodeRequest): Promise<PromoCode | null> {
+  const { data } = await apiClient.patch<ApiSuccessEnvelope<ApiPromoCode>>(API_ENDPOINTS.promoCodes.adminById(id), toApi(payload));
+  return data.data?._id ? fromApi(data.data) : null;
+}
+
+export async function togglePromoCodeActive(id: string): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.promoCodes.adminToggleActive(id));
+}
+
+// Soft delete server-side.
 export async function deletePromoCode(id: string): Promise<void> {
-  writeAll(readAll().filter(c => c._id !== id));
+  await apiClient.delete(API_ENDPOINTS.promoCodes.adminById(id));
 }

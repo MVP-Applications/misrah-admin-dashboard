@@ -13,14 +13,12 @@ import {
   Copy,
   Check,
   CheckCircle2,
-  AlertCircle,
 } from 'lucide-react';
-import { createPromoCode, deletePromoCode, listPromoCodes, updatePromoCode } from '../../../features/promoCodes/api';
+import { createPromoCode, deletePromoCode, listPromoCodes, togglePromoCodeActive, updatePromoCode } from '../../../features/promoCodes/api';
 import type { CreatePromoCodeRequest, PromoAppliesTo, PromoCode, PromoDiscountType } from '../../../features/promoCodes/types';
 
-// Admin → Promo Codes. Add / list / edit / delete. Persists via
-// features/promoCodes/api.ts, which is a localStorage stand-in until the
-// backend exposes promo-code endpoints.
+// Admin → Promo Codes. Add / list / edit / delete / enable-disable against
+// /admin/promo-codes (features/promoCodes/api.ts).
 
 interface PromoFormState {
   code: string;
@@ -76,7 +74,26 @@ const formatDate = (value: string) => {
 };
 
 // Live state of a code, beyond the isActive toggle.
+const COMPUTED_STATUS_STYLES: Record<string, string> = {
+  active: 'bg-success/10 text-success',
+  inactive: 'bg-muted-text/10 text-muted-text',
+  disabled: 'bg-muted-text/10 text-muted-text',
+  expired: 'bg-danger/10 text-danger',
+  scheduled: 'bg-info/10 text-info',
+  upcoming: 'bg-info/10 text-info',
+  exhausted: 'bg-amber-500/10 text-amber-600',
+  'used-up': 'bg-amber-500/10 text-amber-600',
+};
+
 function codeState(code: PromoCode): { label: string; className: string } {
+  // Server's computedStatus wins when present.
+  if (code.computedStatus) {
+    const key = code.computedStatus.toLowerCase().replace(/[_\s]+/g, '-');
+    return {
+      label: key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+      className: COMPUTED_STATUS_STYLES[key] ?? 'bg-surface text-primary',
+    };
+  }
   const now = today();
   if (!code.isActive) return { label: 'Inactive', className: 'bg-muted-text/10 text-muted-text' };
   if (code.validUntil && code.validUntil < now) return { label: 'Expired', className: 'bg-danger/10 text-danger' };
@@ -96,7 +113,17 @@ export const PromoCodesModule = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter]);
 
   const [formTarget, setFormTarget] = useState<PromoCode | 'new' | null>(null);
   const [form, setForm] = useState<PromoFormState>(EMPTY_FORM());
@@ -114,18 +141,22 @@ export const PromoCodesModule = () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      setCodes(
-        await listPromoCodes({
-          search: searchInput || undefined,
-          isActive: statusFilter === 'all' ? undefined : statusFilter === 'active',
-        }),
-      );
+      const result = await listPromoCodes({
+        page,
+        limit: 24,
+        search: debouncedSearch || undefined,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+      setCodes(result.data);
+      setTotalPages(result.totalPages || 1);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load promo codes.');
     } finally {
       setIsLoading(false);
     }
-  }, [searchInput, statusFilter]);
+  }, [page, debouncedSearch, statusFilter]);
 
   useEffect(() => {
     fetchCodes();
@@ -203,10 +234,10 @@ export const PromoCodesModule = () => {
     try {
       if (formTarget === 'new') {
         const created = await createPromoCode(payload);
-        showToast(`Promo code ${created.code} created`);
+        showToast(`Promo code ${created?.code ?? payload.code.toUpperCase()} created`);
       } else if (formTarget) {
         const updated = await updatePromoCode(formTarget._id, payload);
-        showToast(`Promo code ${updated.code} updated`);
+        showToast(`Promo code ${updated?.code ?? payload.code.toUpperCase()} updated`);
       }
       setFormTarget(null);
       await fetchCodes();
@@ -221,7 +252,7 @@ export const PromoCodesModule = () => {
     setBusyId(code._id);
     setActionError(null);
     try {
-      await updatePromoCode(code._id, { isActive: !code.isActive });
+      await togglePromoCodeActive(code._id);
       await fetchCodes();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to update this promo code.');
@@ -279,15 +310,6 @@ export const PromoCodesModule = () => {
         </button>
       </header>
 
-      {/* Not connected to backend yet */}
-      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-        <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-        <p className="text-[11px] font-bold text-amber-800 leading-relaxed">
-          Preview only — promo codes aren’t supported by the API yet. Codes are saved in this browser only and won’t
-          apply to real bookings until the backend endpoints are connected.
-        </p>
-      </div>
-
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-md">
@@ -330,7 +352,7 @@ export const PromoCodesModule = () => {
         <div className="bg-white rounded-[48px] border border-border-misrah p-24 text-center shadow-sm space-y-4">
           <TicketPercent size={40} className="mx-auto text-muted-text/30" />
           <p className="text-xs font-bold text-muted-text/60 uppercase tracking-widest">
-            {searchInput || statusFilter !== 'all' ? 'No promo codes match these filters.' : 'No promo codes yet.'}
+            {debouncedSearch || statusFilter !== 'all' ? 'No promo codes match these filters.' : 'No promo codes yet.'}
           </p>
           <button
             onClick={openCreate}
@@ -429,6 +451,28 @@ export const PromoCodesModule = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {!isLoading && !loadError && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="px-5 py-2.5 rounded-xl border border-border-misrah text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+          >
+            Prev
+          </button>
+          <span className="text-[10px] font-black text-muted-text uppercase tracking-widest">Page {page} of {totalPages}</span>
+          <button
+            type="button"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-5 py-2.5 rounded-xl border border-border-misrah text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+          >
+            Next
+          </button>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -34,11 +34,51 @@ import {
   Smartphone,
   Fingerprint,
   KeyRound,
+  Mail,
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User as UserType } from '../../types';
+import {
+  deactivateHostProfile,
+  getMyProfile,
+  listCurrencies,
+  setPreferredCurrency,
+  updateMyProfile,
+  type CurrencyOption,
+  type MyProfile,
+} from '../../features/profile/api';
+import { requestPasswordReset, resetPassword } from '../../features/auth/api';
+import { setPreferredCurrencyCode } from '../../api/currency';
+import { useLanguage } from '../../i18n/LanguageContext';
+import { listActiveHostingGuides, type HostingGuide } from '../../features/hostingGuide/api';
+import {
+  BookOpen as GuideBookOpen,
+  Star as GuideStar,
+  Image as GuideImage,
+  CreditCard as GuideCreditCard,
+  Bell as GuideBell,
+  Shield as GuideShield,
+  Globe as GuideGlobe,
+  Heart as GuideHeart,
+  Home as GuideHome,
+  Users as GuideUsers,
+  Key as GuideKey,
+  Sparkles as GuideSparkles,
+  Coffee as GuideCoffee,
+  MessageCircle as GuideMessageCircle,
+  Award as GuideAward,
+  MapPin as GuideMapPin,
+  Calendar as GuideCalendar,
+  Camera as GuideCamera,
+  Gift as GuideGift,
+  Lightbulb as GuideLightbulb,
+  DollarSign as GuideDollarSign,
+  Clock as GuideClock,
+} from 'lucide-react';
+import { uploadFile } from '../../features/properties/api';
+import { UserRound, Loader2 as ProfileLoader } from 'lucide-react';
 import { AppearanceNodeView } from './Profile/AppearanceNodeView';
 
 interface SessionItem {
@@ -50,6 +90,57 @@ interface SessionItem {
   isCurrent?: boolean;
 }
 
+// Hosting guide icons: API iconName ("star", "book-open", ...) → lucide icon.
+const GUIDE_COLORS = [
+  'bg-accent/10 text-accent',
+  'bg-info/10 text-info',
+  'bg-success/10 text-success',
+  'bg-primary/10 text-primary',
+  'bg-danger/10 text-danger',
+  'bg-muted-text/10 text-muted-text',
+];
+
+// A fixed set (not the whole icon library) to keep the bundle small;
+// unknown names fall back to a book icon.
+const GUIDE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  star: GuideStar,
+  book: GuideBookOpen,
+  'book-open': GuideBookOpen,
+  image: GuideImage,
+  photo: GuideImage,
+  'credit-card': GuideCreditCard,
+  pricing: GuideDollarSign,
+  'dollar-sign': GuideDollarSign,
+  money: GuideDollarSign,
+  bell: GuideBell,
+  shield: GuideShield,
+  globe: GuideGlobe,
+  heart: GuideHeart,
+  home: GuideHome,
+  house: GuideHome,
+  users: GuideUsers,
+  key: GuideKey,
+  sparkles: GuideSparkles,
+  coffee: GuideCoffee,
+  message: GuideMessageCircle,
+  'message-circle': GuideMessageCircle,
+  chat: GuideMessageCircle,
+  award: GuideAward,
+  'map-pin': GuideMapPin,
+  location: GuideMapPin,
+  calendar: GuideCalendar,
+  camera: GuideCamera,
+  gift: GuideGift,
+  lightbulb: GuideLightbulb,
+  tip: GuideLightbulb,
+  clock: GuideClock,
+};
+
+function guideIcon(name?: string): React.ComponentType<{ size?: number; className?: string }> {
+  const key = (name || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+  return GUIDE_ICONS[key] ?? GuideBookOpen;
+}
+
 interface ProfileViewProps {
   user: UserType;
   onLogout: () => void;
@@ -57,6 +148,148 @@ interface ProfileViewProps {
 
 export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   const [activeTab, setActiveTab] = useState('main');
+
+  // Real profile (GET /consumer/users/profile) — replaces the email-derived
+  // name / hard-coded mobile & city. Falls back to the login user if it fails.
+  const [profile, setProfile] = useState<MyProfile | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [profileForm, setProfileForm] = useState({ name: '', email: '', phoneNumber: '' });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+
+  const loadProfile = async () => {
+    setIsProfileLoading(true);
+    try {
+      const result = await getMyProfile();
+      setProfile(result);
+      if (result.currency) setPreferredCurrencyCode(result.currency);
+      setProfileForm({ name: result.name, email: result.email || user.email, phoneNumber: result.phoneNumber });
+    } catch {
+      setProfile(null);
+      setProfileForm({ name: user.name, email: user.email, phoneNumber: '' });
+    } finally {
+      setIsProfileLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Avatar: upload (POST /files/upload) → save its file id as profileImage.
+  const handleAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = (e.target.files as FileList | null)?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setProfileError('Please choose an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError('Image must be 5MB or smaller.');
+      return;
+    }
+    setIsUploadingAvatar(true);
+    setProfileError(null);
+    try {
+      const uploaded = await uploadFile(file);
+      await updateMyProfile({
+        name: (profile?.name || profileForm.name || user.name).trim(),
+        email: (profile?.email || profileForm.email || user.email).trim() || undefined,
+        phoneNumber: (profile?.phoneNumber || '').replace(/[\s\-.()]/g, '') || undefined,
+        profileImage: uploaded.id,
+      });
+      // Show it right away even if the GET body names the URL differently.
+      setProfile(prev => (prev ? { ...prev, profileImage: uploaded.url, profileImageId: uploaded.id } : prev));
+      await loadProfile();
+      setProfile(prev => (prev && !prev.profileImage ? { ...prev, profileImage: uploaded.url, profileImageId: uploaded.id } : prev));
+      showToast(t('personal.photoUpdated'));
+    } catch (err) {
+      setProfileError(err instanceof Error ? `Photo upload failed: ${err.message}` : 'Photo upload failed.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  // Operating currency — list from GET /currencies, current from the
+  // profile's `currency`, changed via PATCH /consumer/users/currency.
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
+  const [isLoadingCurrencies, setIsLoadingCurrencies] = useState(true);
+  const [savingCurrency, setSavingCurrency] = useState<string | null>(null);
+  const [currencyError, setCurrencyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listCurrencies()
+      .then(setCurrencies)
+      .catch(() => setCurrencies([]))
+      .finally(() => setIsLoadingCurrencies(false));
+  }, []);
+
+  const currentCurrency = profile?.currency || 'AED';
+
+  const handleSelectCurrency = async (code: string) => {
+    if (code === currentCurrency || savingCurrency) return;
+    setSavingCurrency(code);
+    setCurrencyError(null);
+    try {
+      await setPreferredCurrency(code);
+      // From now on every price API call is sent with this currency.
+      setPreferredCurrencyCode(code);
+      setProfile(prev => (prev ? { ...prev, currency: code } : prev));
+      showToast(t('language.currencySwitched', { code }));
+    } catch (err) {
+      setCurrencyError(err instanceof Error ? err.message : 'Failed to update currency.');
+    } finally {
+      setSavingCurrency(null);
+    }
+  };
+
+  // Hosting Guide (host) — GET /hosting-guide/active, loaded when opened.
+  const [guides, setGuides] = useState<HostingGuide[] | null>(null);
+  const [guidesError, setGuidesError] = useState<string | null>(null);
+  const [openGuide, setOpenGuide] = useState<HostingGuide | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'hosting_guide' || guides !== null) return;
+    listActiveHostingGuides()
+      .then(list => { setGuides(list); setGuidesError(null); })
+      .catch(err => { setGuides([]); setGuidesError(err instanceof Error ? err.message : 'Failed to load hosting guides.'); });
+  }, [activeTab, guides]);
+
+  const displayName = profile?.name || user.name;
+  const avatarUrl = profile?.profileImage || null;
+
+  const handleSaveProfile = async () => {
+    if (!profileForm.name.trim()) {
+      setProfileError('Name is required.');
+      return;
+    }
+    if (profileForm.email.trim() && !/^\S+@\S+\.\S+$/.test(profileForm.email.trim())) {
+      setProfileError('Enter a valid email address.');
+      return;
+    }
+    setIsSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateMyProfile({
+        name: profileForm.name.trim(),
+        email: profileForm.email.trim() || undefined,
+        phoneNumber: profileForm.phoneNumber.replace(/[\s\-.()]/g, '') || undefined,
+        // Required by the API — re-send the current image's file id.
+        profileImage: profile?.profileImageId ?? undefined,
+      });
+      await loadProfile();
+      showToast(t('personal.saved'));
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to update your profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // Notification banner
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
@@ -74,10 +307,13 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
   // Password Modal State
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  // Reset flow: 'request' (send code to email) → 'reset' (code + new password).
+  const [resetStep, setResetStep] = useState<'request' | 'reset'>('request');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [isRequestingReset, setIsRequestingReset] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
@@ -102,7 +338,8 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   });
 
   // Language state
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  // UI language — app-wide (i18n/LanguageContext), switches to Arabic + RTL.
+  const { t, language: selectedLanguage, setLanguage } = useLanguage();
 
   // Payment Node: Update Destination modal
   const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
@@ -135,17 +372,17 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   };
 
   const menuItems = [
-    { id: 'personal', label: 'Personal Information', icon: User, desc: 'Update your contact and identity details', color: 'bg-info/10 text-info' },
-    { id: 'security', label: 'Login & Security', icon: Shield, desc: 'Manage password and authenticated nodes', color: 'bg-danger/10 text-danger' },
-    { id: 'payment', label: 'Payment Node', icon: CreditCard, desc: 'Secure payout methods and history', color: 'bg-success/10 text-success' },
-    { id: 'notifications', label: 'Global Notifications', icon: Bell, desc: 'Critical alert preferences', color: 'bg-accent/10 text-accent' },
-    { id: 'language', label: 'Language & Region', icon: Globe, desc: 'Localized experience control', color: 'bg-primary/10 text-primary' },
-    { id: 'appearance', label: 'Interface Appearance', icon: Moon, desc: 'Dark / Light / High Contrast', color: 'bg-muted-text/10 text-muted-text' },
+    { id: 'personal', label: t('profile.menu.personal'), icon: User, desc: t('profile.menu.personalDesc'), color: 'bg-info/10 text-info' },
+    { id: 'security', label: t('profile.menu.security'), icon: Shield, desc: t('profile.menu.securityDesc'), color: 'bg-danger/10 text-danger' },
+    { id: 'payment', label: t('profile.menu.payment'), icon: CreditCard, desc: t('profile.menu.paymentDesc'), color: 'bg-success/10 text-success' },
+    { id: 'notifications', label: t('profile.menu.notifications'), icon: Bell, desc: t('profile.menu.notificationsDesc'), color: 'bg-accent/10 text-accent' },
+    { id: 'language', label: t('profile.menu.language'), icon: Globe, desc: t('profile.menu.languageDesc'), color: 'bg-primary/10 text-primary' },
+    { id: 'appearance', label: t('profile.menu.appearance'), icon: Moon, desc: t('profile.menu.appearanceDesc'), color: 'bg-muted-text/10 text-muted-text' },
   ];
 
   const adminMenuItems = [
     { id: 'hosting_guide', label: 'Executive Mastery', icon: BookOpen, desc: 'Premium hosting documentation', color: 'bg-accent/15 text-accent' },
-    { id: 'help', label: 'Strategic Intel Center', icon: HelpCircle, desc: 'Direct support & knowledge base', color: 'bg-primary/10 text-primary' },
+    { id: 'help', label: t('profile.menu.help'), icon: HelpCircle, desc: t('profile.menu.helpDesc'), color: 'bg-primary/10 text-primary' },
     { id: 'terms', label: 'Legal Framework', icon: FileText, desc: 'Protocols & service agreements', color: 'bg-muted-text/10 text-muted-text' },
   ];
 
@@ -155,18 +392,28 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     showToast(`Session for ${deviceName} revoked.`);
   };
 
-  // Logout All Handlers
-  const handleConfirmLogoutAll = () => {
+  // Logout All — host: DELETE /consumer/users/profile?actionType=host
+  // (deactivates the host profile), then sign out. Admin: plain sign-out.
+  const [logoutAllError, setLogoutAllError] = useState<string | null>(null);
+  const isHostAccount = user.role === 'manager';
+
+  const handleConfirmLogoutAll = async () => {
     setIsLoggingOut(true);
-    showToast('Terminating all active sessions and logging out...');
-    setTimeout(() => {
-      setSessions([]);
-      setIsLoggingOut(false);
-      setIsLogoutAllModalOpen(false);
-      if (onLogout) {
-        onLogout();
+    setLogoutAllError(null);
+    if (isHostAccount) {
+      try {
+        await deactivateHostProfile();
+      } catch (err) {
+        setLogoutAllError(err instanceof Error ? err.message : 'Failed to deactivate the host profile.');
+        setIsLoggingOut(false);
+        return;
       }
-    }, 800);
+    }
+    showToast(isHostAccount ? 'Host profile deactivated — signing out…' : 'Signing out…');
+    setSessions([]);
+    setIsLoggingOut(false);
+    setIsLogoutAllModalOpen(false);
+    onLogout?.();
   };
 
   // Password Validation
@@ -175,13 +422,35 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
   const hasMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
-  const handleUpdatePassword = (e: React.FormEvent) => {
+  // Step 1: email a reset token (POST …/forgot-password { email }).
+  const handleRequestReset = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+    const email = resetEmail.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setPasswordError('Enter a valid email address.');
+      return;
+    }
+    setIsRequestingReset(true);
+    try {
+      await requestPasswordReset(email, user.role);
+      setResetStep('reset');
+      setPasswordSuccess(`We’ve emailed a reset code to ${email}.`);
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Failed to send the reset code.');
+    } finally {
+      setIsRequestingReset(false);
+    }
+  };
+
+  // Step 2: POST …/reset-password { token (from the email), newPassword }.
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError('');
     setPasswordSuccess('');
 
-    if (!currentPassword) {
-      setPasswordError('Please enter your current password.');
+    if (!resetToken.trim()) {
+      setPasswordError('Enter the reset code from your email.');
       return;
     }
 
@@ -203,18 +472,23 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     }
 
     setIsUpdatingPassword(true);
-    setTimeout(() => {
+    try {
+      await resetPassword(resetToken.trim(), newPassword, user.role);
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Failed to update your password.');
       setIsUpdatingPassword(false);
-      setPasswordSuccess('Password protocol successfully updated.');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setTimeout(() => {
-        setIsPasswordModalOpen(false);
-        setPasswordSuccess('');
-        showToast('Password updated and synchronized.');
-      }, 1000);
-    }, 600);
+      return;
+    }
+    setIsUpdatingPassword(false);
+    setPasswordSuccess('Password successfully updated.');
+    setNewPassword('');
+    setConfirmPassword('');
+    setResetToken('');
+    setTimeout(() => {
+      setIsPasswordModalOpen(false);
+      setPasswordSuccess('');
+      showToast('Password updated.');
+    }, 1000);
   };
 
   // Floating toast for tabs whose header has no inline toast slot.
@@ -245,22 +519,24 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           >
             <ChevronRight className="rotate-180" size={20} />
           </button>
-          <h1 className="text-2xl font-black italic text-primary uppercase">Language & Region</h1>
+          <h1 className="text-2xl font-black italic text-primary uppercase">{t('language.title')}</h1>
         </header>
 
         <div className="bg-white rounded-[40px] border border-border-misrah p-10 max-w-2xl space-y-8 shadow-sm">
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px]">Primary Interface Language</label>
+            <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px]">{t('language.primary')}</label>
             <div className="grid grid-cols-2 gap-4">
-              {[
+              {([
                 { code: 'en', name: 'English (UK / US)', native: 'English' },
                 { code: 'ar', name: 'Arabic (UAE Regional)', native: 'العربية' },
-              ].map(lang => (
+              ] as const).map(lang => (
                 <div 
                   key={lang.code} 
                   onClick={() => {
-                    setSelectedLanguage(lang.code);
-                    showToast(`Language switched to ${lang.name}`);
+                    if (lang.code === selectedLanguage) return;
+                    // Switches the whole app (strings, RTL, font) immediately.
+                    setLanguage(lang.code);
+                    showToast(lang.code === 'ar' ? 'تم تغيير اللغة إلى العربية' : `Language switched to ${lang.name}`);
                   }}
                   className={`p-5 rounded-2xl border transition-all cursor-pointer ${selectedLanguage === lang.code ? 'border-accent bg-accent/5' : 'border-border-misrah hover:border-accent'}`}
                 >
@@ -275,14 +551,57 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           </div>
 
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px]">Operating Currency & Format</label>
-            <div className="p-5 rounded-2xl bg-surface/60 border border-border-misrah flex items-center justify-between">
-              <div>
-                <h4 className="text-xs font-black text-primary uppercase">United Arab Emirates Dirham (AED)</h4>
-                <p className="text-[10px] text-muted-text mt-0.5">Primary currency for valuations & payouts</p>
+            <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px]">{t('language.currency')}</label>
+            {currencyError && (
+              <p className="text-[10px] font-black text-danger uppercase tracking-widest">{currencyError}</p>
+            )}
+            {isLoadingCurrencies || isProfileLoading ? (
+              <div className="p-5 rounded-2xl bg-surface/60 border border-border-misrah flex items-center gap-2 text-[10px] font-bold text-muted-text">
+                <ProfileLoader size={14} className="animate-spin" /> {t('language.currencyLoading')}
               </div>
-              <Badge variant="gold">Standard</Badge>
-            </div>
+            ) : currencies.length === 0 ? (
+              // List unavailable — still show the user's current currency.
+              <div className="p-5 rounded-2xl bg-surface/60 border border-border-misrah flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-black text-primary uppercase">{currentCurrency}</h4>
+                  <p className="text-[10px] text-muted-text mt-0.5">{t('language.currencyPrimary')}</p>
+                </div>
+                <Badge variant="gold">{t('language.current')}</Badge>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {currencies.map(c => {
+                  const isSelected = c.code === currentCurrency;
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => handleSelectCurrency(c.code)}
+                      disabled={!!savingCurrency}
+                      className={`p-5 rounded-2xl border text-left transition-all disabled:cursor-wait ${
+                        isSelected ? 'border-accent bg-accent/5' : 'border-border-misrah hover:border-accent bg-surface/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-xs font-black text-primary uppercase truncate">
+                          {c.name && c.name !== c.code ? `${c.name} (${c.code})` : c.code}
+                        </h4>
+                        {savingCurrency === c.code ? (
+                          <ProfileLoader size={14} className="animate-spin text-accent shrink-0" />
+                        ) : isSelected ? (
+                          <Check size={14} className="text-accent shrink-0" />
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-muted-text mt-0.5 flex items-center gap-2">
+                        {c.symbol && <span className="font-black text-primary/60">{c.symbol}</span>}
+                        {isSelected ? t('language.currencyPrimary') : t('language.currencyTap')}
+                        {c.isDefault && <Badge variant="gold" className="scale-75 origin-left">{t('language.standard')}</Badge>}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -361,18 +680,39 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           <button onClick={() => setActiveTab('main')} className="w-10 h-10 rounded-xl bg-white border border-[#F2E8DF] flex items-center justify-center hover:bg-surface transition-all text-primary">
             <ChevronRight className="rotate-180" size={20} />
           </button>
-          <h1 className="text-2xl font-black italic text-primary uppercase">Personal Information</h1>
+          <h1 className="text-2xl font-black italic text-primary uppercase">{t('profile.menu.personal')}</h1>
         </header>
+        {floatingToast}
 
         <div className="bg-white rounded-[40px] border border-[#F2E8DF] overflow-hidden shadow-sm">
            <div className="p-10 space-y-10">
               <div className="flex flex-col md:flex-row items-center gap-10">
                 <div className="relative group">
-                   <img src={user.avatar} className="w-32 h-32 rounded-[40px] object-cover shadow-2xl border-4 border-surface group-hover:scale-105 transition-all" />
-                   <button className="absolute -bottom-2 -right-2 bg-primary text-accent p-3 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition-all border-4 border-white"><Plus size={16} /></button>
+                   {avatarUrl ? (
+                     <img src={avatarUrl} alt={displayName} className="w-32 h-32 rounded-[40px] object-cover shadow-2xl border-4 border-surface group-hover:scale-105 transition-all" />
+                   ) : (
+                     <div className="w-32 h-32 rounded-[40px] bg-surface border-4 border-surface shadow-2xl flex items-center justify-center text-muted-text/50">
+                       <UserRound size={48} />
+                     </div>
+                   )}
+                   {isUploadingAvatar && (
+                     <div className="absolute inset-0 rounded-[40px] bg-black/40 flex items-center justify-center">
+                       <ProfileLoader size={28} className="animate-spin text-white" />
+                     </div>
+                   )}
+                   <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarSelected} className="hidden" />
+                   <button
+                     type="button"
+                     onClick={() => avatarInputRef.current?.click()}
+                     disabled={isUploadingAvatar || isProfileLoading}
+                     title="Change profile photo"
+                     className="absolute -bottom-2 -right-2 bg-primary text-accent p-3 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition-all border-4 border-white disabled:opacity-60"
+                   >
+                     <Plus size={16} />
+                   </button>
                 </div>
                 <div className="text-center md:text-left">
-                   <h3 className="text-2xl font-black italic text-primary uppercase tracking-tight">{user.name}</h3>
+                   <h3 className="text-2xl font-black italic text-primary uppercase tracking-tight">{displayName}</h3>
                    <p className="text-xs font-black text-muted-text uppercase tracking-widest mt-1">Verified {user.role.toUpperCase()} Hub</p>
                    <div className="flex gap-2 justify-center md:justify-start mt-4">
                      <Badge variant="green">Verified Security</Badge>
@@ -383,28 +723,50 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  <div className="space-y-2">
-                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">Full Identity Name</label>
-                   <input className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all" defaultValue={user.name} />
+                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">{t('personal.name')}</label>
+                   <input
+                     className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all"
+                     value={profileForm.name}
+                     onChange={e => setProfileForm({ ...profileForm, name: e.target.value })}
+                     placeholder={isProfileLoading ? 'Loading…' : 'Your name'}
+                   />
                  </div>
                  <div className="space-y-2">
-                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">Contact Email Node</label>
-                   <input className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all" defaultValue={user.email} />
+                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">{t('personal.email')}</label>
+                   <input
+                     type="email"
+                     className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all"
+                     value={profileForm.email}
+                     onChange={e => setProfileForm({ ...profileForm, email: e.target.value })}
+                     placeholder={isProfileLoading ? 'Loading…' : 'name@example.com'}
+                   />
                  </div>
                  <div className="space-y-2">
-                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">Verified Mobile Line</label>
-                   <input className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all" defaultValue="+971 50 123 4567" />
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">Operations Base / City</label>
-                   <select className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all">
-                      <option>Dubai, UAE</option>
-                      <option>Abu Dhabi, UAE</option>
-                   </select>
+                   <label className="text-[10px] font-black text-primary/40 uppercase tracking-[2px] ml-2">{t('personal.mobile')}</label>
+                   <input
+                     type="tel"
+                     className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold focus:border-accent outline-hidden transition-all"
+                     value={profileForm.phoneNumber}
+                     onChange={e => setProfileForm({ ...profileForm, phoneNumber: e.target.value })}
+                     placeholder={isProfileLoading ? t('personal.loading') : t('personal.noMobile')}
+                   />
                  </div>
               </div>
 
+              {profileError && (
+                <p className="text-[10px] font-black text-danger uppercase tracking-widest">{profileError}</p>
+              )}
+
               <div className="pt-6">
-                <button className="w-full md:w-auto px-10 py-4 bg-primary text-accent rounded-full text-[10px] font-black uppercase tracking-[3px] shadow-2xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">Synchronize Interface</button>
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={isSavingProfile || isProfileLoading}
+                  className="w-full md:w-auto px-10 py-4 bg-primary text-accent rounded-full text-[10px] font-black uppercase tracking-[3px] shadow-2xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                >
+                  {isSavingProfile && <ProfileLoader size={14} className="animate-spin" />}
+                  {t('personal.save')}
+                </button>
               </div>
            </div>
         </div>
@@ -462,7 +824,17 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                    </div>
                    <button 
                      type="button"
-                     onClick={() => setIsPasswordModalOpen(true)}
+                     onClick={() => {
+                       // Always start at step 1 with the account email prefilled.
+                       setResetStep('request');
+                       setResetEmail(profile?.email || user.email || '');
+                       setResetToken('');
+                       setNewPassword('');
+                       setConfirmPassword('');
+                       setPasswordError('');
+                       setPasswordSuccess('');
+                       setIsPasswordModalOpen(true);
+                     }}
                      className="text-[10px] font-black text-accent uppercase tracking-widest hover:underline cursor-pointer px-2 py-1 rounded-lg hover:bg-accent/5 transition-all"
                    >
                      Update
@@ -766,7 +1138,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => !isLoggingOut && setIsLogoutAllModalOpen(false)}
+                    onClick={() => { if (!isLoggingOut) { setIsLogoutAllModalOpen(false); setLogoutAllError(null); } }}
                     disabled={isLoggingOut}
                     className="w-8 h-8 rounded-full bg-surface flex items-center justify-center text-muted-text hover:text-primary transition-colors cursor-pointer"
                   >
@@ -776,10 +1148,22 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
                 <div className="p-4 bg-danger/5 rounded-2xl border border-danger/15 flex items-start gap-3">
                   <AlertCircle size={18} className="text-danger shrink-0 mt-0.5" />
-                  <p className="text-xs text-primary font-medium leading-relaxed">
-                    Are you sure you want to <strong>log out of all {sessions.length} sessions</strong>? This will revoke access from all devices and return you to the login screen.
-                  </p>
+                  {isHostAccount ? (
+                    <p className="text-xs text-primary font-medium leading-relaxed">
+                      This will <strong>deactivate your host profile</strong> and sign you out of all sessions.
+                      Your listings and experiences won’t be available to guests while the host profile is inactive.
+                      Your traveller account is not deleted.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-primary font-medium leading-relaxed">
+                      Are you sure you want to <strong>log out of all {sessions.length} sessions</strong>? This will revoke access from all devices and return you to the login screen.
+                    </p>
+                  )}
                 </div>
+
+                {logoutAllError && (
+                  <p className="text-[10px] font-black text-danger uppercase tracking-widest">{logoutAllError}</p>
+                )}
 
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
@@ -799,12 +1183,12 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                     {isLoggingOut ? (
                       <>
                         <RefreshCw size={13} className="animate-spin" />
-                        <span>Logging Out...</span>
+                        <span>{isHostAccount ? 'Deactivating...' : 'Logging Out...'}</span>
                       </>
                     ) : (
                       <>
                         <LogOut size={13} />
-                        <span>Yes, Logout For All</span>
+                        <span>{isHostAccount ? 'Deactivate & Logout' : 'Yes, Logout For All'}</span>
                       </>
                     )}
                   </button>
@@ -845,7 +1229,17 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                   </button>
                 </div>
 
-                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                <form
+                  onSubmit={(e) => {
+                    if (resetStep === 'request') {
+                      e.preventDefault();
+                      handleRequestReset();
+                    } else {
+                      handleUpdatePassword(e);
+                    }
+                  }}
+                  className="space-y-4"
+                >
                   {passwordError && (
                     <div className="p-3 bg-danger/10 border border-danger/20 rounded-2xl text-xs font-bold text-danger flex items-center gap-2">
                       <AlertCircle size={14} />
@@ -860,26 +1254,47 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                     </div>
                   )}
 
+                  {resetStep === 'request' ? (
+                    <div className="space-y-4">
+                      <p className="text-xs text-muted-text font-medium leading-relaxed">
+                        We’ll email you a reset code. Enter it in the next step together with your new password.
+                      </p>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-muted-text block">
+                          Account Email:
+                        </label>
+                        <input
+                          type="email"
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          placeholder="name@example.com"
+                          className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-4 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                  <>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-muted-text block">
-                      Current Password:
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showCurrentPassword ? 'text' : 'password'}
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        placeholder="Enter current password..."
-                        className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-4 py-3 pr-10 text-xs font-bold text-primary outline-none focus:border-accent"
-                      />
+                    <div className="flex items-center justify-between">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-muted-text block">
+                        Reset Code (from email):
+                      </label>
                       <button
                         type="button"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-text hover:text-primary"
+                        onClick={handleRequestReset}
+                        disabled={isRequestingReset}
+                        className="text-[9px] font-black uppercase tracking-widest text-accent hover:underline disabled:opacity-50"
                       >
-                        {showCurrentPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                        {isRequestingReset ? 'Sending…' : 'Resend code'}
                       </button>
                     </div>
+                    <input
+                      value={resetToken}
+                      onChange={(e) => setResetToken(e.target.value.trim())}
+                      placeholder="Paste the code from your email"
+                      autoComplete="one-time-code"
+                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-4 py-3 text-xs font-bold font-mono text-primary outline-none focus:border-accent"
+                    />
                   </div>
 
                   <div className="space-y-1">
@@ -954,8 +1369,19 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                       </>
                     )}
                   </div>
+                  </>
+                  )}
 
                   <div className="flex items-center justify-end gap-3 pt-2">
+                    {resetStep === 'reset' && (
+                      <button
+                        type="button"
+                        onClick={() => { setResetStep('request'); setPasswordError(''); setPasswordSuccess(''); }}
+                        className="mr-auto text-[10px] font-black uppercase tracking-wider text-muted-text hover:text-primary"
+                      >
+                        ← Change email
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setIsPasswordModalOpen(false)}
@@ -963,14 +1389,26 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                     >
                       Cancel
                     </button>
-                    <button
-                      type="submit"
-                      disabled={isUpdatingPassword}
-                      className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5"
-                    >
-                      {isUpdatingPassword ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
-                      <span>{isUpdatingPassword ? 'Saving...' : 'Save Password'}</span>
-                    </button>
+                    {resetStep === 'request' ? (
+                      <button
+                        type="button"
+                        onClick={handleRequestReset}
+                        disabled={isRequestingReset}
+                        className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        {isRequestingReset ? <RefreshCw size={13} className="animate-spin" /> : <Mail size={13} />}
+                        <span>{isRequestingReset ? 'Sending...' : 'Send Reset Code'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={isUpdatingPassword}
+                        className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        {isUpdatingPassword ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
+                        <span>{isUpdatingPassword ? 'Saving...' : 'Save Password'}</span>
+                      </button>
+                    )}
                   </div>
                 </form>
               </motion.div>
@@ -1293,31 +1731,115 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           <h1 className="text-2xl font-black italic text-primary uppercase">Hosting Guide</h1>
         </header>
 
+        {guides === null ? (
+          <div className="p-24 flex items-center justify-center">
+            <ProfileLoader size={32} className="animate-spin text-primary/30" />
+          </div>
+        ) : guidesError ? (
+          <div className="p-12 rounded-[40px] bg-danger/5 border border-danger/20 text-center space-y-3">
+            <AlertCircle size={28} className="mx-auto text-danger" />
+            <p className="text-xs font-bold text-danger">{guidesError}</p>
+            <button
+              type="button"
+              onClick={() => { setGuidesError(null); setGuides(null); }}
+              className="px-5 py-2.5 rounded-xl bg-primary text-white text-[10px] font-black uppercase tracking-widest"
+            >
+              Retry
+            </button>
+          </div>
+        ) : guides.length === 0 ? (
+          <div className="p-16 rounded-[40px] bg-white border border-border-misrah text-center text-xs font-bold text-muted-text/60 uppercase tracking-widest">
+            No hosting guides available yet
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-           {[
-             { title: 'The Welcome Protocol', desc: 'Crafting the perfect check-in experience for Elite guests.', icon: Star, color: 'bg-accent/10 text-accent' },
-             { title: 'Visual Optimization', desc: 'How to capture high-yield gallery nodes for your property.', icon: ImageIcon, color: 'bg-info/10 text-info' },
-             { title: 'Pricing Strategies', desc: 'Understanding seasonal demand and automatic rate shifts.', icon: CreditCard, color: 'bg-success/10 text-success' },
-             { title: 'Inquiry Management', desc: 'Professional communication tactics for higher conversion.', icon: Bell, color: 'bg-primary/10 text-primary' },
-             { title: 'Service Excellence', desc: 'Maintaining your Host Quality Score through details.', icon: Shield, color: 'bg-danger/10 text-danger' },
-             { title: 'Resource Network', desc: 'Accessing local cleaning and maintenance nodes.', icon: Globe, color: 'bg-muted-text/10 text-muted-text' },
-           ].map((card, i) => (
-             <div key={i} className="bg-white rounded-[40px] border border-border-misrah p-8 flex flex-col justify-between hover:shadow-luxury transition-all group cursor-pointer active:scale-95">
+           {guides.map((guide, i) => {
+             const GuideIcon = guideIcon(guide.iconName);
+             const color = GUIDE_COLORS[i % GUIDE_COLORS.length];
+             return (
+             <button
+               key={guide._id}
+               type="button"
+               onClick={() => setOpenGuide(guide)}
+               className="text-left rtl:text-right bg-white rounded-[40px] border border-border-misrah p-8 flex flex-col justify-between hover:shadow-luxury transition-all group cursor-pointer active:scale-95"
+             >
                 <div className="space-y-6">
-                  <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center ${card.color}`}>
-                    <card.icon size={26} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center ${color}`}>
+                      <GuideIcon size={26} />
+                    </div>
+                    {guide.readTimeMinutes ? (
+                      <span className="px-3 py-1 rounded-full bg-surface text-[9px] font-black uppercase tracking-widest text-muted-text">
+                        {guide.readTimeMinutes} min read
+                      </span>
+                    ) : null}
                   </div>
                   <div>
-                    <h3 className="text-lg font-black italic text-primary uppercase tracking-tight leading-tight">{card.title}</h3>
-                    <p className="text-[11px] font-medium text-muted-text/80 leading-relaxed mt-2">{card.desc}</p>
+                    <h3 className="text-lg font-black italic text-primary uppercase tracking-tight leading-tight">{guide.title}</h3>
+                    {guide.subtitle && <p className="text-[11px] font-medium text-muted-text/80 leading-relaxed mt-2">{guide.subtitle}</p>}
                   </div>
                 </div>
                 <div className="mt-8 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#D4C3B5] group-hover:text-accent transition-colors">
                    Enter Guide <ArrowUpRight size={14} />
                 </div>
-             </div>
-           ))}
+             </button>
+             );
+           })}
         </div>
+        )}
+
+        {/* Guide reader */}
+        <AnimatePresence>
+          {openGuide && (
+            <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenGuide(null)} className="absolute inset-0 bg-primary/60 backdrop-blur-sm" />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="relative bg-white w-full max-w-2xl rounded-[40px] shadow-2xl border border-border-misrah p-8 md:p-10 max-h-[85vh] overflow-y-auto space-y-6"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    {(() => {
+                      const GuideIcon = guideIcon(openGuide.iconName);
+                      return (
+                        <div className="w-14 h-14 rounded-[20px] flex items-center justify-center bg-accent/15 text-accent shrink-0">
+                          <GuideIcon size={26} />
+                        </div>
+                      );
+                    })()}
+                    <div>
+                      <h2 className="text-2xl font-black italic text-primary uppercase tracking-tight leading-tight">{openGuide.title}</h2>
+                      {openGuide.subtitle && <p className="text-xs font-bold text-muted-text mt-1">{openGuide.subtitle}</p>}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOpenGuide(null)}
+                    className="w-9 h-9 rounded-full bg-surface hover:bg-border-misrah flex items-center justify-center text-primary shrink-0"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {openGuide.readTimeMinutes ? (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-accent">{openGuide.readTimeMinutes} min read</p>
+                ) : null}
+
+                {openGuide.quote && (
+                  <blockquote className="p-6 rounded-3xl bg-[#1A2B47] text-white text-sm font-medium italic leading-relaxed border-s-4 border-accent">
+                    {openGuide.quote}
+                  </blockquote>
+                )}
+
+                {openGuide.body && (
+                  <div className="text-sm text-primary/80 leading-relaxed whitespace-pre-line">{openGuide.body}</div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
        </div>
     )
   }
@@ -1325,8 +1847,8 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
-        <h1 className="text-4xl font-black italic text-primary">Account</h1>
-        <p className="text-muted-text text-sm mt-1">Strategic profile management and configuration node</p>
+        <h1 className="text-4xl font-black italic text-primary">{t('profile.title')}</h1>
+        <p className="text-muted-text text-sm mt-1">{t('profile.subtitle')}</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-10">
@@ -1334,12 +1856,18 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           <div className="bg-[#1A2B47] rounded-[40px] p-8 text-center border border-primary/10 shadow-2xl relative overflow-hidden flex flex-col items-center">
              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-full pointer-events-none" />
              <div className="relative mb-6">
-               <img src={user.avatar} className="w-28 h-28 rounded-[36px] object-cover border-4 border-white/10 shadow-inner" />
+               {avatarUrl ? (
+                 <img src={avatarUrl} alt={displayName} className="w-28 h-28 rounded-[36px] object-cover border-4 border-white/10 shadow-inner" />
+               ) : (
+                 <div className="w-28 h-28 rounded-[36px] border-4 border-white/10 bg-white/5 flex items-center justify-center text-white/40">
+                   <UserRound size={40} />
+                 </div>
+               )}
                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-xl bg-accent text-primary flex items-center justify-center shadow-lg border-2 border-[#1A2B47]">
                  <Star size={14} fill="currentColor" />
                </div>
              </div>
-             <h3 className="text-2xl font-black italic text-white uppercase tracking-tight">{user.name}</h3>
+             <h3 className="text-2xl font-black italic text-white uppercase tracking-tight">{displayName}</h3>
              <p className="text-[10px] font-black text-accent uppercase tracking-[3px] mt-1 opacity-80">Verified Elite {user.role.toUpperCase()}</p>
              
              <div className="grid grid-cols-2 gap-4 w-full mt-8 pt-8 border-t border-white/5">
@@ -1365,7 +1893,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
         <div className="lg:col-span-2 space-y-8">
            <div className="bg-white rounded-[48px] border border-border-misrah p-10 space-y-8 shadow-sm">
-              <h3 className="text-[11px] font-black uppercase tracking-[3px] text-primary/40 px-2 leading-none">Security & Preferences</h3>
+              <h3 className="text-[11px] font-black uppercase tracking-[3px] text-primary/40 px-2 leading-none">{t('profile.securityPrefs')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  {menuItems.map(item => (
                    <button 

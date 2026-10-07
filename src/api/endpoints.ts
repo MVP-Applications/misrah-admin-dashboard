@@ -2,6 +2,33 @@
 // no component or feature module should ever hardcode a path string.
 // See ../../API_INTEGRATION.md for the conventions this supports.
 export const API_ENDPOINTS = {
+  // Admin promo codes (live OpenAPI spec).
+  promoCodes: {
+    adminAll: '/admin/promo-codes',
+    adminById: (id: string) => `/admin/promo-codes/${id}`,
+    adminToggleActive: (id: string) => `/admin/promo-codes/${id}/toggle-active`,
+  },
+  // Host Hub → Profile → Hosting Guide.
+  hostingGuide: {
+    active: '/hosting-guide/active',
+  },
+  // Current user's profile — GET (read) / PATCH (name, email, phoneNumber, profileImage).
+  profile: {
+    me: '/consumer/users/profile',
+    // PATCH { code } — preferred currency of the logged-in user.
+    currency: '/consumer/users/currency',
+  },
+  // GET — available currencies (admin also manages rates via /currencies/{code}).
+  currencies: {
+    all: '/currencies',
+  },
+  // Chat (REST side — sending is over the Socket.IO connection, features/chat/socket.ts).
+  chat: {
+    conversations: '/chat/conversations',
+    messages: (conversationId: string) => `/chat/conversation/${conversationId}/messages`,
+    markRead: (conversationId: string) => `/chat/conversation/${conversationId}/read`,
+    message: (messageId: string) => `/chat/message/${messageId}`,
+  },
   // GET ?year&month — Admin Overview aggregates (see features/dashboard/types.ts).
   dashboard: {
     admin: '/admin/dashboard',
@@ -31,6 +58,10 @@ export const API_ENDPOINTS = {
       // phone — there is no admin equivalent. Verifying the code isn't wired
       // up yet (no verify endpoint confirmed).
       otpSend: '/host/auth/otp/send',
+      // Profile → Update Password: POST { email } emails a reset token, then
+      // POST { token, newPassword } with that token.
+      forgotPassword: '/host/auth/forgot-password',
+      resetPassword: '/host/auth/reset-password',
     },
   },
   // Confirmed live, returns 200 — genuinely shared by both portals (no
@@ -138,6 +169,10 @@ export const API_ENDPOINTS = {
     adminById: (id: string) => `/admin/reviews/${id}`,
     adminHide: (id: string) => `/admin/reviews/${id}/hide`,
     adminRestore: (id: string) => `/admin/reviews/${id}/restore`,
+    // Host Hub: own reviews + overall rating (page/limit, optional property/experience).
+    host: '/review/host',
+    // PATCH { message } — reply on a review (200).
+    reply: (id: string) => `/review/${id}/reply`,
   },
   // Already live — no backend change needed. Backs the Notifications/Activity
   // Feed view: this backend has no real per-user notification concept, but
@@ -210,6 +245,9 @@ export const API_ENDPOINTS = {
     // reason, pricing) and a no-save pricing preview (POST).
     reschedule: (id: string) => `/experience-booking/${id}/reschedule`,
     reschedulePreview: (id: string) => `/experience-booking/${id}/reschedule/preview`,
+    // Admin equivalents (same bodies + currency query param).
+    adminReschedule: (id: string) => `/admin/experience-bookings/${id}/reschedule`,
+    adminReschedulePreview: (id: string) => `/admin/experience-bookings/${id}/reschedule/preview`,
     // Public: generated time slots + capacity for an experience on ?date=.
     availability: (experienceId: string) => `/experience-booking/availability/${experienceId}`,
     adminAll: '/admin/experience-bookings',

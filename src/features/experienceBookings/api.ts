@@ -86,12 +86,16 @@ export async function cancelHostExperienceBooking(id: string, payload: CancelExp
 // difference / payment action) not parsed; callers refetch the detail.
 // `currency` is a query param (live spec) — pass the booking's currency, the
 // same one used for the preview, so the re-validated price matches.
+// `asAdmin` routes to PATCH /admin/experience-bookings/{id}/reschedule
+// (same body); otherwise the traveler/host /experience-booking route.
 export async function rescheduleExperienceBooking(
   id: string,
   payload: RescheduleExperienceBookingRequest,
   currency?: string,
+  asAdmin = false,
 ): Promise<void> {
-  await apiClient.patch(API_ENDPOINTS.experienceBookings.reschedule(id), payload, {
+  const url = asAdmin ? API_ENDPOINTS.experienceBookings.adminReschedule(id) : API_ENDPOINTS.experienceBookings.reschedule(id);
+  await apiClient.patch(url, payload, {
     params: currency ? { currency } : undefined,
   });
 }
@@ -110,8 +114,13 @@ export async function previewExperienceReschedule(
   id: string,
   payload: Omit<RescheduleExperienceBookingRequest, 'pricing'>,
   currency?: string,
+  asAdmin = false,
 ): Promise<ExperienceReschedulePreview> {
-  const { data } = await apiClient.post<unknown>(API_ENDPOINTS.experienceBookings.reschedulePreview(id), payload, {
+  // Admin: POST /admin/experience-bookings/{id}/reschedule/preview (same body).
+  const url = asAdmin
+    ? API_ENDPOINTS.experienceBookings.adminReschedulePreview(id)
+    : API_ENDPOINTS.experienceBookings.reschedulePreview(id);
+  const { data } = await apiClient.post<unknown>(url, payload, {
     params: currency ? { currency } : undefined,
   });
   const body = ((data as Record<string, unknown>)?.data ?? data) as Record<string, any>;

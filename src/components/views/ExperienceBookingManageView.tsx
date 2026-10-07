@@ -17,6 +17,9 @@ import type { ApiExperienceAddOn } from '../../features/experiences/types';
 
 interface ExperienceBookingManageViewProps {
   detail: ExperienceBookingDetail;
+  // Admin uses /admin/experience-bookings/{id}/reschedule(+/preview);
+  // host uses /experience-booking/{id}/reschedule(+/preview).
+  isAdmin?: boolean;
   onBack: () => void;
   onSaved: () => void;
 }
@@ -30,7 +33,7 @@ const toDateInput = (value?: string) => {
   }
 };
 
-export const ExperienceBookingManageView = ({ detail, onBack, onSaved }: ExperienceBookingManageViewProps) => {
+export const ExperienceBookingManageView = ({ detail, onBack, onSaved, isAdmin = false }: ExperienceBookingManageViewProps) => {
   const pricing = detail.pricing;
   const currency = pricing?.currency || detail.experienceSnapshot.currency || 'AED';
 
@@ -184,13 +187,13 @@ export const ExperienceBookingManageView = ({ detail, onBack, onSaved }: Experie
     let cancelled = false;
     const handle = setTimeout(() => {
       setIsPreviewing(true);
-      previewExperienceReschedule(detail._id, { date, timeSlot, guestCount, addOns: addOnsPayload, reason: reason || undefined }, currency)
+      previewExperienceReschedule(detail._id, { date, timeSlot, guestCount, addOns: addOnsPayload, reason: reason || undefined }, currency, isAdmin)
         .then(result => { if (!cancelled) { setPreview(result); setPreviewError(null); } })
         .catch(err => { if (!cancelled) { setPreview(null); setPreviewError(err instanceof Error ? err.message : 'Could not calculate the new price.'); } })
         .finally(() => { if (!cancelled) setIsPreviewing(false); });
     }, 500);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [detail._id, date, timeSlot, guestCount, addOnsPayload, reason, isPastDate, isAddOnLookupDone, currency]);
+  }, [detail._id, date, timeSlot, guestCount, addOnsPayload, reason, isPastDate, isAddOnLookupDone, currency, isAdmin]);
 
   const originalTotal = pricing?.totalPayable ?? 0;
   const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -237,7 +240,7 @@ export const ExperienceBookingManageView = ({ detail, onBack, onSaved }: Experie
         reason: reason.trim() || undefined,
         // Backend expects the preview's price difference here.
         pricing: { totalPayable: previewDifference as number },
-      }, currency);
+      }, currency, isAdmin);
       onSaved();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to update this booking.');

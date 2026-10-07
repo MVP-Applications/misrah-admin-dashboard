@@ -48,7 +48,8 @@ interface PrivateReplyModalProps {
   onClose: () => void;
   review: ReviewItem | null;
   user: User;
-  onSendReply: (reviewId: string, reply: PrivateReply) => void;
+  // May return a promise — the modal waits for it and shows its error.
+  onSendReply: (reviewId: string, reply: PrivateReply) => void | Promise<void>;
 }
 
 export const PrivateReplyModal = ({
@@ -62,6 +63,7 @@ export const PrivateReplyModal = ({
   const [channel, setChannel] = useState<'In-App Message' | 'Direct SMS / WhatsApp' | 'VIP Email'>('In-App Message');
   const [isSending, setIsSending] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   // Clear any half-written draft when switching to a different review.
   useEffect(() => {
@@ -86,33 +88,37 @@ export const PrivateReplyModal = ({
     }
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || isSending) return;
 
     setIsSending(true);
+    setSendError(null);
+    const newReply: PrivateReply = {
+      id: `rep-${Date.now()}`,
+      author: user.name,
+      role: user.role.toUpperCase(),
+      channel: channel,
+      date: 'Just now',
+      message: message.trim(),
+      status: 'Delivered'
+    };
 
-    setTimeout(() => {
-      const newReply: PrivateReply = {
-        id: `rep-${Date.now()}`,
-        author: user.name,
-        role: user.role.toUpperCase(),
-        channel: channel,
-        date: 'Just now',
-        message: message.trim(),
-        status: 'Delivered'
-      };
-
-      onSendReply(review.id, newReply);
-      setMessage('');
+    try {
+      await onSendReply(review.id, newReply);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send the reply.');
       setIsSending(false);
-      setShowSuccessToast(true);
+      return;
+    }
 
-      setTimeout(() => {
-        setShowSuccessToast(false);
-        onClose();
-      }, 1500);
-    }, 600);
+    setMessage('');
+    setIsSending(false);
+    setShowSuccessToast(true);
+    setTimeout(() => {
+      setShowSuccessToast(false);
+      onClose();
+    }, 1500);
   };
 
   return (
@@ -320,6 +326,10 @@ export const PrivateReplyModal = ({
                 <span>{message.length} chars</span>
               </div>
             </div>
+
+            {sendError && (
+              <p className="text-[10px] font-black text-danger uppercase tracking-widest">{sendError}</p>
+            )}
 
             {/* Send Button */}
             <div className="pt-2 flex justify-end gap-3">
