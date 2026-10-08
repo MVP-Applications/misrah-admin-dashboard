@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GuestAvatar } from '../GuestAvatar';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -308,7 +309,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
         <div className="flex items-center gap-3">
           <div className="flex -space-x-2">
             {[1, 2, 3].map(i => (
-              <img key={i} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" src={`https://i.pravatar.cc/150?u=${i}`} alt="Active User" />
+              <div key={i} aria-label="Active User" className="w-8 h-8 rounded-full border-2 border-white shadow-sm bg-surface flex items-center justify-center text-muted-text/60"><UserRound size={14} /></div>
             ))}
             <div className="w-8 h-8 rounded-full border-2 border-white bg-surface flex items-center justify-center text-[10px] font-black text-muted-text shadow-sm">
               +{dashboard?.header ? dashboard.header.liveInRegionCount : 12}
@@ -1010,7 +1011,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               recentBookings.map(booking => (
                 <div key={booking.id} className="flex items-center gap-5 p-6 hover:bg-surface/50 transition-colors cursor-pointer group/item">
                   <div className="relative">
-                    <img src={booking.guestAvatar} alt={booking.guestName} className="w-12 h-12 rounded-2xl object-cover shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all" />
+                    <GuestAvatar url={booking.guestAvatar} name={booking.guestName} className="w-12 h-12 rounded-2xl shadow-sm ring-2 ring-white group-hover/item:ring-accent/20 transition-all" fallbackClassName="bg-surface text-muted-text/60" iconSize={20} />
                     <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success rounded-full border-2 border-white" />
                   </div>
                   <div className="flex-1 min-w-0">

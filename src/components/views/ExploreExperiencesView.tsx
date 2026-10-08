@@ -25,12 +25,15 @@ import {
   Smartphone,
   Loader2,
   TriangleAlert,
-  ChevronLeft
+  ChevronLeft,
+  Minus,
+  Plus
 } from 'lucide-react';
-import { Property, ActivityExperience, PriceType, Booking } from '../../types';
+import { Property, PriceType, Booking } from '../../types';
 import { listAllExperiences, listExperienceCategories } from '../../features/experiences/api';
 import { apiExperienceToViewModel } from '../../features/experiences/mappers';
 import type { ApiExperienceCategory } from '../../features/experiences/types';
+import type { ExperienceRow } from '../../features/experiences/mappers';
 
 const PAGE_SIZE = 12;
 import { Badge } from '../ui/Badge';
@@ -46,16 +49,18 @@ export const ExploreExperiencesView = ({
 }: ExploreExperiencesViewProps) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedActivity, setSelectedActivity] = useState<ActivityExperience | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<(ExperienceRow & { property: Property }) | null>(null);
   const [activePropertyForBooking, setActivePropertyForBooking] = useState<Property | null>(null);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingDate, setBookingDate] = useState('2026-09-20');
   const [bookingSlot, setBookingSlot] = useState('Evening (19:00 - 21:00)');
-  const [bookingGuests, setBookingGuests] = useState(4);
+  const [bookingGuests, setBookingGuests] = useState(1);
+  const [bookingAddonIds, setBookingAddonIds] = useState<string[]>([]);
+  const [bookingRequests, setBookingRequests] = useState('');
 
-  // Live catalog — GET /experience/all (active only), shared by admin & host.
-  type ExploreExperience = ActivityExperience & { property: Property };
+  // Live catalog — GET /experience/all?page&limit&search&categoryId, shared by admin & host.
+  type ExploreExperience = ExperienceRow & { property: Property };
   const [experiences, setExperiences] = useState<ExploreExperience[]>([]);
   const [categories, setCategories] = useState<ApiExperienceCategory[]>([]);
   const [page, setPage] = useState(1);
@@ -85,7 +90,6 @@ export const ExploreExperiencesView = ({
       limit: PAGE_SIZE,
       search: debouncedSearch || undefined,
       categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
-      isActive: true,
     })
       .then(res => {
         if (cancelled) return;
@@ -123,8 +127,39 @@ export const ExploreExperiencesView = ({
       ? activity.timeSlots
       : ['10:00 - 12:00', '16:00 - 18:00', '19:00 - 21:00'];
     setBookingSlot(slots[0]);
+    setBookingGuests(Math.max(1, activity.minGuests || 1));
+    setBookingAddonIds([]);
+    setBookingRequests('');
     setIsBookingModalOpen(true);
   };
+
+  // Live total for the reserve modal: base price by the experience's
+  // priceType, plus each selected add-on by its own pricing model.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const hours = selectedActivity?.durationHours || 1;
+  const unitTotal = (price: number, model: string | undefined) =>
+    model === 'per_person' ? price * bookingGuests : model === 'hourly' ? price * hours : price;
+  const selectedAddons = (selectedActivity?.addons ?? []).filter(a => bookingAddonIds.includes(a.id));
+  const baseTotal = selectedActivity ? round2(unitTotal(selectedActivity.price, selectedActivity.priceType)) : 0;
+  const addonsTotal = round2(selectedAddons.reduce((sum, a) => sum + unitTotal(a.price, a.priceType ?? 'fixed'), 0));
+  // Booking fee formula (shared with the backend):
+  //   subtotal = base price + add-ons total
+  //   service fee = 10% of subtotal, tax fee = 5% of subtotal
+  //   total payable = subtotal + service fee + tax fee - discount
+  // No promo code is applied in this modal, so discount is 0.
+  const SERVICE_FEE_RATE = 0.1;
+  const TAX_FEE_RATE = 0.05;
+  const subtotal = round2(baseTotal + addonsTotal);
+  const serviceFee = round2(subtotal * SERVICE_FEE_RATE);
+  const taxFee = round2(subtotal * TAX_FEE_RATE);
+  const discount = 0;
+  const bookingTotal = round2(subtotal + serviceFee + taxFee - discount);
+  const bookingCurrency = selectedActivity?.currency || 'AED';
+  const minGuests = Math.max(1, selectedActivity?.minGuests || 1);
+  const maxGuests = Math.max(minGuests, selectedActivity?.maxGuests || minGuests);
+  const toggleAddon = (id: string) =>
+    setBookingAddonIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
+  const formatMoney = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <motion.div 
@@ -295,7 +330,7 @@ export const ExploreExperiencesView = ({
                   <div>
                     <span className="text-[9px] font-black uppercase tracking-wider text-muted-text block">Experience Price</span>
                     <span className="text-xl font-black italic text-primary">
-                      AED {exp.price.toLocaleString()}
+                      {exp.currency} {exp.price.toLocaleString()}
                       <span className="text-[10px] font-normal text-muted-text ml-1">
                         {priceTypeLabels[exp.priceType]?.en}
                       </span>
@@ -393,7 +428,7 @@ export const ExploreExperiencesView = ({
                       </div>
                       <div className="p-3 bg-surface rounded-xl border border-border-misrah">
                         <span className="text-[9px] font-black uppercase text-muted-text block mb-1">Price Rate</span>
-                        <span className="font-black text-accent">AED {selectedActivity.price} {priceTypeLabels[selectedActivity.priceType]?.en}</span>
+                        <span className="font-black text-accent">{bookingCurrency} {formatMoney(selectedActivity.price)} {priceTypeLabels[selectedActivity.priceType]?.en}</span>
                       </div>
                     </div>
 
@@ -420,12 +455,125 @@ export const ExploreExperiencesView = ({
                       </div>
                     </div>
 
-                    <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex justify-between items-center text-xs">
-                      <div>
-                        <span className="text-muted-text font-bold">Total Estimated:</span>
-                        <p className="text-lg font-black italic text-primary">AED {selectedActivity.price.toLocaleString()}</p>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Guest Count</label>
+                      <div className="flex items-center justify-between p-3 bg-surface border border-border-misrah rounded-xl">
+                        <span className="text-[11px] text-muted-text font-bold">{minGuests === maxGuests ? `${minGuests} guest${minGuests === 1 ? '' : 's'}` : `${minGuests} – ${maxGuests} guests`}</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setBookingGuests(g => Math.max(minGuests, g - 1))}
+                            disabled={bookingGuests <= minGuests}
+                            className="w-8 h-8 rounded-lg bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="w-6 text-center text-sm font-black text-primary">{bookingGuests}</span>
+                          <button
+                            type="button"
+                            onClick={() => setBookingGuests(g => Math.min(maxGuests, g + 1))}
+                            disabled={bookingGuests >= maxGuests}
+                            className="w-8 h-8 rounded-lg bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
                       </div>
-                      <Badge variant="green">Instant Confirmation</Badge>
+                    </div>
+
+                    {(selectedActivity.addons?.length ?? 0) > 0 && (
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Add-ons</label>
+                        <div className="space-y-2">
+                          {selectedActivity.addons!.map(addon => {
+                            const checked = bookingAddonIds.includes(addon.id);
+                            return (
+                              <button
+                                key={addon.id}
+                                type="button"
+                                onClick={() => toggleAddon(addon.id)}
+                                className={`w-full p-3 rounded-xl border flex items-center gap-3 text-left transition-colors ${checked ? 'bg-accent/5 border-accent' : 'bg-surface border-border-misrah hover:border-accent/40'}`}
+                              >
+                                <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${checked ? 'bg-accent border-accent text-white' : 'bg-white border-border-misrah'}`}>
+                                  {checked && <Check size={12} />}
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                  <span className="block text-xs font-bold text-primary truncate">{addon.title}</span>
+                                  {addon.description && <span className="block text-[10px] text-muted-text truncate">{addon.description}</span>}
+                                </span>
+                                <span className="text-[11px] font-black text-accent shrink-0">
+                                  {bookingCurrency} {formatMoney(addon.price)}
+                                  <span className="text-[9px] font-normal text-muted-text ml-1">
+                                    {addon.priceType === 'per_person' ? '/ person' : addon.priceType === 'hourly' ? '/ hour' : 'fixed'}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Special Requests</label>
+                      <textarea
+                        value={bookingRequests}
+                        onChange={e => setBookingRequests(e.target.value)}
+                        rows={3}
+                        maxLength={500}
+                        placeholder="Dietary needs, accessibility, celebrations..."
+                        className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-medium text-primary outline-none focus:border-accent resize-none"
+                      />
+                    </div>
+
+                    <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 space-y-3 text-xs">
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-muted-text font-bold">
+                          <span>
+                            Experience
+                            {selectedActivity.priceType === 'per_person' && ` (${formatMoney(selectedActivity.price)} × ${bookingGuests} guest${bookingGuests === 1 ? '' : 's'})`}
+                            {selectedActivity.priceType === 'hourly' && ` (${formatMoney(selectedActivity.price)} × ${hours}h)`}
+                          </span>
+                          <span className="text-primary">{bookingCurrency} {formatMoney(baseTotal)}</span>
+                        </div>
+                        {selectedAddons.map(addon => (
+                          <div key={addon.id} className="flex justify-between text-muted-text font-bold">
+                            <span className="truncate pr-3">
+                              {addon.title}
+                              {addon.priceType === 'per_person' && ` (× ${bookingGuests})`}
+                              {addon.priceType === 'hourly' && ` (× ${hours}h)`}
+                            </span>
+                            <span className="text-primary shrink-0">{bookingCurrency} {formatMoney(unitTotal(addon.price, addon.priceType ?? 'fixed'))}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-3 border-t border-primary/10 space-y-1.5">
+                        <div className="flex justify-between text-muted-text font-bold">
+                          <span>Subtotal</span>
+                          <span className="text-primary">{bookingCurrency} {formatMoney(subtotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-text font-bold">
+                          <span>Service Fee (10%)</span>
+                          <span className="text-primary">{bookingCurrency} {formatMoney(serviceFee)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-text font-bold">
+                          <span>Tax Fee (5%)</span>
+                          <span className="text-primary">{bookingCurrency} {formatMoney(taxFee)}</span>
+                        </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between text-emerald-600 font-bold">
+                            <span>Discount</span>
+                            <span>− {bookingCurrency} {formatMoney(discount)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="pt-3 border-t border-primary/10 flex justify-between items-center">
+                        <div>
+                          <span className="text-muted-text font-bold">Total Estimated:</span>
+                          <p className="text-lg font-black italic text-primary">{bookingCurrency} {formatMoney(bookingTotal)}</p>
+                        </div>
+                        <Badge variant="green">Instant Confirmation</Badge>
+                      </div>
                     </div>
                   </div>
 
@@ -456,8 +604,10 @@ export const ExploreExperiencesView = ({
                             time: bookingSlot || (selectedActivity.timeSlots?.[0] || '10:00 - 12:00'),
                             duration: selectedActivity.duration,
                             guests: bookingGuests,
-                            total: selectedActivity.price,
-                            hostEarnings: Math.round(selectedActivity.price * 0.9),
+                            total: bookingTotal,
+                            hostEarnings: Math.round(subtotal * 0.9),
+                            selectedAddons,
+                            addonsTotal,
                             paymentStatus: 'Paid',
                             status: 'Confirmed',
                             bookingType: 'Experience',
@@ -465,7 +615,7 @@ export const ExploreExperiencesView = ({
                             experienceImage: selectedActivity.images?.[0],
                             experienceCategory: selectedActivity.categoryName,
                             experienceEmoji: selectedActivity.categoryEmoji,
-                            specialRequests: 'Reserved via Masara Host Platform'
+                            specialRequests: bookingRequests.trim() || undefined
                           };
                           onAddBooking(newExpBooking);
                         }

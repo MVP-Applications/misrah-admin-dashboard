@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GuestAvatar } from '../../GuestAvatar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Users, ShieldCheck, Star, Loader2, TriangleAlert, UserPlus } from 'lucide-react';
 import { listHomePageListingsAdmin, listHomePageListingsForTraveller } from '../../../features/homePageListings/api';
@@ -32,7 +33,6 @@ interface TravellerHostLite {
 
 // A best-effort placeholder avatar for hosts the public endpoint has no
 // profileImage for — keeps the card grid visually consistent.
-const fallbackAvatar = (id: string) => `https://api.dicebear.com/7.x/initials/svg?seed=${id}`;
 
 const buildEnrichedHosts = (
   currentSection: AdminHomePageListing,
@@ -47,7 +47,7 @@ const buildEnrichedHosts = (
       _id: hostId,
       name: rich?.name ?? user?.name ?? 'Unknown Host',
       email: user?.email,
-      avatar: rich?.profileImage ?? (user ? fallbackAvatar(hostId) : null),
+      avatar: rich?.profileImage ?? null,
       // isActive/isSuperHost always come from admin/users, never from the
       // public endpoint — it doesn't expose isActive at all, and would
       // simply be absent (not "false") for a suspended host.
@@ -225,10 +225,12 @@ export const EliteNodesModule = () => {
 
                     <div className="flex flex-col items-center text-center space-y-6">
                       <div className="relative group/avatar">
-                        <img
-                          src={host.avatar ?? fallbackAvatar(host._id)}
-                          className="w-28 h-28 rounded-[40px] object-cover shadow-2xl border-6 border-white transition-transform duration-500 group-hover/avatar:scale-105"
-                          alt={host.name}
+                        <GuestAvatar
+                          url={host.avatar}
+                          name={host.name}
+                          className="w-28 h-28 rounded-[40px] shadow-2xl border-6 border-white transition-transform duration-500 group-hover/avatar:scale-105"
+                          fallbackClassName="bg-surface text-muted-text/60"
+                          iconSize={44}
                         />
                         <div className={`absolute -bottom-2 -right-2 w-8 h-8 rounded-2xl border-4 border-white flex items-center justify-center text-[12px] font-black shadow-lg ${!host.isActive ? 'bg-danger text-white' : 'bg-success text-white'}`}>
                           {!host.isActive ? '!' : '✓'}

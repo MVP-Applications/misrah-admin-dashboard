@@ -31,13 +31,13 @@ export function formatBookingDate(iso: string): string {
 // table and DashboardView's "Active Ops" widget expect — same pattern as
 // App.tsx's toLegacyUser. traveler has no avatar/profileImage field on the
 // list endpoint (confirmed from the backend's populate
-// `.select('name email phoneNumber')`), so a placeholder avatar is used here;
-// the detail endpoint DOES resolve a real one.
+// `.select('name email phoneNumber')`), so guestAvatar is empty here and the
+// UI shows a person icon; the detail endpoint DOES resolve a real one.
 export function toLegacyBooking(item: BookingListItem): Booking {
   return {
     id: item._id,
     guestName: item.traveler?.name ?? 'Guest',
-    guestAvatar: `https://i.pravatar.cc/150?u=${item.traveler?._id ?? item._id}`,
+    guestAvatar: '',
     propertyName: item.propertySnapshot?.title ?? 'Property',
     checkIn: formatBookingDate(item.checkInDate),
     checkOut: formatBookingDate(item.checkOutDate),

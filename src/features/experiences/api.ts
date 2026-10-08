@@ -57,7 +57,7 @@ export async function listMyExperiences(params: {
   };
 }
 
-// GET /experience/all?page&limit&search&categoryId&isActive — Guest Explore
+// GET /experience/all?page&limit&search&categoryId — Guest Explore
 // catalog (admin + host). Body is { data: [...] } plus pagination; same
 // normalization as listMyExperiences since the pagination block wasn't
 // captured. Items reuse ApiExperienceListItem.
@@ -66,7 +66,6 @@ export async function listAllExperiences(params: {
   limit?: number;
   search?: string;
   categoryId?: string;
-  isActive?: boolean;
 } = {}): Promise<ListExperiencesResponse> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.experiences.all, { params });
   const body = data.data as Record<string, unknown> | unknown[];

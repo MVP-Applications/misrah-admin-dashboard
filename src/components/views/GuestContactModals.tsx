@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { GuestAvatar } from '../GuestAvatar';
 import {
   X,
   Phone,
@@ -156,10 +157,12 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                 <div className="flex items-center justify-between pb-3 border-b border-border-misrah">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <img 
-                        src={contact.avatar} 
-                        alt={contact.name}
-                        className="w-12 h-12 rounded-2xl object-cover border border-border-misrah" 
+                      <GuestAvatar
+                        url={contact.avatar}
+                        name={contact.name}
+                        className="w-12 h-12 rounded-2xl border border-border-misrah"
+                        fallbackClassName="bg-surface text-muted-text/60"
+                        iconSize={22}
                       />
                       <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                     </div>
@@ -330,12 +333,14 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                 {/* Guest Profile & Avatar */}
                 <div className="relative pt-2">
                   <div className="relative inline-block">
-                    <img 
-                      src={contact.avatar} 
-                      alt={contact.name}
-                      className={`w-24 h-24 rounded-[30px] object-cover mx-auto border-2 ${
+                    <GuestAvatar
+                      url={contact.avatar}
+                      name={contact.name}
+                      className={`w-24 h-24 rounded-[30px] mx-auto border-2 ${
                         callStatus === 'connected' ? 'border-emerald-400 shadow-lg shadow-emerald-500/20' : 'border-white/20'
-                      }`} 
+                      }`}
+                      fallbackClassName="bg-white/10 text-white/60"
+                      iconSize={40}
                     />
                     {callStatus === 'calling' && (
                       <span className="absolute inset-0 rounded-[30px] border-2 border-accent animate-ping opacity-75" />

@@ -12,14 +12,14 @@ export const INITIAL_CATEGORIES: Category[] = [
 ];
 
 export const INITIAL_ELITE_HOSTS: EliteHost[] = [
-  { id: 'm1', name: 'Ahmed Al Mansouri', avatar: 'https://i.pravatar.cc/150?u=ahmed', properties: 4, rating: 4.95, isElite: true, suspended: false },
-  { id: 'm2', name: 'Sarah Wilson', avatar: 'https://i.pravatar.cc/150?u=sarah', properties: 2, rating: 4.88, isElite: true, suspended: false },
-  { id: 'm3', name: 'James Chen', avatar: 'https://i.pravatar.cc/150?u=james', properties: 1, rating: 4.2, isElite: false, suspended: true },
+  { id: 'm1', name: 'Ahmed Al Mansouri', avatar: '', properties: 4, rating: 4.95, isElite: true, suspended: false },
+  { id: 'm2', name: 'Sarah Wilson', avatar: '', properties: 2, rating: 4.88, isElite: true, suspended: false },
+  { id: 'm3', name: 'James Chen', avatar: '', properties: 1, rating: 4.2, isElite: false, suspended: true },
 ];
 
 export const BOOKINGS: Booking[] = [
-  { id: 'b1', guestName: 'Zayed Al Mansouri', guestAvatar: 'https://i.pravatar.cc/150?u=zayed', propertyName: 'Luxury Burj View Apt.', checkIn: 'Jan 12, 2026', checkOut: 'Jan 15, 2026', guests: 2, total: 3750, status: 'Hosting' },
-  { id: 'b2', guestName: 'Fatima Rashid', guestAvatar: 'https://i.pravatar.cc/150?u=fatima2', propertyName: 'Luxury Burj View Apt.', checkIn: 'Jan 15, 2026', checkOut: 'Jan 18, 2026', guests: 2, total: 3750, status: 'Arriving Soon' },
-  { id: 'b3', guestName: 'Omar Khalid', guestAvatar: 'https://i.pravatar.cc/150?u=omar2', propertyName: 'Saadiyat Island Retreat', checkIn: 'Jan 14, 2026', checkOut: 'Jan 17, 2026', guests: 4, total: 5400, status: 'Confirmed' },
-  { id: 'b4', guestName: 'Sarah Jenkins', guestAvatar: 'https://i.pravatar.cc/150?u=sarah2', propertyName: 'Modern Marina Duplex', checkIn: 'Dec 28, 2025', checkOut: 'Jan 2, 2026', guests: 1, total: 5500, status: 'Past' },
+  { id: 'b1', guestName: 'Zayed Al Mansouri', guestAvatar: '', propertyName: 'Luxury Burj View Apt.', checkIn: 'Jan 12, 2026', checkOut: 'Jan 15, 2026', guests: 2, total: 3750, status: 'Hosting' },
+  { id: 'b2', guestName: 'Fatima Rashid', guestAvatar: '', propertyName: 'Luxury Burj View Apt.', checkIn: 'Jan 15, 2026', checkOut: 'Jan 18, 2026', guests: 2, total: 3750, status: 'Arriving Soon' },
+  { id: 'b3', guestName: 'Omar Khalid', guestAvatar: '', propertyName: 'Saadiyat Island Retreat', checkIn: 'Jan 14, 2026', checkOut: 'Jan 17, 2026', guests: 4, total: 5400, status: 'Confirmed' },
+  { id: 'b4', guestName: 'Sarah Jenkins', guestAvatar: '', propertyName: 'Modern Marina Duplex', checkIn: 'Dec 28, 2025', checkOut: 'Jan 2, 2026', guests: 1, total: 5500, status: 'Past' },
 ];

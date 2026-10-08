@@ -20,7 +20,7 @@ import {
 import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { sendHostLoginOtp } from '../../features/auth/api';
+import { requestPasswordReset, resetPassword, sendHostLoginOtp } from '../../features/auth/api';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
@@ -141,45 +141,67 @@ export const LoginView = () => {
     }
   };
 
-  // Open Forgot Password
+  // Forgot Password — real reset flow for the selected portal
+  // (admin → /admin/auth/*, host → /host/auth/*):
+  //   1. POST …/forgot-password { email } → backend emails a reset token
+  //   2. the person pastes that token
+  //   3. POST …/reset-password { token, newPassword }
+  const isEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value);
+
   const handleOpenForgotPassword = () => {
-    setRecoveryTarget(emailOrPhone.trim() || 'admin@misrah.ae');
+    const typed = emailOrPhone.trim();
+    setRecoveryTarget(isEmail(typed) ? typed : '');
+    setRecoveryOtp('');
+    setNewResetPassword('');
+    setConfirmResetPassword('');
     setForgotStep('request');
     setForgotError(null);
     setIsForgotPasswordOpen(true);
   };
 
-  // Forgot Password Step 1: Send OTP
-  const handleSendRecoveryOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotError(null);
-    if (!recoveryTarget.trim()) {
-      setForgotError('Please enter your recovery email address or phone number');
-      return;
+  const sendResetEmail = async () => {
+    const email = recoveryTarget.trim();
+    if (!isEmail(email)) {
+      setForgotError('Please enter a valid registered email address');
+      return false;
     }
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setForgotStep('otp');
-      setRecoveryOtp('4829'); // Auto-fill demo
+    try {
+      await requestPasswordReset(email, selectedRole);
       setResendCountdown(45);
       setIsResendActive(true);
-    }, 400);
+      return true;
+    } catch (err) {
+      setForgotError(err instanceof Error ? err.message : 'Failed to send the reset email.');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Forgot Password Step 2: Verify OTP
+  // Step 1: request the reset token by email
+  const handleSendRecoveryOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError(null);
+    if (await sendResetEmail()) {
+      setRecoveryOtp('');
+      setForgotStep('otp');
+    }
+  };
+
+  // Step 2: capture the emailed token (validated by the backend in step 3)
   const handleVerifyRecoveryOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setForgotError(null);
-    if (recoveryOtp.trim().length < 4) {
-      setForgotError('Please enter the 4-digit verification code');
+    if (!recoveryOtp.trim()) {
+      setForgotError('Please paste the reset token from your email');
       return;
     }
     setForgotStep('reset');
   };
 
-  // Forgot Password Step 3: Set New Password
-  const handleResetNewPassword = (e: React.FormEvent) => {
+  // Step 3: set the new password with the token
+  const handleResetNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotError(null);
     if (!newResetPassword || newResetPassword.length < 6) {
@@ -192,12 +214,17 @@ export const LoginView = () => {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setPassword(newResetPassword);
-      setEmailOrPhone(recoveryTarget);
+    try {
+      await resetPassword(recoveryOtp.trim(), newResetPassword, selectedRole);
+      setEmailOrPhone(recoveryTarget.trim());
+      setPassword('');
+      setUseOtp(false);
       setForgotStep('success');
-    }, 450);
+    } catch (err) {
+      setForgotError(err instanceof Error ? err.message : 'Failed to reset your password. The token may be invalid or expired.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -264,22 +291,23 @@ export const LoginView = () => {
                 <div className="space-y-1">
                   <h3 className="text-xl font-black italic text-white uppercase">Forgot Password?</h3>
                   <p className="text-xs text-white/60 font-medium">
-                    Enter your registered email address or mobile phone to receive a secure password recovery verification code.
+                    Enter the email address registered to your {selectedRole === 'manager' ? 'host' : 'admin'} account and we'll email you a password reset token.
                   </p>
                 </div>
 
                 <div className="space-y-1.5 pt-2">
                   <label className="text-[10px] font-black uppercase tracking-wider text-white/70 block">
-                    Recovery Email or Phone Number *
+                    Registered Email *
                   </label>
                   <div className="relative">
                     <Mail size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
-                      type="text"
+                      type="email"
                       required
+                      autoComplete="email"
                       value={recoveryTarget}
                       onChange={e => setRecoveryTarget(e.target.value)}
-                      placeholder="e.g. admin@misrah.ae or +971 50 123 4567"
+                      placeholder="e.g. admin@misrah.ae"
                       className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-xs font-bold text-white placeholder:text-white/30 focus:outline-hidden focus:border-accent"
                     />
                   </div>
@@ -294,7 +322,7 @@ export const LoginView = () => {
                     <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <>
-                      <span>Send Recovery Code</span>
+                      <span>Send Reset Email</span>
                       <ArrowRight size={16} />
                     </>
                   )}
@@ -306,48 +334,52 @@ export const LoginView = () => {
             {forgotStep === 'otp' && (
               <form onSubmit={handleVerifyRecoveryOtp} className="space-y-4">
                 <div className="space-y-1">
-                  <h3 className="text-xl font-black italic text-white uppercase">Verify Code</h3>
+                  <h3 className="text-xl font-black italic text-white uppercase">Enter Reset Token</h3>
                   <p className="text-xs text-white/60 font-medium">
-                    We sent a verification code to <span className="text-accent font-bold">{recoveryTarget}</span>.
+                    If <span className="text-accent font-bold">{recoveryTarget}</span> is registered, we've emailed it a password reset token. Paste it below.
                   </p>
                 </div>
 
                 <div className="space-y-2 pt-2">
                   <label className="text-[10px] font-black uppercase tracking-wider text-white/70 block">
-                    4-Digit Verification Code *
+                    Reset Token *
                   </label>
                   <div className="relative">
                     <KeyRound size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
                       type="text"
-                      maxLength={6}
                       required
+                      autoComplete="one-time-code"
+                      spellCheck={false}
                       value={recoveryOtp}
                       onChange={e => setRecoveryOtp(e.target.value)}
-                      placeholder="4829"
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-sm tracking-[6px] font-mono font-bold text-accent placeholder:text-white/20 focus:outline-hidden focus:border-accent"
+                      placeholder="Paste the token from your email"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 rtl:pl-4 rtl:pr-11 py-3.5 text-xs font-mono font-bold text-accent placeholder:text-white/30 placeholder:font-sans focus:outline-hidden focus:border-accent"
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] pt-1">
                     <button
                       type="button"
-                      onClick={() => setRecoveryOtp('4829')}
+                      onClick={() => {
+                        setForgotError(null);
+                        setForgotStep('request');
+                      }}
                       className="text-accent hover:underline font-bold cursor-pointer"
                     >
-                      Fill Demo Code (4829)
+                      Change Email
                     </button>
 
                     <button
                       type="button"
-                      disabled={isResendActive}
+                      disabled={isResendActive || isSubmitting}
                       onClick={() => {
-                        setIsResendActive(true);
-                        setResendCountdown(45);
+                        setForgotError(null);
+                        sendResetEmail();
                       }}
                       className="text-white/50 hover:text-white disabled:opacity-40 cursor-pointer"
                     >
-                      {isResendActive ? `Resend in ${resendCountdown}s` : 'Resend Code'}
+                      {isResendActive ? `Resend in ${resendCountdown}s` : 'Resend Email'}
                     </button>
                   </div>
                 </div>
@@ -356,7 +388,7 @@ export const LoginView = () => {
                   type="submit"
                   className="w-full bg-accent text-primary py-4 px-6 rounded-2xl text-xs font-black uppercase tracking-[2px] shadow-xl shadow-accent/25 hover:scale-[1.01] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                 >
-                  <span>Verify & Proceed</span>
+                  <span>Continue</span>
                   <ArrowRight size={16} />
                 </button>
               </form>
@@ -370,6 +402,16 @@ export const LoginView = () => {
                   <p className="text-xs text-white/60 font-medium">
                     Choose a strong password for your Misrah operator account.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotError(null);
+                      setForgotStep('otp');
+                    }}
+                    className="text-[11px] text-accent hover:underline font-bold cursor-pointer"
+                  >
+                    Edit reset token
+                  </button>
                 </div>
 
                 <div className="space-y-3 pt-2">
@@ -441,7 +483,7 @@ export const LoginView = () => {
                 <div className="space-y-1">
                   <h3 className="text-xl font-black italic text-white uppercase">Password Reset Successfully</h3>
                   <p className="text-xs text-white/70 max-w-sm mx-auto">
-                    Your password has been updated. You can now log in securely to the Misrah portal.
+                    Your password has been updated. Sign in with your new password.
                   </p>
                 </div>
                 <button

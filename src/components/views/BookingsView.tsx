@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { GuestAvatar } from '../GuestAvatar';
 import {
   format,
   startOfMonth,
@@ -89,7 +90,7 @@ function formatEnumLabel(key: string): string {
 }
 
 function toDetailAvatar(detail: BookingDetail): string {
-  return detail.traveler?.profileImage || `https://i.pravatar.cc/150?u=${detail.traveler?._id ?? detail._id}`;
+  return detail.traveler?.profileImage || '';
 }
 
 export const BookingsView = ({ user }: BookingsViewProps) => {
@@ -600,8 +601,8 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     const guestName = detail?.traveler?.name ?? detail?.contact?.name ?? 'Guest';
     const guestPhone = detail?.traveler?.phoneNumber ?? detail?.contact?.phone;
     // Neither traveler nor host carries a profileImage on this endpoint
-    // (unlike property bookings) — always fall back to a generated avatar.
-    const guestAvatar = `https://i.pravatar.cc/150?u=${detail?.traveler?._id ?? detail?._id ?? selectedExperienceBookingId}`;
+    // (unlike property bookings) — GuestAvatar shows a person icon instead.
+    const guestAvatar = (detail?.traveler as { profileImage?: string } | undefined)?.profileImage ?? '';
     // Derived from the real /enums/experience-booking-statuses vocabulary
     // rather than hardcoded 'completed'/'cancelled' strings — a hardcoded
     // guess is exactly what caused Mark-as-Completed to stay hidden before.
@@ -648,7 +649,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/5 rounded-full blur-2xl" />
               <div className="relative z-10 flex items-center gap-6 w-full">
                 <div className="w-24 h-24 rounded-[32px] overflow-hidden border-2 border-white/10 shrink-0">
-                  <img src={guestAvatar} className="w-full h-full object-cover" alt="Guest" />
+                  <GuestAvatar url={guestAvatar} name={guestName} className="w-full h-full" fallbackClassName="bg-white/10 text-white/60" iconSize={40} />
                 </div>
                 <div className="space-y-1">
                   <h2 className="text-3xl font-black italic text-white uppercase leading-[0.9] tracking-tighter">
@@ -984,7 +985,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               <div className="relative z-10 flex flex-col items-center">
                 <div className="flex items-center gap-6 w-full mb-8">
                   <div className="w-24 h-24 rounded-[32px] overflow-hidden border-2 border-white/10 shrink-0">
-                    <img src={toDetailAvatar(bookingDetail)} className="w-full h-full object-cover" alt="Guest" />
+                    <GuestAvatar url={toDetailAvatar(bookingDetail)} name={bookingDetail.traveler?.name} className="w-full h-full" fallbackClassName="bg-white/10 text-white/60" iconSize={40} />
                   </div>
                   <div className="space-y-1">
                     <h2 className="text-3xl font-black italic text-white uppercase leading-[0.9] tracking-tighter">
@@ -1206,7 +1207,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                   <tr key={booking.id} className="hover:bg-surface transition-colors cursor-pointer group" onClick={() => setSelectedBookingId(booking.id)}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <img src={booking.guestAvatar} className="w-9 h-9 rounded-full object-cover" />
+                        <GuestAvatar url={booking.guestAvatar} name={booking.guestName} />
                         <div>
                           <div className="text-sm font-bold">{booking.guestName}</div>
                           <div className="text-[10px] text-muted-text font-medium uppercase tracking-tight">Verified</div>
@@ -1303,10 +1304,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <img
-                              src={`https://i.pravatar.cc/150?u=${booking.traveler?._id ?? booking._id}`}
-                              className="w-9 h-9 rounded-full object-cover"
-                            />
+                            <GuestAvatar name={booking.traveler?.name ?? booking.contact?.name} />
                             <div>
                               <div className="text-sm font-bold">{booking.traveler?.name ?? booking.contact?.name ?? 'Guest'}</div>
                               <div className="text-[10px] text-muted-text font-medium uppercase tracking-tight">Verified</div>

@@ -7,6 +7,9 @@ export interface ExperienceRow extends ActivityExperience {
   propertyName: string;
   propertyCity: string;
   propertyImage: string;
+  // Raw pricing inputs for booking totals (duration above is display text).
+  currency: string;
+  durationHours: number;
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80';
@@ -113,6 +116,8 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     // Backend stores duration in numeric hours — formatted here for the
     // display-oriented ActivityExperience view-model.
     duration: formatDuration(toNumber(item.duration)),
+    durationHours: toNumber(item.duration),
+    currency: toText(item.currency) || 'AED',
     minGuests: toNumber(item.minGuests, 1),
     maxGuests: toNumber(item.maxGuests, 1),
     // No separate status enum is confirmed on the wire — only `isActive`
