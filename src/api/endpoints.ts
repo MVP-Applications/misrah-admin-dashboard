@@ -12,11 +12,17 @@ export const API_ENDPOINTS = {
   hostingGuide: {
     active: '/hosting-guide/active',
   },
+  // Strategic Intel Center channels — GET (host view) / POST { channels } (admin only).
+  hostSupport: {
+    channels: '/host/support',
+  },
   // Current user's profile — GET (read) / PATCH (name, email, phoneNumber, profileImage).
   profile: {
     me: '/consumer/users/profile',
     // PATCH { code } — preferred currency of the logged-in user.
     currency: '/consumer/users/currency',
+    // GET / PATCH { bookingActivity, securityAlerts, payoutProcessing, guestFeedback, ... }
+    notificationSettings: '/consumer/users/notification-settings',
   },
   // GET — available currencies (admin also manages rates via /currencies/{code}).
   currencies: {

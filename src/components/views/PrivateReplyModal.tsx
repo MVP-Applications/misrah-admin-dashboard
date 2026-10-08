@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GuestAvatar } from '../GuestAvatar';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
@@ -194,10 +195,12 @@ export const PrivateReplyModal = ({
           <div className="p-5 rounded-3xl bg-surface/50 border border-border-misrah space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img
-                  src={review.avatar}
-                  alt={review.guest}
-                  className="w-8 h-8 rounded-xl object-cover border border-border-misrah"
+                <GuestAvatar
+                  url={review.avatar}
+                  name={review.guest}
+                  className="w-8 h-8 rounded-xl border border-border-misrah"
+                  fallbackClassName="bg-surface text-muted-text/60"
+                  iconSize={14}
                 />
                 <div>
                   <h4 className="text-xs font-black text-primary uppercase">{review.guest}</h4>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GuestAvatar } from '../GuestAvatar';
 import { formatDistanceToNowStrict, parseISO } from 'date-fns';
 import { Trash2, Undo2, Loader2, TriangleAlert, EyeOff, ThumbsUp, MessageCircle } from 'lucide-react';
 import { Badge } from '../ui/Badge';
@@ -39,11 +40,10 @@ const stars = (rating: unknown) => {
 };
 
 const guestName = (review: AdminReviewListItem) => review.user?.name || review.user?.email || 'Unknown Guest';
-const guestSeed = (review: AdminReviewListItem) => review.user?._id || review._id;
 const propertyTitle = (review: AdminReviewListItem) =>
   review.property?.title || review.experience?.title || 'Unknown Property';
 const guestAvatar = (review: AdminReviewListItem) =>
-  review.user?.profileImage || `https://api.dicebear.com/7.x/initials/svg?seed=${guestSeed(review)}`;
+  review.user?.profileImage || '';
 
 export const ReviewsView = ({ user }: ReviewsViewProps) => {
   const [reviews, setReviews] = useState<AdminReviewListItem[]>([]);
@@ -252,10 +252,12 @@ export const ReviewsView = ({ user }: ReviewsViewProps) => {
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <img
-                              src={guestAvatar(review)}
-                              className="w-12 h-12 rounded-2xl object-cover border-2 border-surface shadow-sm"
-                              alt={guestName(review)}
+                            <GuestAvatar
+                              url={guestAvatar(review)}
+                              name={guestName(review)}
+                              className="w-12 h-12 rounded-2xl border-2 border-surface shadow-sm"
+                              fallbackClassName="bg-surface text-muted-text/60"
+                              iconSize={20}
                             />
                             <div>
                               <h4 className="text-[13px] font-black text-primary uppercase tracking-tight">

@@ -43,11 +43,15 @@ import { User as UserType } from '../../types';
 import {
   deactivateHostProfile,
   getMyProfile,
+  getNotificationSettings,
   listCurrencies,
   setPreferredCurrency,
   updateMyProfile,
+  updateNotificationSettings,
   type CurrencyOption,
   type MyProfile,
+  type NotificationSettingKey,
+  type NotificationSettings,
 } from '../../features/profile/api';
 import { requestPasswordReset, resetPassword } from '../../features/auth/api';
 import { setPreferredCurrencyCode } from '../../api/currency';
@@ -80,6 +84,7 @@ import {
 import { uploadFile } from '../../features/properties/api';
 import { UserRound, Loader2 as ProfileLoader } from 'lucide-react';
 import { AppearanceNodeView } from './Profile/AppearanceNodeView';
+import { SupportChannelsView } from './Profile/SupportChannelsView';
 
 interface SessionItem {
   id: string;
@@ -356,6 +361,46 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     }, 3500);
   };
 
+  // Notification Center — GET on open, PATCH one field per toggle
+  // (optimistic, reverted if the save fails).
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [isLoadingNotificationSettings, setIsLoadingNotificationSettings] = useState(false);
+  const [notificationSettingsError, setNotificationSettingsError] = useState<string | null>(null);
+  const [savingNotificationKey, setSavingNotificationKey] = useState<NotificationSettingKey | null>(null);
+
+  const loadNotificationSettings = async () => {
+    setIsLoadingNotificationSettings(true);
+    setNotificationSettingsError(null);
+    try {
+      setNotificationSettings(await getNotificationSettings());
+    } catch (err) {
+      setNotificationSettingsError(err instanceof Error ? err.message : 'Failed to load notification settings.');
+    } finally {
+      setIsLoadingNotificationSettings(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'notifications') loadNotificationSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const toggleNotificationSetting = async (key: NotificationSettingKey, label: string) => {
+    if (!notificationSettings || savingNotificationKey) return;
+    const next = !notificationSettings[key];
+    setNotificationSettings({ ...notificationSettings, [key]: next });
+    setSavingNotificationKey(key);
+    try {
+      await updateNotificationSettings({ [key]: next });
+      showToast(`${label} ${next ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      setNotificationSettings(prev => (prev ? { ...prev, [key]: !next } : prev));
+      showToast(err instanceof Error ? err.message : 'Failed to update notification settings.', 'info');
+    } finally {
+      setSavingNotificationKey(null);
+    }
+  };
+
   // Authenticator verification submit
   const handleVerifyTotp = (e: React.FormEvent) => {
     e.preventDefault();
@@ -622,54 +667,14 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
   if (activeTab === 'help') {
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <>
         {floatingToast}
-        <header className="flex items-center gap-4">
-          <button 
-            onClick={() => setActiveTab('main')} 
-            className="w-10 h-10 rounded-xl bg-white border border-[#F2E8DF] flex items-center justify-center hover:bg-surface transition-all text-primary cursor-pointer active:scale-95"
-            title="Back to Profile"
-          >
-            <ChevronRight className="rotate-180" size={20} />
-          </button>
-          <h1 className="text-2xl font-black italic text-primary uppercase">Strategic Intel Center</h1>
-        </header>
-
-        <div className="bg-white rounded-[40px] border border-border-misrah p-10 max-w-3xl space-y-6 shadow-sm">
-          <h3 className="text-lg font-black italic text-primary uppercase">Direct Support & Intel Uplink</h3>
-          <p className="text-xs text-muted-text leading-relaxed">
-            Priority concierge and technical protocol assistance for verified luxury hosts and administrators.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-            <div className="p-6 rounded-3xl bg-surface/60 border border-border-misrah space-y-3">
-              <h4 className="text-xs font-black text-primary uppercase">Executive WhatsApp Concierge</h4>
-              <p className="text-[10px] text-muted-text">+971 4 800 MISRAH (Verified VIP Hotline)</p>
-              <a 
-                href="https://wa.me/9714800647724"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => showToast('Opening WhatsApp Concierge (+971 4 800 MISRAH)...')}
-                className="text-[9px] font-black uppercase text-accent tracking-wider hover:underline cursor-pointer inline-flex items-center gap-1"
-              >
-                <span>Connect Hotline →</span>
-              </a>
-            </div>
-            <div className="p-6 rounded-3xl bg-surface/60 border border-border-misrah space-y-3">
-              <h4 className="text-xs font-black text-primary uppercase">Operations Telegram Channel</h4>
-              <p className="text-[10px] text-muted-text">@MisrahEliteConcierge (Encrypted Relay)</p>
-              <a 
-                href="https://t.me/MisrahEliteConcierge"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => showToast('Opening Telegram Relay (@MisrahEliteConcierge)...')}
-                className="text-[9px] font-black uppercase text-accent tracking-wider hover:underline cursor-pointer inline-flex items-center gap-1"
-              >
-                <span>Open Telegram Relay →</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
+        <SupportChannelsView
+          isAdmin={user.role === 'admin'}
+          onBack={() => setActiveTab('main')}
+          showToast={showToast}
+        />
+      </>
     );
   }
 
@@ -1652,14 +1657,33 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
           </button>
           <h1 className="text-2xl font-black italic text-primary uppercase">Notification Center</h1>
         </header>
+        {floatingToast}
 
         <div className="max-w-3xl space-y-6">
-           {[
-             { id: 'bookings', label: 'Booking Activity', desc: 'Alert me instantly when a guest makes a reservation node.', icon: Calendar, active: true },
-             { id: 'security', label: 'Security Alerts', desc: 'Critical unauthorized access or password synchronization attempts.', icon: Shield, active: true },
-             { id: 'payouts', label: 'Payout Processing', desc: 'Verification updates when funds leave the Misrah treasury.', icon: CreditCard, active: false },
-             { id: 'reviews', label: 'Guest Feedback', desc: 'Real-time alerts for incoming sentiment and reviews.', icon: MapPin, active: true },
-           ].map(n => (
+           {isLoadingNotificationSettings && !notificationSettings && (
+             <div className="bg-white rounded-[40px] border border-border-misrah p-10 flex items-center justify-center gap-3 text-muted-text">
+               <ProfileLoader size={18} className="animate-spin" />
+               <span className="text-[10px] font-black uppercase tracking-widest">Loading settings...</span>
+             </div>
+           )}
+           {notificationSettingsError && !notificationSettings && (
+             <div className="bg-white rounded-[40px] border border-danger/20 p-8 flex items-center justify-between gap-4">
+               <p className="text-xs font-bold text-danger">{notificationSettingsError}</p>
+               <button
+                 type="button"
+                 onClick={loadNotificationSettings}
+                 className="px-5 py-2.5 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider shrink-0"
+               >
+                 Retry
+               </button>
+             </div>
+           )}
+           {notificationSettings && ([
+             { id: 'bookingActivity', label: 'Booking Activity', desc: 'Alert me instantly when a guest makes a reservation node.', icon: Calendar },
+             { id: 'securityAlerts', label: 'Security Alerts', desc: 'Critical unauthorized access or password synchronization attempts.', icon: Shield },
+             { id: 'payoutProcessing', label: 'Payout Processing', desc: 'Verification updates when funds leave the Misrah treasury.', icon: CreditCard },
+             { id: 'guestFeedback', label: 'Guest Feedback', desc: 'Real-time alerts for incoming sentiment and reviews.', icon: MapPin },
+           ] as { id: NotificationSettingKey; label: string; desc: string; icon: typeof Calendar }[]).map(n => ({ ...n, active: notificationSettings[n.id] })).map(n => (
              <div key={n.id} className="bg-white rounded-[40px] border border-border-misrah p-8 py-10 flex items-center justify-between shadow-sm hover:shadow-luxury transition-all">
                 <div className="flex items-center gap-6">
                    <div className="w-14 h-14 rounded-[24px] bg-primary/5 text-primary flex items-center justify-center shrink-0 border border-primary/10">
@@ -1671,8 +1695,14 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                    </div>
                 </div>
                 <button 
-                  className={`w-14 h-7 rounded-full relative transition-all duration-300 shadow-inner
-                    ${n.active ? 'bg-success' : 'bg-border-misrah'}`}
+                  type="button"
+                  role="switch"
+                  aria-checked={n.active}
+                  aria-label={n.label}
+                  onClick={() => toggleNotificationSetting(n.id, n.label)}
+                  disabled={savingNotificationKey !== null}
+                  className={`w-14 h-7 rounded-full relative transition-all duration-300 shadow-inner shrink-0 disabled:cursor-wait
+                    ${n.active ? 'bg-success' : 'bg-border-misrah'} ${savingNotificationKey === n.id ? 'opacity-60' : ''}`}
                 >
                   <div className={`absolute top-1.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${n.active ? 'left-8' : 'left-2'}`} />
                 </button>
@@ -1870,16 +1900,22 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
              <h3 className="text-2xl font-black italic text-white uppercase tracking-tight">{displayName}</h3>
              <p className="text-[10px] font-black text-accent uppercase tracking-[3px] mt-1 opacity-80">Verified Elite {user.role.toUpperCase()}</p>
              
+             {user.role !== 'admin' && (
              <div className="grid grid-cols-2 gap-4 w-full mt-8 pt-8 border-t border-white/5">
                 <div>
                    <p className="text-[9px] font-black text-white/30 uppercase tracking-[2px] mb-1">Portfolio</p>
-                   <p className="text-xl font-black italic text-white">12 Nodes</p>
+                   <p className="text-xl font-black italic text-white">
+                     {isProfileLoading ? '…' : profile?.portfolio != null ? `${profile.portfolio} ${profile.portfolio === 1 ? 'Node' : 'Nodes'}` : '—'}
+                   </p>
                 </div>
                 <div>
                    <p className="text-[9px] font-black text-white/30 uppercase tracking-[2px] mb-1">Quality</p>
-                   <p className="text-xl font-black italic text-success">4.92 ★</p>
+                   <p className="text-xl font-black italic text-success">
+                     {isProfileLoading ? '…' : profile?.avgRating != null && profile.avgRating > 0 ? `${profile.avgRating.toFixed(2)} ★` : '—'}
+                   </p>
                 </div>
              </div>
+             )}
           </div>
 
           <button 

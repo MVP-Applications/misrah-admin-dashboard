@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GuestAvatar } from './components/GuestAvatar';
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -220,7 +221,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
             className="group relative flex items-center gap-4 p-3 rounded-2xl border border-white/5 hover:bg-white/5 hover:border-white/10 transition-all cursor-pointer"
           >
             <div className="relative">
-              <img className="w-10 h-10 rounded-xl border border-white/10 object-cover shadow-2xl" src={user.avatar} alt="User" />
+              <GuestAvatar url={user.avatar} name={user.name} className="w-10 h-10 rounded-xl border border-white/10 shadow-2xl" fallbackClassName="bg-white/5 text-white/50" iconSize={18} />
               <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-accent rounded-full border-2 border-[#1A1A2E] shadow-sm transform group-hover:scale-110 transition-transform" />
             </div>
 
@@ -411,7 +412,7 @@ function toLegacyUser(admin: AdminUser, portalRole: UserRole): UserType {
     name: admin.email.split('@')[0],
     email: admin.email,
     role: portalRole,
-    avatar: `https://i.pravatar.cc/150?u=${admin.id}`,
+    avatar: '',
   };
 }
 
