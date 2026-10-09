@@ -30,7 +30,8 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     hostName: doc.owner?.name,
     description: doc.description,
     isFeatured: false,
-    status: STATUS_TO_VIEW_MODEL[doc.status],
+    // Case-insensitive — tolerate PENDING/APPROVED/REJECTED as well.
+    status: STATUS_TO_VIEW_MODEL[String(doc.status ?? '').toLowerCase() as ApiPropertyListItem['status']],
     rejectionReason: doc.rejectionReason,
   };
 }

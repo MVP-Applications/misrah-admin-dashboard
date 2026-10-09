@@ -41,7 +41,6 @@ import {
 import { Badge } from '../ui/Badge';
 import { User as UserType } from '../../types';
 import {
-  deactivateHostProfile,
   getMyProfile,
   getNotificationSettings,
   listCurrencies,
@@ -85,15 +84,28 @@ import { uploadFile } from '../../features/properties/api';
 import { UserRound, Loader2 as ProfileLoader } from 'lucide-react';
 import { AppearanceNodeView } from './Profile/AppearanceNodeView';
 import { SupportChannelsView } from './Profile/SupportChannelsView';
+import { LegalFrameworkView } from './Profile/LegalFrameworkView';
+import { listSessions, logoutAllSessions, revokeSession, type AuthSession } from '../../features/auth/sessions';
 
-interface SessionItem {
-  id: string;
-  device: string;
-  loc: string;
-  status: string;
-  iconType: 'globe' | 'app';
-  isCurrent?: boolean;
-}
+// Display helpers for an authenticated session row.
+const sessionDeviceLabel = (s: AuthSession) =>
+  s.deviceName || [s.browser, s.os].filter(Boolean).join(' on ') || 'Unknown device';
+
+const sessionDetail = (s: AuthSession) =>
+  [s.browser && s.deviceName ? `${s.browser}${s.os ? ` · ${s.os}` : ''}` : null, s.location || s.ipAddress]
+    .filter(Boolean)
+    .join(' · ');
+
+const sessionActivity = (s: AuthSession) => {
+  if (s.isCurrent) return 'This device';
+  const at = s.lastActiveAt ? new Date(s.lastActiveAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return s.status ?? 'Active';
+  const mins = Math.round((Date.now() - at.getTime()) / 60000);
+  if (mins < 2) return 'Active now';
+  if (mins < 60) return `Active ${mins}m ago`;
+  if (mins < 60 * 24) return `Active ${Math.round(mins / 60)}h ago`;
+  return `Last active ${at.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+};
 
 // Hosting guide icons: API iconName ("star", "book-open", ...) → lucide icon.
 const GUIDE_COLORS = [
@@ -299,12 +311,12 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   // Notification banner
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
-  // Authenticated Sessions State
-  const [sessions, setSessions] = useState<SessionItem[]>([
-    { id: '1', device: 'MacBook Pro 16"', loc: 'Dubai, UAE', status: 'Active Node', iconType: 'globe', isCurrent: true },
-    { id: '2', device: 'iPhone 15 Pro', loc: 'Abu Dhabi, UAE', status: 'Last sync 2h ago', iconType: 'app' },
-    { id: '3', device: 'Chrome on Windows', loc: 'Sharjah, UAE', status: 'Jan 12 · 08:32', iconType: 'globe' },
-  ]);
+  // Authenticated Sessions — GET/DELETE …/auth/sessions (admin or host routes).
+  const [sessions, setSessions] = useState<AuthSession[]>([]);
+  const [activeFleetCount, setActiveFleetCount] = useState(0);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
 
   // Logout All confirmation modal
   const [isLogoutAllModalOpen, setIsLogoutAllModalOpen] = useState(false);
@@ -431,31 +443,63 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     { id: 'terms', label: 'Legal Framework', icon: FileText, desc: 'Protocols & service agreements', color: 'bg-muted-text/10 text-muted-text' },
   ];
 
-  // Remove individual session
-  const handleRemoveSession = (id: string, deviceName: string) => {
-    setSessions(prev => prev.filter(s => s.id !== id));
-    showToast(`Session for ${deviceName} revoked.`);
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const res = await listSessions(user.role);
+      setSessions(res.sessions);
+      setActiveFleetCount(res.activeFleetCount);
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : 'Failed to load sessions.');
+    } finally {
+      setSessionsLoading(false);
+    }
   };
 
-  // Logout All — host: DELETE /consumer/users/profile?actionType=host
-  // (deactivates the host profile), then sign out. Admin: plain sign-out.
+  useEffect(() => {
+    if (activeTab === 'security') loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, user.role]);
+
+  // Revoke one session. Revoking this device's own session signs out here too.
+  const handleRemoveSession = async (session: AuthSession) => {
+    if (revokingSessionId) return;
+    if (session.isCurrent && !window.confirm('This is the device you are using now. Revoking it will sign you out. Continue?')) return;
+    setRevokingSessionId(session.id);
+    try {
+      await revokeSession(session.id, user.role);
+      if (session.isCurrent) {
+        onLogout?.();
+        return;
+      }
+      setSessions(prev => prev.filter(s => s.id !== session.id));
+      setActiveFleetCount(c => Math.max(0, c - 1));
+      showToast(`Session for ${sessionDeviceLabel(session)} revoked.`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to revoke the session.', 'info');
+    } finally {
+      setRevokingSessionId(null);
+    }
+  };
+
+  // Logout All — POST …/auth/sessions/logout-all revokes every session
+  // (including this one), then sign out locally.
   const [logoutAllError, setLogoutAllError] = useState<string | null>(null);
-  const isHostAccount = user.role === 'manager';
 
   const handleConfirmLogoutAll = async () => {
     setIsLoggingOut(true);
     setLogoutAllError(null);
-    if (isHostAccount) {
-      try {
-        await deactivateHostProfile();
-      } catch (err) {
-        setLogoutAllError(err instanceof Error ? err.message : 'Failed to deactivate the host profile.');
-        setIsLoggingOut(false);
-        return;
-      }
+    try {
+      await logoutAllSessions(user.role);
+    } catch (err) {
+      setLogoutAllError(err instanceof Error ? err.message : 'Failed to log out of all sessions.');
+      setIsLoggingOut(false);
+      return;
     }
-    showToast(isHostAccount ? 'Host profile deactivated — signing out…' : 'Signing out…');
+    showToast('All sessions revoked — signing out…');
     setSessions([]);
+    setActiveFleetCount(0);
     setIsLoggingOut(false);
     setIsLogoutAllModalOpen(false);
     onLogout?.();
@@ -956,14 +1000,29 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                </div>
 
                {/* Sessions List */}
-               {sessions.length === 0 ? (
+               {sessionsLoading && sessions.length === 0 ? (
+                 <div className="p-8 flex items-center justify-center gap-2 text-muted-text text-[10px] font-black uppercase tracking-widest">
+                   <RefreshCw size={14} className="animate-spin" /> Loading sessions…
+                 </div>
+               ) : sessionsError && sessions.length === 0 ? (
+                 <div className="p-6 rounded-3xl border border-danger/20 bg-danger/5 flex items-center justify-between gap-4">
+                   <p className="text-[11px] font-bold text-danger">{sessionsError}</p>
+                   <button
+                     type="button"
+                     onClick={loadSessions}
+                     className="px-4 py-2 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider shrink-0"
+                   >
+                     Retry
+                   </button>
+                 </div>
+               ) : sessions.length === 0 ? (
                  <div className="p-8 text-center rounded-3xl border border-dashed border-border-misrah bg-surface/30 space-y-3">
                    <div className="w-10 h-10 rounded-xl bg-danger/10 text-danger flex items-center justify-center mx-auto">
                      <LogOut size={16} />
                    </div>
-                   <p className="text-xs font-black uppercase text-primary">All Sessions Logged Out</p>
+                   <p className="text-xs font-black uppercase text-primary">No Active Sessions</p>
                    <p className="text-[10px] text-muted-text leading-relaxed">
-                     Every device connection has been terminated.
+                     No other device is signed in to this account.
                    </p>
                    {onLogout && (
                      <button
@@ -978,30 +1037,38 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                ) : (
                  <div className="space-y-3">
                    {sessions.map((s) => {
-                     const Icon = s.iconType === 'globe' ? Globe : AppWindow;
+                     const Icon = s.deviceType === 'mobile' || s.deviceType === 'tablet' ? Smartphone : Globe;
+                     const label = sessionDeviceLabel(s);
+                     const detail = sessionDetail(s);
+                     const activity = sessionActivity(s);
                      return (
                        <div 
                          key={s.id} 
-                         className="flex items-center justify-between p-5 rounded-2xl hover:bg-surface transition-all group"
+                         className={`flex items-center justify-between p-5 rounded-2xl hover:bg-surface transition-all group ${s.isCurrent ? 'bg-success/5 border border-success/15' : ''}`}
                        >
-                         <div className="flex items-center gap-4">
-                           <div className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary/40 group-hover:border-accent transition-colors">
+                         <div className="flex items-center gap-4 min-w-0">
+                           <div className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary/40 group-hover:border-accent transition-colors shrink-0">
                              <Icon size={16} />
                            </div>
-                           <div>
-                             <p className="text-[11px] font-black italic text-primary uppercase">{s.device}</p>
-                             <p className="text-[9px] font-bold text-muted-text uppercase mt-0.5">
-                               {s.loc} · <span className={s.status.includes('Active') ? 'text-success font-black' : ''}>{s.status}</span>
+                           <div className="min-w-0">
+                             <p className="text-[11px] font-black italic text-primary uppercase truncate">
+                               {label}
+                               {s.isCurrent && <span className="ml-2 not-italic text-[8px] px-2 py-0.5 rounded-full bg-success/15 text-success tracking-widest align-middle">Current</span>}
+                             </p>
+                             <p className="text-[9px] font-bold text-muted-text uppercase mt-0.5 truncate">
+                               {detail && <>{detail} · </>}
+                               <span className={s.isCurrent || activity === 'Active now' ? 'text-success font-black' : ''}>{activity}</span>
                              </p>
                            </div>
                          </div>
                          <button 
                            type="button"
-                           onClick={() => handleRemoveSession(s.id, s.device)}
-                           title={`Terminate ${s.device}`}
-                           className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-text hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                           onClick={() => handleRemoveSession(s)}
+                           disabled={revokingSessionId !== null}
+                           title={s.isCurrent ? 'Sign out of this device' : `Terminate ${label}`}
+                           className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-text hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-wait"
                          >
-                           <X size={14} />
+                           {revokingSessionId === s.id ? <RefreshCw size={14} className="animate-spin" /> : <X size={14} />}
                          </button>
                        </div>
                      );
@@ -1012,7 +1079,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
              <div className="pt-4 border-t border-border-misrah/60 flex items-center justify-between text-[10px] text-muted-text font-bold">
                <span className="uppercase tracking-wider">Active Fleet Count</span>
-               <span className="font-mono text-primary">{sessions.length} Device{sessions.length === 1 ? '' : 's'}</span>
+               <span className="font-mono text-primary">{activeFleetCount} Device{activeFleetCount === 1 ? '' : 's'}</span>
              </div>
            </div>
         </div>
@@ -1153,17 +1220,9 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
                 <div className="p-4 bg-danger/5 rounded-2xl border border-danger/15 flex items-start gap-3">
                   <AlertCircle size={18} className="text-danger shrink-0 mt-0.5" />
-                  {isHostAccount ? (
-                    <p className="text-xs text-primary font-medium leading-relaxed">
-                      This will <strong>deactivate your host profile</strong> and sign you out of all sessions.
-                      Your listings and experiences won’t be available to guests while the host profile is inactive.
-                      Your traveller account is not deleted.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-primary font-medium leading-relaxed">
-                      Are you sure you want to <strong>log out of all {sessions.length} sessions</strong>? This will revoke access from all devices and return you to the login screen.
-                    </p>
-                  )}
+                  <p className="text-xs text-primary font-medium leading-relaxed">
+                    Are you sure you want to <strong>log out of all {activeFleetCount} session{activeFleetCount === 1 ? '' : 's'}</strong>? This will revoke access from every device, including this one, and return you to the login screen.
+                  </p>
                 </div>
 
                 {logoutAllError && (
@@ -1188,12 +1247,12 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                     {isLoggingOut ? (
                       <>
                         <RefreshCw size={13} className="animate-spin" />
-                        <span>{isHostAccount ? 'Deactivating...' : 'Logging Out...'}</span>
+                        <span>Logging Out...</span>
                       </>
                     ) : (
                       <>
                         <LogOut size={13} />
-                        <span>{isHostAccount ? 'Deactivate & Logout' : 'Yes, Logout For All'}</span>
+                        <span>Yes, Logout For All</span>
                       </>
                     )}
                   </button>
@@ -1715,39 +1774,14 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
   if (activeTab === 'terms') {
     return (
-       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <header className="flex items-center gap-4">
-          <button onClick={() => setActiveTab('main')} className="w-10 h-10 rounded-xl bg-white border border-[#F2E8DF] flex items-center justify-center hover:bg-surface transition-all text-primary">
-            <ChevronRight className="rotate-180" size={20} />
-          </button>
-          <h1 className="text-2xl font-black italic text-primary uppercase">Legal Framework</h1>
-        </header>
-
-        <div className="bg-white rounded-[40px] border border-border-misrah p-12 shadow-sm space-y-10 max-w-4xl">
-           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-border-misrah pb-10">
-              <div>
-                <p className="text-[10px] font-black text-accent uppercase tracking-[4px] italic">Protocol v2.4</p>
-                <h3 className="text-4xl font-black italic text-primary uppercase tracking-tighter leading-none mt-2">Terms of Strategic Partnership</h3>
-              </div>
-              <button className="bg-primary text-accent px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all">Download PDF</button>
-           </div>
-
-           <div className="space-y-8 text-primary overflow-y-auto max-h-[500px] scrollbar-hide pr-4">
-              {[
-                { title: '1. Hospitality Standards', content: 'Hosts are expected to maintain the highest standard of luxury hospitality as defined by the Misrah Elite criteria. This includes property maintenance, cleanliness, and guest interaction nodes.' },
-                { title: '2. Payout Protocols', content: 'Misrah processes payouts following a 24-hour verification window after guest check-in. All settlements are executed in UAE Dirhams (AED) via verified banking nodes.' },
-                { title: '3. Strategic Compliance', content: 'All properties registered on the Misrah network must be fully compliant with local Department of Tourism and Department of Economic Development regulations.' },
-                { title: '4. Integrity of Data', content: 'Protocol integrity is maintained through end-to-end encryption. Any attempt to bypass the automated booking system will result in instant node de-synchronization (suspension).' },
-                { title: '5. Guest Sentiment Rights', content: 'Guest reviews represent verified platform history and can only be modified through strategic arbitration in cases of factual error or violation of the community safety framework.' },
-              ].map((section, idx) => (
-                <section key={idx} className="space-y-3">
-                   <h4 className="text-sm font-black italic uppercase tracking-[1px]">{section.title}</h4>
-                   <p className="text-xs font-medium text-muted-text/80 leading-relaxed text-justify">{section.content}</p>
-                </section>
-              ))}
-           </div>
-        </div>
-       </div>
+      <>
+        {floatingToast}
+        <LegalFrameworkView
+          isAdmin={user.role === 'admin'}
+          onBack={() => setActiveTab('main')}
+          showToast={showToast}
+        />
+      </>
     );
   }
 

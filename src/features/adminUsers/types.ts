@@ -24,6 +24,8 @@ export interface ListUsersParams {
   limit?: number;
   search?: string;
   userType?: 'consumer' | 'admin';
+  // true → host-eligible users only (Elite Hosts), false → non-hosts.
+  canHost?: boolean;
 }
 
 export interface ListUsersResponse {

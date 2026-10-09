@@ -68,6 +68,15 @@ export async function createAdminProperty(payload: CreatePropertyRequest): Promi
   return assertResponseShape('create property', data.data, ['_id', 'title', 'status']);
 }
 
+// POST /property — Host Hub create (CreatePropertyDto). Same fields as the
+// admin create minus the owner/onboarding ones; the backend makes the
+// logged-in host the owner. Response body isn't relied on — callers refetch.
+export async function createMyProperty(payload: CreatePropertyRequest): Promise<void> {
+  const { userId, email, phoneNumber, name, nationalId, residentialAddress, password, ...listing } = payload;
+  void userId; void email; void phoneNumber; void name; void nationalId; void residentialAddress; void password;
+  await apiClient.post(API_ENDPOINTS.properties.create, listing);
+}
+
 // PATCH /admin/properties/{id} — added to the backend by this project, requires
 // deploy to misra-test before this will work. Also used for the active/inactive
 // toggle (body { isActive }) — deliberately NOT the ownership-checked
@@ -160,5 +169,5 @@ export async function listActiveCities(): Promise<CityListItem[]> {
         'This is a known integration gap — see the browser console and API_INTEGRATION.md.',
     );
   }
-  return payload.data;
+  return payload.data.filter(c => c.isActive !== false);
 }

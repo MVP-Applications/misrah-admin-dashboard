@@ -88,7 +88,8 @@ export const EliteNodesModule = () => {
         // Best-effort enrichment only — if the public endpoint hiccups, we
         // still have admin/users as ground truth for name/isActive.
         listHomePageListingsForTraveller().catch(() => []),
-        listUsers({ userType: 'consumer', limit: 200 }),
+        // GET /admin/users?canHost=true — host-eligible users only.
+        listUsers({ canHost: true, limit: 200 }),
       ]);
 
       const travellerSection = travellerListings.find((l) => l._id === hostSection._id);
@@ -110,7 +111,9 @@ export const EliteNodesModule = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Suspend (asks first) an active host, or re-activate a suspended one.
   const handleToggleActive = async (host: EnrichedHost) => {
+    if (host.isActive && !window.confirm(`Suspend ${host.name}? They will lose access to their host account.`)) return;
     setMutatingId(host._id);
     setActionError(null);
     try {
@@ -118,7 +121,7 @@ export const EliteNodesModule = () => {
       setHosts((prev) => prev.map((h) => (h._id === host._id ? { ...h, isActive: updated.isActive } : h)));
       setAllUsers((prev) => prev.map((u) => (u._id === host._id ? { ...u, isActive: updated.isActive } : u)));
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to update host status.');
+      setActionError(err instanceof Error ? err.message : host.isActive ? 'Failed to suspend host.' : 'Failed to activate host.');
     } finally {
       setMutatingId(null);
     }
@@ -260,18 +263,18 @@ export const EliteNodesModule = () => {
                           onClick={() => handleToggleActive(host)}
                           disabled={mutatingId === host._id}
                           className={`flex-1 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50
-                            ${!host.isActive
-                              ? 'bg-success text-white hover:opacity-90'
-                              : 'bg-danger/5 text-danger border border-danger/10 hover:bg-danger hover:text-white'}`}
+                            ${host.isActive
+                              ? 'bg-danger/5 text-danger border border-danger/10 hover:bg-danger hover:text-white'
+                              : 'bg-success text-white hover:opacity-90'}`}
                         >
-                          {mutatingId === host._id ? <Loader2 size={12} className="animate-spin" /> : !host.isActive ? 'Activate' : 'Suspend'}
+                          {host.isActive ? 'Suspend' : 'Activate'}
                         </button>
                         <button
                           onClick={() => handleToggleSuperHost(host)}
                           disabled={mutatingId === host._id}
-                          className="flex-1 px-6 py-4 bg-surface hover:bg-primary border border-transparent hover:border-primary text-muted-text hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all shadow-sm disabled:opacity-50"
+                          className="flex-1 px-6 py-4 bg-surface hover:bg-primary border border-transparent hover:border-primary text-muted-text hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
                         >
-                          {host.isSuperHost ? 'Unmark Super' : 'Mark Super'}
+                          {mutatingId === host._id ? <Loader2 size={12} className="animate-spin" /> : host.isSuperHost ? 'Unmark Super' : 'Mark Super'}
                         </button>
                       </div>
                     </div>

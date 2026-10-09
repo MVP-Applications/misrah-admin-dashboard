@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, Plus, Minus, Loader2, TriangleAlert } from 'lucide-react';
 import { addHostsToListing, removeHostsFromListing } from '../../../features/homePageListings/api';
+import { listUsers } from '../../../features/adminUsers/api';
 import type { AdminHomePageListing } from '../../../features/homePageListings/types';
 import type { AdminUserRecord } from '../../../features/adminUsers/types';
 
 interface ManageEliteHostsModalProps {
   section: AdminHomePageListing;
-  // Reuses the same fetch EliteNodesModule already did — avoids a duplicate
-  // GET /admin/users call just to open this modal. Same FETCH_LIMIT
-  // simplification as ManageCategoryPropertiesModal: won't surface every
-  // host-eligible user on a very large user base.
+  // Hosts EliteNodesModule already loaded (GET /admin/users?canHost=true) —
+  // used to show names for current members. "Add Hosts" searches the API.
   allUsers: AdminUserRecord[];
   onClose: () => void;
   onUpdated: (updated: AdminHomePageListing) => void;
@@ -22,16 +21,43 @@ export const ManageEliteHostsModal = ({ section, allUsers, onClose, onUpdated }:
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [mutateError, setMutateError] = useState<string | null>(null);
 
-  const assignedUsers = allUsers.filter((u) => currentSection.hostIds.includes(u._id));
-  const searchTerm = search.trim().toLowerCase();
-  // Only host-eligible users (canHost or already in HOST mode) are offered —
-  // matches this section's own catalogueType semantics.
-  const candidateUsers = allUsers.filter(
-    (u) =>
-      !currentSection.hostIds.includes(u._id) &&
-      (u.canHost || u.mode === 'HOST') &&
-      (searchTerm === '' || u.name?.toLowerCase().includes(searchTerm) || u.email?.toLowerCase().includes(searchTerm)),
-  );
+  // "Add Hosts" — GET /admin/users?canHost=true&search=… (debounced).
+  const [results, setResults] = useState<AdminUserRecord[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const term = search.trim();
+    let cancelled = false;
+    setSearching(true);
+    setSearchError(null);
+    const handle = setTimeout(() => {
+      listUsers({ canHost: true, limit: 20, ...(term ? { search: term } : {}) })
+        .then((res) => { if (!cancelled) setResults(res.data); })
+        .catch((err) => {
+          if (cancelled) return;
+          setResults([]);
+          setSearchError((err as { message?: string })?.message || 'Failed to search hosts.');
+        })
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, term ? 300 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [search]);
+
+  // Every user we know about, so a host added from search keeps its name.
+  const knownUsers = useMemo(() => {
+    const map = new Map(allUsers.map((u) => [u._id, u]));
+    results.forEach((u) => map.set(u._id, u));
+    return map;
+  }, [allUsers, results]);
+
+  const assignedUsers = currentSection.hostIds
+    .map((id) => knownUsers.get(id))
+    .filter((u): u is AdminUserRecord => Boolean(u));
+  const candidateUsers = results.filter((u) => !currentSection.hostIds.includes(u._id));
 
   const handleAdd = async (userId: string) => {
     setMutatingId(userId);
@@ -117,8 +143,16 @@ export const ManageEliteHostsModal = ({ section, allUsers, onClose, onUpdated }:
                 />
               </div>
               <div className="space-y-2 max-h-56 overflow-y-auto">
-                {candidateUsers.length === 0 ? (
-                  <p className="text-[10px] font-bold text-muted-text/50 uppercase tracking-widest px-1">No matching hosts</p>
+                {searching ? (
+                  <div className="flex items-center gap-2 text-muted-text text-[10px] font-bold uppercase tracking-widest px-1">
+                    <Loader2 size={12} className="animate-spin" /> {search.trim() ? 'Searching…' : 'Loading hosts…'}
+                  </div>
+                ) : searchError ? (
+                  <p className="text-[10px] font-bold text-danger px-1">{searchError}</p>
+                ) : candidateUsers.length === 0 ? (
+                  <p className="text-[10px] font-bold text-muted-text/50 uppercase tracking-widest px-1">
+                    {search.trim() ? 'No matching hosts' : 'No more hosts to add'}
+                  </p>
                 ) : (
                   candidateUsers.map((u) => (
                     <div key={u._id} className="flex items-center justify-between bg-surface rounded-2xl px-5 py-3">

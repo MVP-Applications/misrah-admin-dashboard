@@ -9,6 +9,20 @@ export const API_ENDPOINTS = {
     adminToggleActive: (id: string) => `/admin/promo-codes/${id}/toggle-active`,
   },
   // Host Hub → Profile → Hosting Guide.
+  // Generic settings documents (e.g. type=legal, key=LEGAL_FRAMEWORK).
+  // GET one is readable by any signed-in user; writes are admin-only.
+  // Settings screen toggles — admin: platform defaults; host: own settings.
+  // Same six boolean fields on both.
+  appSettings: {
+    admin: '/admin/settings', // GET · PATCH
+    hostMe: '/host/settings/me', // GET
+    host: '/host/settings', // PATCH
+  },
+  settings: {
+    all: '/settings', // GET list (?type) · POST upsert · DELETE (?type&key)
+    one: '/settings/one', // GET ?type&key
+    section: '/settings/section', // POST append · PATCH update · DELETE ?key&order&type
+  },
   hostingGuide: {
     active: '/hosting-guide/active',
   },
@@ -49,6 +63,10 @@ export const API_ENDPOINTS = {
       // TODO: not wired up yet — see API_INTEGRATION.md → "Known Gaps".
       forgotPassword: '/admin/auth/forgot-password',
       resetPassword: '/admin/auth/reset-password',
+      // Profile → Security → Authenticated Sessions.
+      sessions: '/admin/auth/sessions',
+      sessionById: (id: string) => `/admin/auth/sessions/${id}`,
+      logoutAllSessions: '/admin/auth/sessions/logout-all',
     },
   },
   // Neither login nor refresh is shared across portals: a Host Hub session
@@ -68,6 +86,10 @@ export const API_ENDPOINTS = {
       // POST { token, newPassword } with that token.
       forgotPassword: '/host/auth/forgot-password',
       resetPassword: '/host/auth/reset-password',
+      // Profile → Security → Authenticated Sessions (host equivalents).
+      sessions: '/host/auth/sessions',
+      sessionById: (id: string) => `/host/auth/sessions/${id}`,
+      logoutAllSessions: '/host/auth/sessions/logout-all',
     },
   },
   // Confirmed live, returns 200 — genuinely shared by both portals (no
@@ -104,6 +126,8 @@ export const API_ENDPOINTS = {
     // Host Hub: properties created by the logged-in user (page/limit). Same
     // item shape as adminAll (ApiPropertyListItem).
     my: '/property/my',
+    // Host Hub: POST — create a listing owned by the logged-in host (CreatePropertyDto).
+    create: '/property',
     // Host Hub: GET one property by ID (PATCH/DELETE also exist in the spec).
     byId: (id: string) => `/property/${id}`,
     adminById: (id: string) => `/admin/properties/${id}`,

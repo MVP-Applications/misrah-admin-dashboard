@@ -6,6 +6,9 @@
 // a second env file or duplicating this logic elsewhere.
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 const apiKey = import.meta.env.VITE_API_KEY;
+// Optional — only the property location map needs it; the map shows a setup
+// message instead of failing when it's missing.
+const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 // Deliberately NOT gated to import.meta.env.DEV: a staging build once shipped with
 // this var unset (a CI workflow that never injected it) and produced a confusing,
@@ -21,6 +24,7 @@ if (!apiKey) {
 export const env = {
   API_BASE_URL: apiBaseUrl ?? '',
   API_KEY: apiKey ?? '',
+  GOOGLE_MAPS_API_KEY: googleMapsApiKey ?? '',
 } as const;
 
 // Runtime check (not a build-time env flag) — deliberately so that dev-only

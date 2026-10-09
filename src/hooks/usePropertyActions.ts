@@ -4,6 +4,7 @@ import {
   approveAdminProperty,
   assignPropertyHost,
   createAdminProperty,
+  createMyProperty,
   deleteAdminProperty,
   rejectAdminProperty,
   updateAdminProperty,
@@ -32,7 +33,7 @@ export const usePropertyActions = (refetch: () => void, options: { isHost?: bool
   });
 
   const addProperty = async (payload: CreatePropertyRequest) => {
-    await createAdminProperty(payload);
+    await (options.isHost ? createMyProperty : createAdminProperty)(payload);
     refetch();
   };
 
