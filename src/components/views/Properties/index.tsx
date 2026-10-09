@@ -133,13 +133,19 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
       .then(res => {
         if (requestId === latestRequestRef.current) setProperties(res.data.map(apiPropertyToViewModel));
       })
+      .catch(err => {
+        console.error('[properties] failed to load listings', err);
+        if (requestId === latestRequestRef.current) setProperties([]);
+      })
       .finally(() => {
         if (requestId === latestRequestRef.current) setLoading(false);
       });
   }, [selectedCityId, user.role]);
 
   useEffect(() => { refetch(); }, [refetch]);
-  useEffect(() => { listActiveCities().then(setCities); }, []);
+  useEffect(() => {
+    listActiveCities().then(setCities).catch(err => console.error('[properties] failed to load cities', err));
+  }, []);
 
   // ?city=<name> (e.g. from the Overview's Geo Hubs) pre-selects that city tab.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -158,7 +164,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
     openRejectModal,
     closeRejectModal,
     confirmRejection
-  } = usePropertyActions(refetch);
+  } = usePropertyActions(refetch, { isHost: user.role !== 'admin' });
 
   const { approvedListings, pendingRequests } = useMemo(() => {
     let approved = properties.filter(p => p.status === 'Approved');
@@ -247,7 +253,9 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
 
       <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 ${loading ? 'hidden' : ''}`}>
         <AnimatePresence mode="popLayout">
-          {(isRequestsView ? pendingRequests : approvedListings).map(property => {
+          {/* Hosts see every listing they own (pending / approved / rejected —
+              each card shows its status); admins split live vs. requests. */}
+          {(user.role !== 'admin' ? properties : isRequestsView ? pendingRequests : approvedListings).map(property => {
             if (property.status === 'Pending' || (!property.status)) {
               return (
                 <motion.div 

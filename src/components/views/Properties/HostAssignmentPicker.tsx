@@ -29,6 +29,10 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
   const [search, setSearch] = useState(initialSearch ?? '');
   const [results, setResults] = useState<AdminUserRecord[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [newOwner, setNewOwner] = useState(
     value?.mode === 'new'
       ? {
@@ -42,21 +46,51 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
       : emptyNewOwner,
   );
 
+  // Existing owners — GET /admin/users?userType=consumer (&search when typed).
+  // Lists the first page as soon as the tab opens; typing filters it.
+  const PAGE_SIZE = 20;
+  const fetchOwners = (term: string, pageNo: number) =>
+    listUsers({ userType: 'consumer', page: pageNo, limit: PAGE_SIZE, ...(term ? { search: term } : {}) });
+
   useEffect(() => {
     if (tab !== 'existing') return;
     const term = search.trim();
-    if (term.length < 2) {
-      setResults([]);
-      return;
-    }
+    let cancelled = false;
     setSearching(true);
+    setSearchError(null);
     const timeout = setTimeout(() => {
-      listUsers({ search: term, userType: 'consumer', limit: 10 })
-        .then((res) => setResults(res.data))
-        .finally(() => setSearching(false));
-    }, 300);
-    return () => clearTimeout(timeout);
+      fetchOwners(term, 1)
+        .then((res) => {
+          if (cancelled) return;
+          setResults(res.data);
+          setPage(1);
+          setTotalPages(res.totalPages || 1);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setResults([]);
+          setSearchError(err instanceof Error ? err.message : 'Failed to load owners.');
+        })
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, term ? 300 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [search, tab]);
+
+  const loadMore = () => {
+    if (loadingMore || page >= totalPages) return;
+    setLoadingMore(true);
+    fetchOwners(search.trim(), page + 1)
+      .then((res) => {
+        setResults((prev) => [...prev, ...res.data.filter((u) => !prev.some((p) => p._id === u._id))]);
+        setPage(page + 1);
+        setTotalPages(res.totalPages || totalPages);
+      })
+      .catch((err) => setSearchError(err instanceof Error ? err.message : 'Failed to load more owners.'))
+      .finally(() => setLoadingMore(false));
+  };
 
   const selectExisting = (u: AdminUserRecord) => {
     onChange({ mode: 'existing', userId: u._id, label: u.name || u.email || u._id });
@@ -132,14 +166,19 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
               <Check size={14} /> Linked: {value.label}
             </div>
           )}
-          <div className="space-y-2 max-h-56 overflow-y-auto">
+          <div className="space-y-2 max-h-72 overflow-y-auto">
             {searching && (
               <div className="flex items-center gap-2 text-muted-text text-[10px] font-bold uppercase tracking-widest px-1">
-                <Loader2 size={12} className="animate-spin" /> Searching…
+                <Loader2 size={12} className="animate-spin" /> {search.trim() ? 'Searching…' : 'Loading owners…'}
               </div>
             )}
-            {!searching && search.trim().length >= 2 && results.length === 0 && (
-              <p className="text-[10px] font-bold text-muted-text/50 uppercase tracking-widest px-1">No matching owners</p>
+            {!searching && searchError && (
+              <p className="text-[10px] font-bold text-danger px-1">{searchError}</p>
+            )}
+            {!searching && !searchError && results.length === 0 && (
+              <p className="text-[10px] font-bold text-muted-text/50 uppercase tracking-widest px-1">
+                {search.trim() ? 'No matching owners' : 'No owners found'}
+              </p>
             )}
             {results.map((u) => (
               <button
@@ -156,6 +195,17 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
                 {value?.mode === 'existing' && value.userId === u._id && <Check size={14} className="text-accent shrink-0" />}
               </button>
             ))}
+            {!searching && page < totalPages && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="w-full py-3 rounded-2xl border border-dashed border-border-misrah text-[10px] font-black uppercase tracking-widest text-muted-text hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loadingMore && <Loader2 size={12} className="animate-spin" />}
+                {loadingMore ? 'Loading…' : 'Load more owners'}
+              </button>
+            )}
           </div>
         </div>
       )}

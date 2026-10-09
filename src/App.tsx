@@ -11,6 +11,7 @@ import {
   Users,
   Star,
   Banknote,
+  HandCoins,
   MessageSquare,
   User,
   Settings,
@@ -63,6 +64,7 @@ import { LoginView } from './components/views/LoginView';
 import { CategoriesModule } from './components/views/Admin/CategoriesModule';
 import { BannersModule } from './components/views/Admin/BannersModule';
 import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
+import { SettlementsModule } from './components/views/Admin/SettlementsModule';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
 
@@ -73,6 +75,7 @@ const PAGE_TITLES: Record<string, TranslationKey> = {
   '/admin/categories': 'page.categories',
   '/admin/banners': 'page.banners',
   '/admin/promo-codes': 'page.promoCodes',
+  '/admin/settlements': 'page.settlements',
   '/admin/hosting': 'page.hosting',
   '/admin/elite-nodes': 'page.eliteNodes',
   '/experiences': 'page.experiences',
@@ -178,6 +181,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 </h4>
                 <SidebarItem icon={Star} label={t('nav.reviews')} active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
                 <SidebarItem icon={Banknote} label={t('nav.earnings')} active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
+                <SidebarItem icon={HandCoins} label={t('nav.settlements')} active={location.pathname === '/admin/settlements'} onClick={() => navigate('/admin/settlements')} />
               </section>
             </>
           ) : (
@@ -467,6 +471,7 @@ function AppRoutes() {
         <Route path="admin/categories" element={<CategoriesModule />} />
         <Route path="admin/banners" element={<BannersModule />} />
         <Route path="admin/promo-codes" element={<PromoCodesModule />} />
+        <Route path="admin/settlements" element={<ErrorBoundary label="Settlements"><SettlementsModule /></ErrorBoundary>} />
         <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
         <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
@@ -476,7 +481,7 @@ function AppRoutes() {
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />
         <Route path="notifications" element={<NotificationsView />} />
-        <Route path="settings" element={<SettingsView />} />
+        <Route path="settings" element={<SettingsView user={currentUser!} />} />
         <Route path="messages" element={<ErrorBoundary label="Messages"><MessagesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>

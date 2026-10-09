@@ -28,6 +28,10 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
     setLoading(true);
     listAdminProperties({ status: filter.toLowerCase() as 'pending' | 'approved' | 'rejected', limit: 100 })
       .then(res => setFilteredProperties(res.data.map(apiPropertyToViewModel)))
+      .catch(err => {
+        console.error('[hosting] failed to load properties', err);
+        setFilteredProperties([]);
+      })
       .finally(() => setLoading(false));
   }, [filter]);
 

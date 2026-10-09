@@ -109,6 +109,10 @@ export interface CreatePropertyRequest {
   cityId?: string;
   address?: string;
   isActive?: boolean;
+  selfCheckInAvailable?: boolean;
+  selfCheckInInstruction?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export type UpdatePropertyRequest = Partial<
@@ -156,8 +160,11 @@ export interface UploadedFileResult {
   size: number;
 }
 
+// GET /city/active/list → { success, message, data: CityListItem[] }
 export interface CityListItem {
   _id: string;
   name: string;
   country?: string;
+  description?: string;
+  isActive?: boolean;
 }
