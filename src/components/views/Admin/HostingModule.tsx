@@ -10,6 +10,7 @@ import { listAdminProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CreatePropertyRequest } from '../../../features/properties/types';
 import { AssetListingsTab } from './AssetListingsTab';
+import { formatMoney } from '../../../utils/money';
 
 interface HostingModuleProps {
   user: User;
@@ -152,7 +153,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
                       </div>
                     </div>
                     <div className="text-right">
-                       <p className="text-[11px] font-black text-primary italic">AED {property.price.toLocaleString()}</p>
+                       <p className="text-[11px] font-black text-primary italic">{formatMoney(property.price, property.currency)}</p>
                        <p className="text-[8px] font-black text-muted-text/40 uppercase tracking-[3px] mt-0.5">Yield</p>
                     </div>
                   </div>

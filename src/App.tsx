@@ -65,6 +65,7 @@ import { CategoriesModule } from './components/views/Admin/CategoriesModule';
 import { BannersModule } from './components/views/Admin/BannersModule';
 import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
 import { SettlementsModule } from './components/views/Admin/SettlementsModule';
+import { HostSettlementsView } from './components/views/HostSettlementsView';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
 
@@ -76,6 +77,7 @@ const PAGE_TITLES: Record<string, TranslationKey> = {
   '/admin/banners': 'page.banners',
   '/admin/promo-codes': 'page.promoCodes',
   '/admin/settlements': 'page.settlements',
+  '/settlements': 'nav.settlements',
   '/admin/hosting': 'page.hosting',
   '/admin/elite-nodes': 'page.eliteNodes',
   '/experiences': 'page.experiences',
@@ -196,6 +198,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                   <SidebarItem icon={Sparkles} label={t('nav.myExperiences')} active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
                 <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
                 <SidebarItem icon={Banknote} label={t('nav.earnings')} active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
+                <SidebarItem icon={HandCoins} label={t('nav.settlements')} active={location.pathname === '/settlements'} onClick={() => navigate('/settlements')} />
               </section>
               <section className="space-y-1">
                 <h4 className="text-[8px] font-black tracking-[4px] text-white/10 uppercase px-4 mb-4 flex items-center gap-2">
@@ -434,10 +437,6 @@ function AppRoutes() {
   // the real /admin/experiences API (see features/experiences/), so this no
   // longer needs a mutator for it.
   const [experienceProperties] = useState<Property[]>(INITIAL_EXPERIENCE_PROPERTIES);
-  const [, setExperienceBookings] = useState<Booking[]>([]);
-  const handleAddExperienceBooking = (booking: Booking) => {
-    setExperienceBookings(prev => [booking, ...prev]);
-  };
 
   if (status === 'bootstrapping') {
     return <BootstrappingScreen />;
@@ -464,19 +463,20 @@ function AppRoutes() {
         }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardView user={currentUser!} />} />
+        <Route path="dashboard" element={<ErrorBoundary label="Overview"><DashboardView user={currentUser!} /></ErrorBoundary>} />
         <Route path="bookings" element={<BookingsView user={currentUser!} />} />
-        <Route path="listings" element={<PropertiesView user={currentUser!} />} />
-        <Route path="listings/:id" element={<PropertyDetailRoute user={currentUser!} />} />
+        <Route path="listings" element={<ErrorBoundary label="Listings"><PropertiesView user={currentUser!} /></ErrorBoundary>} />
+        <Route path="listings/:id" element={<ErrorBoundary label="Property"><PropertyDetailRoute user={currentUser!} /></ErrorBoundary>} />
         <Route path="admin/categories" element={<CategoriesModule />} />
         <Route path="admin/banners" element={<BannersModule />} />
         <Route path="admin/promo-codes" element={<PromoCodesModule />} />
         <Route path="admin/settlements" element={<ErrorBoundary label="Settlements"><SettlementsModule /></ErrorBoundary>} />
-        <Route path="admin/hosting" element={<HostingModule user={currentUser!} />} />
-        <Route path="admin/hosting/:id" element={<PropertyDetailRoute user={currentUser!} />} />
+        <Route path="settlements" element={<ErrorBoundary label="Settlements"><HostSettlementsView /></ErrorBoundary>} />
+        <Route path="admin/hosting" element={<ErrorBoundary label="Hosting"><HostingModule user={currentUser!} /></ErrorBoundary>} />
+        <Route path="admin/hosting/:id" element={<ErrorBoundary label="Property"><PropertyDetailRoute user={currentUser!} /></ErrorBoundary>} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
         <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
-        <Route path="explore-experiences" element={<ExploreExperiencesView onAddBooking={handleAddExperienceBooking} />} />
+        <Route path="explore-experiences" element={<ExploreExperiencesView />} />
         <Route path="reviews" element={<ErrorBoundary label="Reviews"><ReviewsView user={currentUser!} /></ErrorBoundary>} />
         <Route path="earnings" element={<EarningsView user={currentUser!} />} />
         <Route path="profile" element={<ProfileView user={currentUser!} onLogout={handleLogout} />} />

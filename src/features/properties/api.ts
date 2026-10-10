@@ -169,5 +169,16 @@ export async function listActiveCities(): Promise<CityListItem[]> {
         'This is a known integration gap — see the browser console and API_INTEGRATION.md.',
     );
   }
-  return payload.data.filter(c => c.isActive !== false);
+  // Names may come back localized ({ en, ar }) — normalize to plain text.
+  const text = (v: unknown): string =>
+    typeof v === 'string' ? v : v && typeof v === 'object' && typeof (v as { en?: unknown }).en === 'string' ? (v as { en: string }).en : '';
+  return payload.data
+    .filter(c => c && c.isActive !== false)
+    .map(c => ({
+      ...c,
+      _id: String(c._id),
+      name: text(c.name) || 'Unnamed city',
+      country: text(c.country) || undefined,
+      description: text(c.description) || undefined,
+    }));
 }

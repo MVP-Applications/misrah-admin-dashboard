@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import {
@@ -12,44 +12,68 @@ import {
   CheckCircle2,
   XCircle,
   Landmark,
-  Info,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 import { GuestAvatar } from '../../GuestAvatar';
+import { errorMessage } from '../../../api/errors';
+import { usePreferredCurrency } from '../../../hooks/usePreferredCurrency';
 import {
-  approveSettlement,
-  isUsingSampleSettlements,
+  declineSettlement,
+  generateSettlementBatch,
+  getSettlementStats,
   listSettlements,
-  rejectSettlement,
+  releaseSettlement,
   type Settlement,
+  type SettlementStats,
   type SettlementStatus,
 } from '../../../features/settlements/api';
 
-// Admin → Host Settlements: payouts owed to hosts, approved (success) or
-// rejected by an admin.
+// Admin → Host Settlements: payouts owed to hosts, released or declined.
 
-const STATUS_TABS: { id: SettlementStatus; label: string }[] = [
-  { id: 'pending', label: 'Pending' },
-  { id: 'approved', label: 'Paid Out' },
-  { id: 'rejected', label: 'Declined' },
+const PAGE_SIZE = 10;
+
+const STATUS_TABS: { id: SettlementStatus; label: string; countKey: keyof SettlementStats['tabCounts'] }[] = [
+  { id: 'pending', label: 'Pending', countKey: 'pending' },
+  { id: 'paid_out', label: 'Paid Out', countKey: 'paidOut' },
+  { id: 'declined', label: 'Declined', countKey: 'declined' },
 ];
 
-const money = (amount: number, currency: string) =>
-  `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const money = (amount: number | undefined, currency: string) =>
+  `${currency} ${(amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
-const shortDate = (iso?: string | null) => (iso ? format(new Date(iso), 'd MMM yyyy') : '—');
+const shortDate = (iso?: string | null) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : format(d, 'd MMM yyyy');
+};
+
+const bookingsLabel = (n?: number) => `${n ?? 0} booking${n === 1 ? '' : 's'}`;
 
 export const SettlementsModule = () => {
+  // Saved currency — sent on every call; lists re-fetch when it changes.
+  const currency = usePreferredCurrency();
   const [status, setStatus] = useState<SettlementStatus>('pending');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [items, setItems] = useState<Settlement[]>([]);
-  const [allItems, setAllItems] = useState<Settlement[]>([]); // for the summary tiles
+  const [totalPages, setTotalPages] = useState(1);
+  const [stats, setStats] = useState<SettlementStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<Settlement | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectError, setRejectError] = useState<string | null>(null);
+
+  // Release / decline / generate modals
+  const [releaseTarget, setReleaseTarget] = useState<Settlement | null>(null);
+  const [releaseRef, setReleaseRef] = useState('');
+  const [releaseNotes, setReleaseNotes] = useState('');
+  const [declineTarget, setDeclineTarget] = useState<Settlement | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [generateRange, setGenerateRange] = useState({ startDate: '', endDate: '' });
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
 
   const showToast = (message: string, tone: 'success' | 'error' = 'success') => {
@@ -62,84 +86,161 @@ export const SettlementsModule = () => {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  const load = useCallback(async () => {
+  useEffect(() => { setPage(1); }, [status, search]);
+
+  const loadStats = useCallback(async () => {
+    try {
+      setStats(await getSettlementStats(currency));
+    } catch {
+      // tiles just stay empty — the list has its own error state
+    }
+  }, [currency]);
+
+  const loadList = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [filtered, everything] = await Promise.all([
-        listSettlements({ status, search: search || undefined }),
-        listSettlements(),
-      ]);
-      setItems(filtered);
-      setAllItems(everything);
+      const res = await listSettlements({ status, search: search || undefined, page, limit: PAGE_SIZE, currency });
+      setItems(res.items);
+      setTotalPages(Math.max(1, res.totalPages));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load settlements.');
+      setItems([]);
+      setLoadError(errorMessage(err, 'Failed to load settlements.'));
     } finally {
       setIsLoading(false);
     }
-  }, [status, search]);
+  }, [status, search, page, currency]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => { loadStats(); }, [loadStats]);
 
-  const summary = useMemo(() => {
-    const pending = allItems.filter(s => s.status === 'pending');
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
-    const settledThisMonth = allItems.filter(s => s.status === 'approved' && s.processedAt && Date.parse(s.processedAt) >= monthStart);
-    const currency = allItems[0]?.currency ?? 'AED';
-    return {
-      currency,
-      pendingTotal: pending.reduce((sum, s) => sum + s.amount, 0),
-      pendingCount: pending.length,
-      settledTotal: settledThisMonth.reduce((sum, s) => sum + s.amount, 0),
-      settledCount: settledThisMonth.length,
-      rejectedCount: allItems.filter(s => s.status === 'rejected').length,
-    };
-  }, [allItems]);
+  const refreshAll = () => Promise.all([loadList(), loadStats()]);
 
-  const handleApprove = async (s: Settlement) => {
-    if (busyId) return;
-    setBusyId(s.id);
+  // ---- Release
+  const openRelease = (s: Settlement) => {
+    setReleaseTarget(s);
+    setReleaseRef('');
+    setReleaseNotes('');
+    setModalError(null);
+  };
+
+  const confirmRelease = async () => {
+    if (!releaseTarget) return;
+    setBusyId(releaseTarget.id);
+    setModalError(null);
     try {
-      await approveSettlement(s.id);
-      showToast(`Payout of ${money(s.amount, s.currency)} released to ${s.hostName}`);
-      await load();
+      await releaseSettlement(releaseTarget.id, { transactionReference: releaseRef, notes: releaseNotes });
+      showToast(`Payout of ${money(releaseTarget.settlementAmount, releaseTarget.currency)} released to ${releaseTarget.host.name}`);
+      setReleaseTarget(null);
+      await refreshAll();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to release the payout.', 'error');
+      setModalError(errorMessage(err, 'Failed to release the payout.'));
     } finally {
       setBusyId(null);
     }
   };
 
-  const openReject = (s: Settlement) => {
-    setRejectTarget(s);
-    setRejectReason('');
-    setRejectError(null);
+  // ---- Decline
+  const openDecline = (s: Settlement) => {
+    setDeclineTarget(s);
+    setDeclineReason('');
+    setModalError(null);
   };
 
-  const confirmReject = async () => {
-    if (!rejectTarget) return;
-    if (!rejectReason.trim()) {
-      setRejectError('Please give a reason — it is shown to the host.');
+  const confirmDecline = async () => {
+    if (!declineTarget) return;
+    if (!declineReason.trim()) {
+      setModalError('Please give a reason — it is shown to the host.');
       return;
     }
-    setBusyId(rejectTarget.id);
+    setBusyId(declineTarget.id);
+    setModalError(null);
     try {
-      await rejectSettlement(rejectTarget.id, rejectReason.trim());
-      showToast(`Payout to ${rejectTarget.hostName} declined`);
-      setRejectTarget(null);
-      await load();
+      await declineSettlement(declineTarget.id, declineReason.trim());
+      showToast(`Payout to ${declineTarget.host.name} declined`);
+      setDeclineTarget(null);
+      await refreshAll();
     } catch (err) {
-      setRejectError(err instanceof Error ? err.message : 'Failed to decline the payout.');
+      setModalError(errorMessage(err, 'Failed to decline the payout.'));
     } finally {
       setBusyId(null);
     }
   };
 
+  // ---- Generate batch
+  const confirmGenerate = async () => {
+    const { startDate, endDate } = generateRange;
+    if (startDate && endDate && endDate < startDate) {
+      setModalError('The end date must be on or after the start date.');
+      return;
+    }
+    setBusyId('generate');
+    setModalError(null);
+    try {
+      await generateSettlementBatch({
+        ...(startDate ? { startDate: `${startDate}T00:00:00.000Z` } : {}),
+        ...(endDate ? { endDate: `${endDate}T23:59:59.999Z` } : {}),
+      });
+      showToast('Settlement batch generated');
+      setIsGenerateOpen(false);
+      setStatus('pending');
+      await refreshAll();
+    } catch (err) {
+      setModalError(errorMessage(err, 'Failed to generate settlements.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const awaiting = stats?.awaitingSettlement;
+  const paidOut = stats?.paidOutThisMonth;
   const tiles = [
-    { label: 'Awaiting Settlement', value: money(summary.pendingTotal, summary.currency), sub: `${summary.pendingCount} request${summary.pendingCount === 1 ? '' : 's'}`, icon: Clock, tone: 'text-accent bg-accent/10' },
-    { label: 'Paid Out This Month', value: money(summary.settledTotal, summary.currency), sub: `${summary.settledCount} payout${summary.settledCount === 1 ? '' : 's'}`, icon: CheckCircle2, tone: 'text-success bg-success/10' },
-    { label: 'Declined', value: String(summary.rejectedCount), sub: 'All time', icon: XCircle, tone: 'text-danger bg-danger/10' },
+    {
+      label: 'Awaiting Settlement',
+      value: awaiting ? money(awaiting.amount, awaiting.currency || currency) : '—',
+      sub: awaiting ? `${awaiting.count} request${awaiting.count === 1 ? '' : 's'} · ${bookingsLabel(awaiting.totalBookingsCount)}` : '',
+      icon: Clock,
+      tone: 'text-accent bg-accent/10',
+    },
+    {
+      label: 'Paid Out This Month',
+      value: paidOut ? money(paidOut.amount, paidOut.currency || currency) : '—',
+      sub: paidOut ? `${paidOut.count} payout${paidOut.count === 1 ? '' : 's'} · ${bookingsLabel(paidOut.totalBookingsCount)}` : '',
+      icon: CheckCircle2,
+      tone: 'text-success bg-success/10',
+    },
+    {
+      label: 'Declined',
+      value: stats ? String(stats.declined.count) : '—',
+      sub: stats ? bookingsLabel(stats.declined.totalBookingsCount) : '',
+      icon: XCircle,
+      tone: 'text-danger bg-danger/10',
+    },
   ];
+
+  const modalShell = (open: boolean, onClose: () => void, content: React.ReactNode, wide = false) => (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => busyId === null && onClose()}
+            className="absolute inset-0 bg-primary/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`bg-white rounded-[36px] w-full ${wide ? 'max-w-2xl' : 'max-w-md'} p-8 relative z-10 shadow-2xl space-y-5 max-h-[88vh] overflow-y-auto`}
+          >
+            {content}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-16">
@@ -156,16 +257,14 @@ export const SettlementsModule = () => {
             Review and release host payouts
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => { setGenerateRange({ startDate: '', endDate: '' }); setModalError(null); setIsGenerateOpen(true); }}
+          className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 self-start md:self-auto"
+        >
+          <RefreshCw size={14} /> Generate Settlements
+        </button>
       </header>
-
-      {isUsingSampleSettlements && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-3">
-          <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-[11px] font-bold text-amber-700 leading-relaxed">
-            Showing sample settlements — the backend has no settlement API yet. Approve / reject work on this sample data only and reset on reload.
-          </p>
-        </div>
-      )}
 
       {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -177,7 +276,7 @@ export const SettlementsModule = () => {
             <div className="min-w-0">
               <p className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">{t.label}</p>
               <p className="text-xl font-black italic text-primary truncate">{t.value}</p>
-              <p className="text-[10px] font-bold text-muted-text/70">{t.sub}</p>
+              <p className="text-[10px] font-bold text-muted-text/70 truncate">{t.sub}</p>
             </div>
           </div>
         ))}
@@ -186,29 +285,33 @@ export const SettlementsModule = () => {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
         <div className="bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm flex">
-          {STATUS_TABS.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setStatus(tab.id)}
-              className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2
-                ${status === tab.id ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/50 hover:text-primary'}`}
-            >
-              {tab.label}
-              {tab.id === 'pending' && summary.pendingCount > 0 && (
-                <span className={`min-w-5 h-5 px-1 rounded-full text-[9px] flex items-center justify-center ${status === tab.id ? 'bg-accent text-primary' : 'bg-danger text-white'}`}>
-                  {summary.pendingCount}
-                </span>
-              )}
-            </button>
-          ))}
+          {STATUS_TABS.map(tab => {
+            const count = stats?.tabCounts[tab.countKey];
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatus(tab.id)}
+                className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2
+                  ${status === tab.id ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/50 hover:text-primary'}`}
+              >
+                {tab.label}
+                {count !== undefined && count > 0 && (
+                  <span className={`min-w-5 h-5 px-1 rounded-full text-[9px] flex items-center justify-center
+                    ${status === tab.id ? 'bg-accent text-primary' : tab.id === 'pending' ? 'bg-danger text-white' : 'bg-surface text-muted-text'}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
         <div className="relative w-full sm:max-w-xs">
           <Search size={14} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
           <input
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
-            placeholder="Search host or reference..."
+            placeholder="Search host, email or STL reference..."
             className="w-full bg-surface border border-border-misrah rounded-2xl pl-10 pr-4 rtl:pl-4 rtl:pr-10 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
           />
         </div>
@@ -223,7 +326,7 @@ export const SettlementsModule = () => {
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">
           <TriangleAlert size={36} className="mx-auto text-danger" />
           <p className="text-[10px] font-bold text-danger/70 uppercase tracking-widest">{loadError}</p>
-          <button type="button" onClick={load} className="px-6 py-3 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-[2px]">
+          <button type="button" onClick={loadList} className="px-6 py-3 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-[2px]">
             Retry
           </button>
         </div>
@@ -252,57 +355,60 @@ export const SettlementsModule = () => {
                   <tr key={s.id} className="hover:bg-surface/40 transition-colors align-middle">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3 min-w-[180px]">
-                        <GuestAvatar url={s.hostAvatar} name={s.hostName} className="w-10 h-10 rounded-xl" iconSize={18} />
+                        <GuestAvatar url={s.host.avatarUrl} name={s.host.name} className="w-10 h-10 rounded-xl" iconSize={18} />
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-primary truncate">{s.hostName}</p>
-                          <p className="text-[10px] font-medium text-muted-text truncate">{s.hostEmail ?? s.id}</p>
+                          <p className="text-sm font-bold text-primary truncate">{s.host.name}</p>
+                          <p className="text-[10px] font-medium text-muted-text truncate">{s.host.email}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <p className="text-base font-black italic text-primary">{money(s.amount, s.currency)}</p>
-                      <p className="text-[10px] font-bold text-muted-text">{s.bookingsCount} booking{s.bookingsCount === 1 ? '' : 's'} · {s.id.toUpperCase()}</p>
+                      <p className="text-base font-black italic text-primary">{money(s.settlementAmount, s.currency)}</p>
+                      <p className="text-[10px] font-bold text-muted-text">
+                        {bookingsLabel(s.totalBookingsCount ?? (s.bookingsCount ?? 0) + (s.experienceBookingsCount ?? 0))} · {s.reference}
+                      </p>
                     </td>
                     <td className="px-6 py-4 text-[11px] font-bold text-primary/70 whitespace-nowrap">
-                      {shortDate(s.periodStart)} – {shortDate(s.periodEnd)}
+                      {s.period?.formattedPeriod || `${shortDate(s.period?.startDate)} – ${shortDate(s.period?.endDate)}`}
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary/70 whitespace-nowrap">
                         <Landmark size={13} className="text-muted-text" />
-                        {s.payoutDestination ?? 'Not set'}
+                        {s.payoutDestination?.formattedPayoutTo ?? 'Not set'}
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      {s.status === 'pending' ? (
-                        <div className="flex items-center justify-end rtl:justify-start gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleApprove(s)}
-                            disabled={busyId !== null}
-                            className="px-4 py-2.5 rounded-xl bg-success text-white text-[9px] font-black uppercase tracking-[2px] flex items-center gap-1.5 hover:opacity-90 transition-all disabled:opacity-50"
-                          >
-                            {busyId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                            Release Payout
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openReject(s)}
-                            disabled={busyId !== null}
-                            className="px-4 py-2.5 rounded-xl bg-white border border-danger text-danger text-[9px] font-black uppercase tracking-[2px] flex items-center gap-1.5 hover:bg-danger/5 transition-all disabled:opacity-50"
-                          >
-                            <X size={13} /> Decline
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-end rtl:items-start gap-1">
-                          <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${s.status === 'approved' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
-                            {s.status === 'approved' ? 'Paid Out' : 'Declined'}
-                          </span>
-                          {s.rejectionReason && (
-                            <p className="text-[10px] text-danger/80 max-w-[220px] text-right rtl:text-left leading-snug">{s.rejectionReason}</p>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center justify-end rtl:justify-start gap-2">
+                        {s.status === 'pending' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openRelease(s)}
+                              disabled={busyId !== null}
+                              className="px-4 py-2.5 rounded-xl bg-success text-white text-[9px] font-black uppercase tracking-[2px] flex items-center gap-1.5 hover:opacity-90 transition-all disabled:opacity-50"
+                            >
+                              <Check size={13} /> Release Payout
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDecline(s)}
+                              disabled={busyId !== null}
+                              className="px-4 py-2.5 rounded-xl bg-white border border-danger text-danger text-[9px] font-black uppercase tracking-[2px] flex items-center gap-1.5 hover:bg-danger/5 transition-all disabled:opacity-50"
+                            >
+                              <X size={13} /> Decline
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-end rtl:items-start gap-1">
+                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${s.status === 'paid_out' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                              {s.status === 'paid_out' ? 'Paid Out' : 'Declined'}
+                            </span>
+                            {s.status === 'declined' && s.declineReason && (
+                              <p className="text-[10px] text-danger/80 max-w-[220px] text-right rtl:text-left leading-snug">{s.declineReason}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -312,63 +418,131 @@ export const SettlementsModule = () => {
         </div>
       )}
 
-      {/* Reject modal */}
-      <AnimatePresence>
-        {rejectTarget && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => busyId === null && setRejectTarget(null)}
-              className="absolute inset-0 bg-primary/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-[36px] w-full max-w-md p-8 relative z-10 shadow-2xl space-y-5"
-            >
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-danger">Decline Payout</span>
-                <h3 className="text-xl font-black italic text-primary uppercase mt-0.5">{rejectTarget.hostName}</h3>
-                <p className="text-sm font-black text-primary/70 mt-1">{money(rejectTarget.amount, rejectTarget.currency)}</p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Reason for Declining *</label>
-                <textarea
-                  value={rejectReason}
-                  onChange={e => setRejectReason(e.target.value)}
-                  rows={4}
-                  maxLength={500}
-                  placeholder="e.g. Payout destination could not be verified."
-                  className="w-full bg-surface border border-border-misrah rounded-2xl px-4 py-3 text-xs font-medium text-primary outline-none focus:border-accent resize-none"
-                />
-                {rejectError && <p className="text-[10px] font-bold text-danger">{rejectError}</p>}
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRejectTarget(null)}
-                  disabled={busyId !== null}
-                  className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary hover:bg-surface disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmReject}
-                  disabled={busyId !== null}
-                  className="flex-[2] py-3.5 rounded-2xl bg-danger text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
-                >
-                  {busyId === rejectTarget.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
-                  Decline Payout
-                </button>
-              </div>
-            </motion.div>
+      {!isLoading && !loadError && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40">
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-[10px] font-black text-muted-text uppercase tracking-widest">Page {page} of {totalPages}</span>
+          <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Release modal */}
+      {modalShell(!!releaseTarget, () => setReleaseTarget(null), releaseTarget && (
+        <>
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-success">Release Payout</span>
+            <h3 className="text-xl font-black italic text-primary uppercase mt-0.5">{releaseTarget.host.name}</h3>
+            <p className="text-sm font-black text-primary/70 mt-1">{money(releaseTarget.settlementAmount, releaseTarget.currency)} · {releaseTarget.reference}</p>
+            {releaseTarget.payoutDestination?.formattedPayoutTo && (
+              <p className="text-[11px] font-bold text-muted-text mt-1 flex items-center gap-1.5"><Landmark size={12} /> {releaseTarget.payoutDestination.formattedPayoutTo}</p>
+            )}
           </div>
-        )}
-      </AnimatePresence>
+          <div className="space-y-2">
+            <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Bank Transaction Reference</label>
+            <input
+              value={releaseRef}
+              onChange={e => setReleaseRef(e.target.value)}
+              placeholder="e.g. TXN-892147"
+              className="w-full bg-surface border border-border-misrah rounded-2xl px-4 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Notes</label>
+            <textarea
+              value={releaseNotes}
+              onChange={e => setReleaseNotes(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="e.g. Processed via Corporate Online Banking batch #4412"
+              className="w-full bg-surface border border-border-misrah rounded-2xl px-4 py-3 text-xs font-medium text-primary outline-none focus:border-accent resize-none"
+            />
+          </div>
+          {modalError && <p className="text-[10px] font-bold text-danger">{modalError}</p>}
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setReleaseTarget(null)} disabled={busyId !== null} className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary hover:bg-surface disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="button" onClick={confirmRelease} disabled={busyId !== null} className="flex-[2] py-3.5 rounded-2xl bg-success text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60">
+              {busyId === releaseTarget.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Release Payout
+            </button>
+          </div>
+        </>
+      ))}
+
+      {/* Decline modal */}
+      {modalShell(!!declineTarget, () => setDeclineTarget(null), declineTarget && (
+        <>
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-danger">Decline Payout</span>
+            <h3 className="text-xl font-black italic text-primary uppercase mt-0.5">{declineTarget.host.name}</h3>
+            <p className="text-sm font-black text-primary/70 mt-1">{money(declineTarget.settlementAmount, declineTarget.currency)} · {declineTarget.reference}</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Reason for Declining *</label>
+            <textarea
+              value={declineReason}
+              onChange={e => setDeclineReason(e.target.value)}
+              rows={4}
+              maxLength={500}
+              placeholder="e.g. Payout destination IBAN could not be verified."
+              className="w-full bg-surface border border-border-misrah rounded-2xl px-4 py-3 text-xs font-medium text-primary outline-none focus:border-accent resize-none"
+            />
+            {modalError && <p className="text-[10px] font-bold text-danger">{modalError}</p>}
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setDeclineTarget(null)} disabled={busyId !== null} className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary hover:bg-surface disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="button" onClick={confirmDecline} disabled={busyId !== null} className="flex-[2] py-3.5 rounded-2xl bg-danger text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60">
+              {busyId === declineTarget.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+              Decline Payout
+            </button>
+          </div>
+        </>
+      ))}
+
+      {/* Generate batch modal */}
+      {modalShell(isGenerateOpen, () => setIsGenerateOpen(false), (
+        <>
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-accent">Generate Settlements</span>
+            <h3 className="text-xl font-black italic text-primary uppercase mt-0.5">New Settlement Batch</h3>
+            <p className="text-[11px] font-medium text-muted-text mt-1 leading-relaxed">
+              Creates pending settlements from completed bookings that haven't been settled yet. Leave the dates empty to include everything up to now.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {(['startDate', 'endDate'] as const).map(key => (
+              <label key={key} className="space-y-1.5 block">
+                <span className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">{key === 'startDate' ? 'Period Start' : 'Period End'}</span>
+                <input
+                  type="date"
+                  value={generateRange[key]}
+                  min={key === 'endDate' ? generateRange.startDate || undefined : undefined}
+                  onChange={e => setGenerateRange(r => ({ ...r, [key]: e.target.value }))}
+                  className="w-full bg-surface border border-border-misrah rounded-2xl px-4 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
+                />
+              </label>
+            ))}
+          </div>
+          {modalError && <p className="text-[10px] font-bold text-danger">{modalError}</p>}
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setIsGenerateOpen(false)} disabled={busyId !== null} className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary hover:bg-surface disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="button" onClick={confirmGenerate} disabled={busyId !== null} className="flex-[2] py-3.5 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60">
+              {busyId === 'generate' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Generate
+            </button>
+          </div>
+        </>
+      ))}
+
 
       {/* Toast */}
       <AnimatePresence>

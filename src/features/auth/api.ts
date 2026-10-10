@@ -42,15 +42,41 @@ export async function sendHostLoginOtp(payload: HostOtpSendRequest): Promise<voi
   await apiClient.post(API_ENDPOINTS.host.auth.otpSend, payload);
 }
 
-// Password change via the reset flow (host → /host/auth/*, admin → /admin/auth/*):
-//   1. POST …/forgot-password { email }  → backend emails a reset token
-//   2. POST …/reset-password  { token, newPassword } with that emailed token
-export async function requestPasswordReset(email: string, role: UserRole): Promise<void> {
-  const url = role === 'manager' ? API_ENDPOINTS.host.auth.forgotPassword : API_ENDPOINTS.admin.auth.forgotPassword;
-  await apiClient.post(url, { email });
+// Password reset via recovery code (host → /host/auth/*, admin → /admin/auth/*):
+//   1. POST …/forgot-password { email | phoneNumber }        → sends a code (call again to resend)
+//   2. POST …/verify-otp      { email | phoneNumber, otp }   → returns a reset token
+//   3. POST …/reset-password  { token, newPassword }
+const authRoutes = (role: UserRole) => (role === 'manager' ? API_ENDPOINTS.host.auth : API_ENDPOINTS.admin.auth);
+
+// "name@x.com" → { email }, anything else → { phoneNumber } (spaces/dashes stripped).
+export function recoveryIdentifier(value: string): { email: string } | { phoneNumber: string } {
+  const v = value.trim();
+  return v.includes('@') ? { email: v } : { phoneNumber: v.replace(/[\s\-().]/g, '') };
+}
+
+export async function requestPasswordReset(emailOrPhone: string, role: UserRole): Promise<void> {
+  await apiClient.post(authRoutes(role).forgotPassword, recoveryIdentifier(emailOrPhone));
+}
+
+// Returns the reset token for step 3. The response shape isn't documented,
+// so the token is read from the common field names.
+export async function verifyPasswordResetOtp(emailOrPhone: string, otp: string, role: UserRole): Promise<string> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<unknown>>(authRoutes(role).verifyOtp, {
+    ...recoveryIdentifier(emailOrPhone),
+    otp: otp.trim(),
+  });
+  const body = (data?.data ?? data) as Record<string, unknown> | string | null;
+  const token =
+    typeof body === 'string'
+      ? body
+      : body && (body.token ?? body.resetToken ?? body.reset_token ?? body.passwordResetToken ?? body.access_token);
+  if (typeof token !== 'string' || !token) {
+    console.error('[auth] verify-otp response had no reset token:', data);
+    throw new Error('Code verified, but no reset token was returned. Please try again.');
+  }
+  return token;
 }
 
 export async function resetPassword(token: string, newPassword: string, role: UserRole): Promise<void> {
-  const url = role === 'manager' ? API_ENDPOINTS.host.auth.resetPassword : API_ENDPOINTS.admin.auth.resetPassword;
-  await apiClient.post(url, { token, newPassword });
+  await apiClient.post(authRoutes(role).resetPassword, { token, newPassword });
 }

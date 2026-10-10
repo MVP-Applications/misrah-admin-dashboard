@@ -32,6 +32,7 @@ import { toLegacyBooking } from '../../features/bookings/mappers';
 import { getAdminDashboard, getHostDashboardOverview } from '../../features/dashboard/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { AdminDashboardData } from '../../features/dashboard/types';
+import { formatMoney } from '../../utils/money';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -258,42 +259,6 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
 
   return (
     <div className="space-y-8">
-      {user.role === 'manager' && user.verificationStatus !== 'Approved' && (
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`p-6 rounded-[32px] border flex items-center justify-between gap-6 shadow-luxury overflow-hidden relative
-            ${user.verificationStatus === 'Rejected' ? 'bg-danger/5 border-danger/20' : 'bg-[#C9A84C]/5 border-[#C9A84C]/30'}`}
-        >
-          <div className="flex items-center gap-6 relative z-10">
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl
-              ${user.verificationStatus === 'Rejected' ? 'bg-danger/20 text-danger' : 'bg-accent/20 text-accent'}`}
-            >
-              {user.verificationStatus === 'Rejected' ? '!' : '⚠'}
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-primary uppercase italic">Compliance Protocol Required</h3>
-              <p className="text-xs font-bold text-muted-text mt-1">
-                {user.verificationStatus === 'Rejected' 
-                  ? `Verification rejected: "${user.rejectionReason}". Please update your credentials.`
-                  : "Your identity and property assets must be synchronized for market listing activation."}
-              </p>
-            </div>
-          </div>
-          <button 
-            onClick={() => navigate('/listings')}
-            className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[2px] transition-all relative z-10
-              ${user.verificationStatus === 'Rejected' ? 'bg-danger text-white' : 'bg-primary text-accent'}`}
-          >
-            Verify Identity
-          </button>
-          
-          <div className="absolute top-0 right-0 w-32 h-32 opacity-5 pointer-events-none">
-             <ShieldCheck size={128} className="text-primary" />
-          </div>
-        </motion.div>
-      )}
-
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h1 className="text-4xl md:text-5xl font-sans font-black italic text-primary uppercase tracking-tighter leading-[0.9]">{t('dash.greeting', { name: user.name.split(' ')[0] })}</h1>
@@ -737,7 +702,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                       <div className="p-4 rounded-2xl bg-surface border border-border-misrah">
                         <span className="text-[9px] font-black uppercase tracking-wider text-muted-text">Avg Daily Rate</span>
                         <p className="text-xl font-black italic text-primary mt-1">
-                          {selectedHub.formattedAvgDailyRate || (avgPrice > 0 ? `AED ${avgPrice.toLocaleString()}` : '—')}
+                          {selectedHub.formattedAvgDailyRate || (avgPrice > 0 ? formatMoney(avgPrice, hubProps[0]?.currency) : '—')}
                         </p>
                         <span className="text-[9px] font-bold text-muted-text mt-1">{selectedHub.avgDailyRateLabel || 'Per night'}</span>
                       </div>
@@ -748,7 +713,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                           {selectedHub.liveBookingsCount ?? cityBookings.length}
                         </p>
                         <span className="text-[9px] font-bold text-primary/70 mt-1">
-                          {selectedHub.formattedLiveBookingsAmount || `AED ${totalRev.toLocaleString()}`}
+                          {selectedHub.formattedLiveBookingsAmount || formatMoney(totalRev, cityBookings[0]?.currency)}
                         </span>
                       </div>
                     </div>
@@ -806,7 +771,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                         </div>
 
                         <div className="text-right shrink-0 pl-3">
-                          <span className="text-xs font-black text-primary italic">AED {prop.price.toLocaleString()}</span>
+                          <span className="text-xs font-black text-primary italic">{formatMoney(prop.price, prop.currency)}</span>
                           <span className="text-[9px] block text-muted-text uppercase tracking-widest">/ night</span>
                         </div>
                       </div>
@@ -1019,7 +984,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                     <p className="text-[10px] font-bold text-muted-text truncate uppercase tracking-widest mt-0.5">{booking.propertyName}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-[11px] font-black text-primary mb-2 italic">AED {booking.total.toLocaleString()}</p>
+                    <p className="text-[11px] font-black text-primary mb-2 italic">{formatMoney(booking.total, booking.currency)}</p>
                     <Badge variant={booking.status === 'Hosting' ? 'green' : booking.status === 'Arriving Soon' ? 'gold' : 'blue'}>
                       {booking.status}
                     </Badge>

@@ -32,7 +32,9 @@ import {
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
 import { User } from '../../types';
-import { getHostEarnings } from '../../features/dashboard/api';
+import { downloadHostAuditReport, getHostEarnings } from '../../features/dashboard/api';
+import { usePreferredCurrency } from '../../hooks/usePreferredCurrency';
+import { errorMessage } from '../../api/errors';
 import type { EarningsTimeframe, HostEarningsData } from '../../features/dashboard/types';
 
 const LEDGER_PAGE_SIZE = 7;
@@ -61,6 +63,22 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
   // Host Hub: live data from GET /host/dashboard/earnings. Admin keeps the
   // sample data below (no admin earnings endpoint yet).
   const isHost = user.role === 'manager';
+  const currency = usePreferredCurrency();
+  const [isDownloadingAudit, setIsDownloadingAudit] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+
+  // Audit Report → host earnings spreadsheet (.xlsx) in the saved currency.
+  const handleDownloadAudit = async () => {
+    setIsDownloadingAudit(true);
+    setAuditError(null);
+    try {
+      await downloadHostAuditReport({ format: 'xlsx', currency });
+    } catch (err) {
+      setAuditError(errorMessage(err, 'Failed to download the audit report.'));
+    } finally {
+      setIsDownloadingAudit(false);
+    }
+  };
   const now = new Date();
   const [timeframe, setTimeframe] = useState<EarningsTimeframe>('M');
   const [earningsYear, setEarningsYear] = useState(now.getFullYear());
@@ -86,9 +104,6 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
 
   const matrixRows = earnings?.revenueMatrix.data ?? [];
   const matrixMax = matrixRows.reduce((max, r) => Math.max(max, r.amount), 0);
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawStep, setWithdrawStep] = useState<'form' | 'processing' | 'success'>('form');
-  const [withdrawAmount, setWithdrawAmount] = useState('');
 
   // Full History Protocol Modal State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -150,22 +165,6 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
   const totalOutflow = useMemo(() => {
     return filteredHistory.filter(t => t.type === 'Payout' || t.type === 'Refund').reduce((acc, curr) => acc + curr.amount, 0);
   }, [filteredHistory]);
-
-  const handleWithdraw = () => {
-    if (!withdrawAmount) return;
-    setWithdrawStep('processing');
-    setTimeout(() => {
-      setWithdrawStep('success');
-    }, 2000);
-  };
-
-  const closeWithdraw = () => {
-    setIsWithdrawing(false);
-    setTimeout(() => {
-      setWithdrawStep('form');
-      setWithdrawAmount('');
-    }, 300);
-  };
 
   // CSV Export implementation
   const handleExportCSV = () => {
@@ -229,19 +228,28 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
               {isEarningsLoading && <Loader2 size={16} className="animate-spin text-accent" />}
             </div>
           )}
-          <button className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-border-misrah bg-white text-[10px] font-black uppercase tracking-[3px] hover:border-accent hover:shadow-lg transition-all shadow-sm group">
-            <Download size={14} className="group-hover:-translate-y-0.5 transition-transform" />
-            Audit Report
-          </button>
-          <button 
-            onClick={() => setIsWithdrawing(true)}
-            className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-[3px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all group"
-          >
-            <Banknote size={16} className="group-hover:translate-x-0.5 transition-transform" />
-            Withdraw Now
-          </button>
+          {isHost && (
+            <button
+              type="button"
+              onClick={handleDownloadAudit}
+              disabled={isDownloadingAudit}
+              title={`Download the earnings audit report (Excel, ${currency})`}
+              className="flex items-center gap-2 px-8 py-4 rounded-2xl border border-border-misrah bg-white text-[10px] font-black uppercase tracking-[3px] hover:border-accent hover:shadow-lg transition-all shadow-sm group disabled:opacity-60 disabled:cursor-wait"
+            >
+              {isDownloadingAudit
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Download size={14} className="group-hover:-translate-y-0.5 transition-transform" />}
+              {isDownloadingAudit ? 'Preparing…' : 'Audit Report'}
+            </button>
+          )}
         </div>
       </header>
+      {auditError && (
+        <div className="p-4 rounded-2xl bg-danger/5 border border-danger/20 flex items-center justify-between gap-3">
+          <p className="text-[11px] font-bold text-danger">{auditError}</p>
+          <button type="button" onClick={() => setAuditError(null)} className="text-[10px] font-black uppercase tracking-wider text-danger/70 hover:text-danger">Dismiss</button>
+        </div>
+      )}
       {/* Export Confirmation Toast */}
       <AnimatePresence>
         {exportNotice && (
@@ -880,137 +888,6 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
         )}
       </AnimatePresence>
 
-      {/* Withdraw Modal */}
-      <AnimatePresence>
-        {isWithdrawing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closeWithdraw}
-              className="absolute inset-0 bg-primary/20 backdrop-blur-xl"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 40 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 40 }}
-              className="relative w-full max-w-xl bg-white rounded-[56px] border border-border-misrah shadow-luxury overflow-hidden p-12"
-            >
-              <button 
-                onClick={closeWithdraw}
-                className="absolute top-10 right-10 w-12 h-12 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-muted-text hover:text-primary transition-all group"
-              >
-                <X size={20} className="group-hover:rotate-90 transition-transform" />
-              </button>
-
-              {withdrawStep === 'form' && (
-                <div className="space-y-10">
-                  <div className="space-y-4 text-center">
-                    <div className="w-20 h-20 bg-primary/10 rounded-[32px] flex items-center justify-center mx-auto text-primary mb-6 shadow-inner">
-                      <Wallet size={32} />
-                    </div>
-                    <h2 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter">Settlement Flow</h2>
-                    <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px]">Transfer funds to your verified node</p>
-                  </div>
-
-                  <div className="space-y-8">
-                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-primary/40 uppercase tracking-[4px] ml-4">Withdrawal Amount (AED)</label>
-                      <div className="relative group">
-                        <input 
-                          type="number"
-                          value={withdrawAmount}
-                          onChange={(e) => setWithdrawAmount(e.target.value)}
-                          placeholder="0,000.00"
-                          className="w-full bg-surface border-2 border-border-misrah rounded-[32px] p-8 text-3xl font-sans font-black italic text-primary placeholder:text-muted-text/20 focus:border-accent focus:outline-none transition-all shadow-inner group-hover:border-border-misrah/50"
-                        />
-                        <div className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-text/30 font-black italic mb-1 uppercase tracking-tighter">AED</div>
-                      </div>
-                      <div className="flex justify-between items-center px-4">
-                        <span className="text-[10px] font-black text-muted-text/50 uppercase tracking-widest">Available Treasury: 23,250.00 AED</span>
-                        <button 
-                          onClick={() => setWithdrawAmount('23250')}
-                          className="text-[10px] font-black text-accent hover:text-primary uppercase tracking-widest transition-colors underline underline-offset-4"
-                        >
-                          Withdraw Max
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="p-8 rounded-[32px] bg-surface/50 border border-border-misrah/50 flex items-center gap-6">
-                      <div className="w-14 h-14 rounded-2xl bg-white border border-border-misrah flex items-center justify-center text-primary shadow-sm">
-                        <CreditCard size={24} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-[9px] font-black text-primary/30 uppercase tracking-[3px] mb-1">Destination Protocol</div>
-                        <div className="text-sm font-black text-primary uppercase tracking-tight">ENBD (**** 4521)</div>
-                      </div>
-                      <Badge variant="blue" className="text-[9px]">Verified</Badge>
-                    </div>
-
-                    <button 
-                      onClick={handleWithdraw}
-                      disabled={!withdrawAmount || Number(withdrawAmount) <= 0}
-                      className="w-full py-8 rounded-[32px] bg-primary text-accent text-sm font-black uppercase tracking-[4px] shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale disabled:hover:scale-100 flex items-center justify-center gap-4 group"
-                    >
-                      Initialize Transfer
-                      <ArrowUpRight size={20} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                    </button>
-                    
-                    <div className="flex items-center justify-center gap-2 text-[8px] font-black text-muted-text/40 uppercase tracking-[3px]">
-                      <AlertCircle size={10} />
-                      Estimated settlement: 24-48 Business hours
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {withdrawStep === 'processing' && (
-                <div className="py-20 flex flex-col items-center justify-center space-y-10">
-                  <div className="relative w-32 h-32">
-                    <div className="absolute inset-0 rounded-full border-4 border-surface border-t-accent animate-spin" />
-                    <div className="absolute inset-4 rounded-full border-4 border-surface border-b-primary animate-spin-reverse" />
-                    <div className="absolute inset-0 flex items-center justify-center text-primary">
-                      <TrendingUp size={32} />
-                    </div>
-                  </div>
-                  <div className="text-center space-y-4">
-                    <h3 className="text-3xl font-sans font-black italic text-primary uppercase tracking-tighter">Validating Node</h3>
-                    <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] animate-pulse">Syncing with banking ledger...</p>
-                  </div>
-                </div>
-              )}
-
-              {withdrawStep === 'success' && (
-                <div className="py-10 space-y-10 text-center animate-in zoom-in-95 duration-500">
-                  <div className="w-24 h-24 bg-success/10 rounded-[40px] flex items-center justify-center mx-auto text-success shadow-inner mb-6">
-                    <CheckCircle2 size={48} />
-                  </div>
-                  <div className="space-y-4">
-                    <h3 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter">Transfer Initiated</h3>
-                    <p className="text-[11px] font-black text-muted-text/60 uppercase tracking-[4px] leading-relaxed max-w-sm mx-auto">
-                      Your settlement of <span className="text-primary">{Number(withdrawAmount).toLocaleString()}.00 AED</span> has been approved and is being routed to your node.
-                    </p>
-                  </div>
-                  
-                  <div className="p-8 rounded-[32px] bg-surface/50 border border-border-misrah/50 max-w-xs mx-auto">
-                    <div className="text-[9px] font-black text-muted-text/40 uppercase tracking-[3px] mb-2">Protocol Reference</div>
-                    <div className="text-sm font-mono font-bold text-primary uppercase opacity-60">MIS-TX-{Math.random().toString(36).substring(7).toUpperCase()}</div>
-                  </div>
-
-                  <button 
-                    onClick={closeWithdraw}
-                    className="w-full max-w-sm mx-auto py-7 rounded-[32px] bg-surface border-2 border-border-misrah hover:border-primary text-primary text-[10px] font-black uppercase tracking-[4px] transition-all"
-                  >
-                    Close Transaction
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

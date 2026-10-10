@@ -54,6 +54,7 @@ import {
   updateAdminExperience,
 } from '../../features/experiences/api';
 import { apiExperienceToViewModel, ExperienceRow } from '../../features/experiences/mappers';
+import { formatMoney } from '../../utils/money';
 import type {
   AdminCreatedExperience,
   ApiExperienceCategory,
@@ -993,7 +994,7 @@ export const ExperiencesView = ({
         <div className="bg-white p-6 rounded-[28px] border border-border-misrah shadow-xs space-y-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-muted-text">Experience Revenue</span>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black italic text-primary">AED {totalRevenue.toLocaleString()}</span>
+            <span className="text-3xl font-black italic text-primary">{formatMoney(totalRevenue, experiences[0]?.currency)}</span>
           </div>
         </div>
 
@@ -1217,7 +1218,7 @@ export const ExperiencesView = ({
 
                   <div className="p-3 bg-surface rounded-2xl flex items-center justify-between text-[11px]">
                     <span className="text-muted-text font-bold">Bookings: <b className="text-primary">{exp.bookingsCount || 0}</b></span>
-                    <span className="text-muted-text font-bold">Earned: <b className="text-accent font-black">AED {((exp.bookingsCount || 0) * exp.price).toLocaleString()}</b></span>
+                    <span className="text-muted-text font-bold">Earned: <b className="text-accent font-black">{formatMoney((exp.bookingsCount || 0) * exp.price, exp.currency)}</b></span>
                   </div>
 
                   {exp.addons && exp.addons.length > 0 && (
@@ -1245,7 +1246,7 @@ export const ExperiencesView = ({
                   <div>
                     <div className="text-[9px] font-bold uppercase tracking-wider text-muted-text">Price</div>
                     <div className="text-lg font-black italic text-primary leading-tight">
-                      AED {exp.price.toLocaleString()}
+                      {formatMoney(exp.price, exp.currency)}
                       <span className="text-[10px] font-bold text-muted-text ml-1">
                         {priceTypeLabels[exp.priceType]?.en}
                       </span>
@@ -1340,7 +1341,7 @@ export const ExperiencesView = ({
                       </span>
                     </td>
                     <td className="p-4 font-black text-primary">
-                      AED {exp.price.toLocaleString()} <span className="text-[9px] text-muted-text font-bold">{priceTypeLabels[exp.priceType]?.en}</span>
+                      {formatMoney(exp.price, exp.currency)} <span className="text-[9px] text-muted-text font-bold">{priceTypeLabels[exp.priceType]?.en}</span>
                     </td>
                     <td className="p-4 text-muted-text font-bold">
                       <div>{exp.duration}</div>
@@ -1354,7 +1355,7 @@ export const ExperiencesView = ({
                     </td>
                     <td className="p-4 font-bold text-primary">
                       <div>{exp.bookingsCount || 0} Bookings</div>
-                      <div className="text-[10px] text-accent font-black">AED {((exp.bookingsCount || 0) * exp.price).toLocaleString()}</div>
+                      <div className="text-[10px] text-accent font-black">{formatMoney((exp.bookingsCount || 0) * exp.price, exp.currency)}</div>
                     </td>
                     <td className="p-4">
                       <button

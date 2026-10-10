@@ -11,6 +11,23 @@ export const API_ENDPOINTS = {
   // Host Hub → Profile → Hosting Guide.
   // Generic settings documents (e.g. type=legal, key=LEGAL_FRAMEWORK).
   // GET one is readable by any signed-in user; writes are admin-only.
+  // Profile → Payment Node (payout bank account). GET · POST (create) · PATCH · DELETE.
+  paymentNode: {
+    admin: '/admin/payment-node',
+    host: '/host/payment-node',
+  },
+  // Admin → Host Settlements (payout release / decline).
+  settlements: {
+    list: '/admin/settlements',
+    stats: '/admin/settlements/stats',
+    byId: (id: string) => `/admin/settlements/${id}`,
+    release: (id: string) => `/admin/settlements/${id}/release`,
+    decline: (id: string) => `/admin/settlements/${id}/decline`,
+    generateBatch: '/admin/settlements/generate-batch',
+    // Host Hub — the logged-in host's own settlements (same shapes).
+    hostList: '/host/settlements',
+    hostById: (id: string) => `/host/settlements/${id}`,
+  },
   // Settings screen toggles — admin: platform defaults; host: own settings.
   // Same six boolean fields on both.
   appSettings: {
@@ -54,6 +71,8 @@ export const API_ENDPOINTS = {
     admin: '/admin/dashboard',
     hostOverview: '/host/dashboard/overview',
     hostEarnings: '/host/dashboard/earnings',
+    // GET ?format=xlsx|csv&currency&propertyId → file download.
+    hostEarningsAuditReport: '/host/dashboard/earnings/audit-report/download',
   },
   admin: {
     auth: {
@@ -62,6 +81,7 @@ export const API_ENDPOINTS = {
       logout: '/admin/auth/logout',
       // TODO: not wired up yet — see API_INTEGRATION.md → "Known Gaps".
       forgotPassword: '/admin/auth/forgot-password',
+      verifyOtp: '/admin/auth/verify-otp',
       resetPassword: '/admin/auth/reset-password',
       // Profile → Security → Authenticated Sessions.
       sessions: '/admin/auth/sessions',
@@ -85,6 +105,7 @@ export const API_ENDPOINTS = {
       // Profile → Update Password: POST { email } emails a reset token, then
       // POST { token, newPassword } with that token.
       forgotPassword: '/host/auth/forgot-password',
+      verifyOtp: '/host/auth/verify-otp',
       resetPassword: '/host/auth/reset-password',
       // Profile → Security → Authenticated Sessions (host equivalents).
       sessions: '/host/auth/sessions',
