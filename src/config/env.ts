@@ -9,6 +9,8 @@ const apiKey = import.meta.env.VITE_API_KEY;
 // Optional — only the property location map needs it; the map shows a setup
 // message instead of failing when it's missing.
 const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+// Off unless explicitly "true" — see src/api/deviceInfo.ts (needs backend CORS support).
+const sendDeviceHeaders = import.meta.env.VITE_SEND_DEVICE_HEADERS === 'true';
 
 // Deliberately NOT gated to import.meta.env.DEV: a staging build once shipped with
 // this var unset (a CI workflow that never injected it) and produced a confusing,
@@ -25,6 +27,7 @@ export const env = {
   API_BASE_URL: apiBaseUrl ?? '',
   API_KEY: apiKey ?? '',
   GOOGLE_MAPS_API_KEY: googleMapsApiKey ?? '',
+  SEND_DEVICE_HEADERS: sendDeviceHeaders,
 } as const;
 
 // Runtime check (not a build-time env flag) — deliberately so that dev-only

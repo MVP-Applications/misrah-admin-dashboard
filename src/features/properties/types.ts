@@ -113,6 +113,10 @@ export interface CreatePropertyRequest {
   selfCheckInInstruction?: string;
   latitude?: number;
   longitude?: number;
+  // Availability window. endDate is omitted when availableForever is true.
+  availableForever?: boolean;
+  startDate?: string; // ISO, start of day (UTC)
+  endDate?: string; // ISO, end of day (UTC)
 }
 
 export type UpdatePropertyRequest = Partial<

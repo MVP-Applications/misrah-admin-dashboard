@@ -9,6 +9,7 @@ import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { listAdminProperties, listActiveCities, listMyProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
+import { displayCurrency } from '../../../utils/money';
 
 interface RejectionModalProps {
   isOpen: boolean;
@@ -354,7 +355,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
 
                   <div className="flex items-center justify-between pt-4 border-t border-border-misrah">
                      <p className="text-2xl font-sans font-black italic text-primary">
-                        {property.price.toLocaleString()} <span className="text-[10px] font-sans font-bold not-italic text-muted-text uppercase tracking-widest">AED</span>
+                        {property.price.toLocaleString()} <span className="text-[10px] font-sans font-bold not-italic text-muted-text uppercase tracking-widest">{displayCurrency(property.currency)}</span>
                      </p>
                      <div className="flex items-center gap-2 text-[10px] font-black text-muted-text uppercase tracking-widest">
                        {property.beds} Bed · {property.baths} Bath

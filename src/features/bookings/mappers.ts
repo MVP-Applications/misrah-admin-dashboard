@@ -43,6 +43,7 @@ export function toLegacyBooking(item: BookingListItem): Booking {
     checkOut: formatBookingDate(item.checkOutDate),
     guests: (item.guests?.adults ?? 0) + (item.guests?.children ?? 0),
     total: item.pricing?.totalPayable ?? 0,
+    currency: item.pricing?.currency,
     status: deriveDisplayStatus(item.status, item.checkInDate, item.checkOutDate),
   };
 }

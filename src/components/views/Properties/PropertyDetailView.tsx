@@ -15,7 +15,9 @@ import {
   AlertCircle,
   RefreshCw,
   UserCheck,
-  Radio
+  Radio,
+  CalendarRange,
+  Infinity as InfinityIcon
 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
@@ -24,6 +26,14 @@ import { ReassignHostModal } from './ReassignHostModal';
 import { AuditDocsModal } from './AuditDocsModal';
 import { DirectIntelUplinkModal } from './DirectIntelUplinkModal';
 import { NodeProfileVerificationModal } from './NodeProfileVerificationModal';
+import { displayCurrency } from '../../../utils/money';
+
+// "2026-10-09" → "9 Oct 2026" (formatted as the UTC calendar day).
+const formatAvailabilityDate = (day?: string | null): string | null => {
+  if (!day) return null;
+  const d = new Date(`${day}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+};
 
 interface PropertyDetailViewProps {
   property: Property;
@@ -53,6 +63,7 @@ export const PropertyDetailView = ({
   const [showIntelUplinkModal, setShowIntelUplinkModal] = useState(false);
   const [uplinkInitialTab, setUplinkInitialTab] = useState<'uplink' | 'telemetry'>('uplink');
   const [showNodeVerificationModal, setShowNodeVerificationModal] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData({ ...property });
@@ -61,7 +72,22 @@ export const PropertyDetailView = ({
   if (!property) return null;
 
   const handleSave = () => {
-    onUpdate(property.id, formData);
+    // Availability: a start date is needed, plus an end date unless forever.
+    const forever = formData.availableForever !== false;
+    if (!formData.availabilityStart) {
+      setSaveError('Choose an availability start date.');
+      return;
+    }
+    if (!forever && !formData.availabilityEnd) {
+      setSaveError('Choose an end date or turn on Available Forever.');
+      return;
+    }
+    if (!forever && formData.availabilityEnd! < formData.availabilityStart) {
+      setSaveError('The end date must be on or after the start date.');
+      return;
+    }
+    setSaveError(null);
+    onUpdate(property.id, { ...formData, availableForever: forever, availabilityEnd: forever ? null : formData.availabilityEnd });
     setIsEditing(false);
   };
 
@@ -151,7 +177,7 @@ export const PropertyDetailView = ({
             {isEditing ? (
               <div className="flex gap-2">
                 <button 
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => { setIsEditing(false); setFormData({ ...property }); setSaveError(null); }}
                   className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[2px] border border-border-misrah hover:bg-surface transition-all"
                 >
                   Cancel
@@ -349,12 +375,12 @@ export const PropertyDetailView = ({
                       onChange={e => setFormData(p => ({ ...p, price: Number(e.target.value) }))}
                       className="bg-white border border-border-misrah text-2xl font-black italic text-primary w-full rounded-xl px-4 py-2"
                     />
-                    <span className="text-xs font-bold text-muted-text">AED</span>
+                    <span className="text-xs font-bold text-muted-text">{displayCurrency(property.currency)}</span>
                   </div>
                 ) : (
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black italic text-primary">{property.price.toLocaleString()}</span>
-                    <span className="text-[11px] font-bold text-accent uppercase tracking-widest">AED / NT</span>
+                    <span className="text-[11px] font-bold text-accent uppercase tracking-widest">{displayCurrency(property.currency)} / NT</span>
                   </div>
                 )}
               </div>
@@ -384,6 +410,86 @@ export const PropertyDetailView = ({
                   <div className="text-3xl font-black italic text-primary">{property.baths}</div>
                 )}
               </div>
+            </div>
+
+            {/* Availability window */}
+            <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 shadow-sm space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] flex items-center gap-2">
+                  <CalendarRange size={13} /> Availability
+                </p>
+                {!isEditing && (
+                  property.availableForever !== false ? (
+                    <Badge variant="green">Available Forever</Badge>
+                  ) : (
+                    <Badge variant="gold">Fixed Period</Badge>
+                  )
+                )}
+              </div>
+
+              {isEditing ? (
+                <div className="space-y-4">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={formData.availableForever !== false}
+                    onClick={() => setFormData(p => ({ ...p, availableForever: p.availableForever === false }))}
+                    className={`w-full p-4 rounded-2xl border flex items-center justify-between gap-4 text-left transition-all
+                      ${formData.availableForever !== false ? 'border-accent bg-accent/5' : 'border-border-misrah bg-white hover:border-accent/50'}`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${formData.availableForever !== false ? 'bg-primary text-accent' : 'bg-primary/5 text-primary'}`}>
+                        <InfinityIcon size={16} />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-black uppercase tracking-wider text-primary">Available Forever</span>
+                        <span className="block text-[10px] font-medium text-muted-text mt-0.5">No end date — bookable from the start date onwards</span>
+                      </span>
+                    </span>
+                    <span className={`w-11 h-6 rounded-full relative shrink-0 transition-colors shadow-inner ${formData.availableForever !== false ? 'bg-success' : 'bg-border-misrah'}`}>
+                      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${formData.availableForever !== false ? 'left-6' : 'left-1'}`} />
+                    </span>
+                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="space-y-1.5 block">
+                      <span className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Start Date *</span>
+                      <input
+                        type="date"
+                        value={formData.availabilityStart ?? ''}
+                        onChange={e => setFormData(p => ({ ...p, availabilityStart: e.target.value || null }))}
+                        className="w-full bg-white border border-border-misrah rounded-xl px-4 py-3 text-sm font-bold text-primary outline-none focus:border-accent"
+                      />
+                    </label>
+                    <label className="space-y-1.5 block">
+                      <span className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">End Date {formData.availableForever === false && '*'}</span>
+                      <input
+                        type="date"
+                        value={formData.availableForever !== false ? '' : formData.availabilityEnd ?? ''}
+                        min={formData.availabilityStart ?? undefined}
+                        disabled={formData.availableForever !== false}
+                        onChange={e => setFormData(p => ({ ...p, availabilityEnd: e.target.value || null }))}
+                        className="w-full bg-white border border-border-misrah rounded-xl px-4 py-3 text-sm font-bold text-primary outline-none focus:border-accent disabled:bg-surface disabled:text-muted-text/40 disabled:cursor-not-allowed"
+                      />
+                    </label>
+                  </div>
+                  {saveError && <p className="text-[11px] font-bold text-danger">{saveError}</p>}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-[2px] text-muted-text/60 mb-1">Start Date</p>
+                    <p className="text-lg font-black italic text-primary">{formatAvailabilityDate(property.availabilityStart) ?? 'Not set'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-[2px] text-muted-text/60 mb-1">End Date</p>
+                    <p className="text-lg font-black italic text-primary flex items-center gap-1.5">
+                      {property.availableForever !== false
+                        ? <><InfinityIcon size={16} className="text-accent" /> Forever</>
+                        : formatAvailabilityDate(property.availabilityEnd) ?? 'Not set'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Description */}

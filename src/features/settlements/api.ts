@@ -1,103 +1,195 @@
-// Host amount settlements (admin) — payouts owed to hosts, approved or
-// rejected by an admin.
-//
-// The backend has NO settlement endpoints yet (checked against /api-json:
-// only the host's own /host/payment-node exists). Until it does, this module
-// serves an in-memory sample list so the admin screen is fully usable.
-// When the API lands, set USE_SAMPLE_DATA = false and fill in ENDPOINTS —
-// SettlementsModule only talks to the three functions below.
+// Host settlements (admin) — payouts owed to hosts, released or declined by
+// an admin.
+//   GET  /admin/settlements?status&search&page&limit&currency   list
+//   GET  /admin/settlements/stats?currency                      tiles + tab counts
+//   GET  /admin/settlements/{id}?currency                       detail + line items
+//   POST /admin/settlements/{id}/release  { transactionReference?, notes? }
+//   POST /admin/settlements/{id}/decline  { reason }
+//   POST /admin/settlements/generate-batch { hostId?, cutoffDate?, startDate?, endDate? }
+// Host Hub (read-only, own settlements, same response shapes):
+//   GET  /host/settlements?status&search&page&limit&currency
+//   GET  /host/settlements/{id}?currency
 
 import { apiClient } from '../../api/client';
+import { API_ENDPOINTS } from '../../api/endpoints';
+import { getPreferredCurrency } from '../../api/currency';
 import type { ApiSuccessEnvelope } from '../../api/types';
 
-export type SettlementStatus = 'pending' | 'approved' | 'rejected';
+export type SettlementStatus = 'pending' | 'paid_out' | 'declined';
+
+export interface SettlementHost {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string | null;
+  phone?: string;
+}
+
+export interface SettlementPayoutDestination {
+  bankName: string;
+  accountHolderName: string;
+  formattedPayoutTo: string;
+  maskedIban: string;
+  ibanNumber?: string;
+  settlementCurrency: string;
+}
 
 export interface Settlement {
   id: string;
-  hostId: string;
-  hostName: string;
-  hostEmail?: string;
-  hostAvatar?: string | null;
+  reference: string;
+  host: SettlementHost;
+  settlementAmount: number;
+  formattedSettlementAmount?: string;
+  currency: string;
+  subtotal?: number;
+  serviceFee?: number;
+  taxes?: number;
+  grossAmount?: number;
+  totalPayable?: number;
+  period?: { startDate: string; endDate: string; formattedPeriod: string };
+  bookingsCount?: number;
+  experienceBookingsCount?: number;
+  totalBookingsCount?: number;
+  amountSubtitle?: string;
+  payoutDestination?: SettlementPayoutDestination | null;
+  status: SettlementStatus;
+  declineReason?: string | null;
+  releasedAt?: string | null;
+  declinedAt?: string | null;
+  createdAt?: string;
+}
+
+export interface SettlementStayLine {
+  bookingId: string;
+  guestName: string;
+  propertyTitle: string;
+  checkInDate: string;
+  checkOutDate: string;
+  nights: number;
+  settlementAmount: number;
+  currency: string;
+  serviceFee?: number;
+  taxes?: number;
+  totalPayable?: number;
+}
+
+export interface SettlementExperienceLine {
+  bookingId: string;
+  guestName: string;
+  experienceTitle: string;
+  date: string;
+  timeSlot: string;
+  guestCount: number;
+  settlementAmount: number;
+  currency: string;
+  serviceFee?: number;
+  taxes?: number;
+  totalPayable?: number;
+}
+
+export interface SettlementDetail extends Settlement {
+  stayBookings?: SettlementStayLine[];
+  experienceBookings?: SettlementExperienceLine[];
+  releaseNotes?: string | null;
+  releaseTransactionRef?: string | null;
+  releasedByName?: string | null;
+  declinedByName?: string | null;
+}
+
+export interface SettlementMetricCard {
   amount: number;
   currency: string;
+  count: number;
   bookingsCount: number;
-  periodStart: string; // ISO date
-  periodEnd: string; // ISO date
-  payoutDestination?: string; // masked, e.g. "Emirates NBD •••• 4821"
-  status: SettlementStatus;
-  requestedAt: string; // ISO
-  processedAt?: string | null;
-  rejectionReason?: string | null;
+  experienceBookingsCount: number;
+  totalBookingsCount: number;
+}
+
+export interface SettlementStats {
+  awaitingSettlement: SettlementMetricCard;
+  paidOutThisMonth: SettlementMetricCard;
+  declined: { count: number; bookingsCount: number; experienceBookingsCount: number; totalBookingsCount: number };
+  tabCounts: { pending: number; paidOut: number; declined: number };
+}
+
+export interface SettlementListResult {
+  items: Settlement[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface ListSettlementsParams {
+  // Currency to convert amounts to — the user's saved currency.
+  currency?: string;
   status?: SettlementStatus;
   search?: string;
+  page?: number;
+  limit?: number;
 }
 
-const USE_SAMPLE_DATA = true;
+// Every settlement call sends `currency` (required on stats / detail): the
+// caller's value, else the saved currency, else AED.
+const currencyParam = (override?: string) => (override || getPreferredCurrency() || 'AED').toUpperCase();
 
-// Fill in once the backend exposes settlements.
-const ENDPOINTS = {
-  list: '/admin/settlements',
-  approve: (id: string) => `/admin/settlements/${id}/approve`,
-  reject: (id: string) => `/admin/settlements/${id}/reject`,
-};
+const unwrap = <T,>(data: ApiSuccessEnvelope<T> | T): T =>
+  (data && typeof data === 'object' && 'data' in (data as object) ? (data as ApiSuccessEnvelope<T>).data : data) as T;
 
-// ---------------------------------------------------------------------------
-// Sample data (in-memory; resets on page reload)
-// ---------------------------------------------------------------------------
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
+// Settlement `amount` and `settlementAmount` are the same net figure.
+const normalize = <T extends Settlement>(raw: T & { amount?: number }, currency?: string): T => ({
+  ...raw,
+  settlementAmount: typeof raw.settlementAmount === 'number' ? raw.settlementAmount : raw.amount ?? 0,
+  currency: raw.currency || currencyParam(currency),
+});
 
-let sampleSettlements: Settlement[] = [
-  { id: 'stl-1001', hostId: 'h1', hostName: 'Ahmed Al Mansouri', hostEmail: 'ahmed@example.com', amount: 18450, currency: 'AED', bookingsCount: 7, periodStart: daysAgo(37), periodEnd: daysAgo(7), payoutDestination: 'Emirates NBD •••• 4821', status: 'pending', requestedAt: daysAgo(1) },
-  { id: 'stl-1002', hostId: 'h2', hostName: 'Sarah Wilson', hostEmail: 'sarah@example.com', amount: 9620.5, currency: 'AED', bookingsCount: 4, periodStart: daysAgo(37), periodEnd: daysAgo(7), payoutDestination: 'ADCB •••• 1190', status: 'pending', requestedAt: daysAgo(2) },
-  { id: 'stl-1003', hostId: 'h3', hostName: 'Tariq Al-Hashimi', hostEmail: 'tariq@example.com', amount: 32100, currency: 'AED', bookingsCount: 11, periodStart: daysAgo(37), periodEnd: daysAgo(7), payoutDestination: 'Mashreq •••• 7734', status: 'pending', requestedAt: daysAgo(2) },
-  { id: 'stl-1004', hostId: 'h4', hostName: 'Fatima Rashid', hostEmail: 'fatima@example.com', amount: 4275, currency: 'AED', bookingsCount: 2, periodStart: daysAgo(37), periodEnd: daysAgo(7), payoutDestination: 'FAB •••• 3302', status: 'pending', requestedAt: daysAgo(4) },
-  { id: 'stl-0991', hostId: 'h1', hostName: 'Ahmed Al Mansouri', hostEmail: 'ahmed@example.com', amount: 15980, currency: 'AED', bookingsCount: 6, periodStart: daysAgo(67), periodEnd: daysAgo(37), payoutDestination: 'Emirates NBD •••• 4821', status: 'approved', requestedAt: daysAgo(33), processedAt: daysAgo(31) },
-  { id: 'stl-0988', hostId: 'h5', hostName: 'James Chen', hostEmail: 'james@example.com', amount: 2140, currency: 'AED', bookingsCount: 1, periodStart: daysAgo(67), periodEnd: daysAgo(37), payoutDestination: 'RAKBANK •••• 0056', status: 'rejected', requestedAt: daysAgo(34), processedAt: daysAgo(32), rejectionReason: 'Payout destination IBAN could not be verified.' },
-];
-
-const delay = <T,>(value: T) => new Promise<T>(resolve => setTimeout(() => resolve(value), 350));
-
-// ---------------------------------------------------------------------------
-// API
-// ---------------------------------------------------------------------------
-export async function listSettlements(params: ListSettlementsParams = {}): Promise<Settlement[]> {
-  if (!USE_SAMPLE_DATA) {
-    const { data } = await apiClient.get<ApiSuccessEnvelope<Settlement[] | { data: Settlement[] }>>(ENDPOINTS.list, { params });
-    const body = data.data;
-    return Array.isArray(body) ? body : body?.data ?? [];
-  }
-  const term = params.search?.trim().toLowerCase();
-  return delay(
-    sampleSettlements
-      .filter(s => !params.status || s.status === params.status)
-      .filter(s => !term || s.hostName.toLowerCase().includes(term) || (s.hostEmail ?? '').toLowerCase().includes(term) || s.id.toLowerCase().includes(term))
-      .sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)),
-  );
+export async function listSettlements(
+  params: ListSettlementsParams = {},
+  scope: 'admin' | 'host' = 'admin',
+): Promise<SettlementListResult> {
+  const url = scope === 'host' ? API_ENDPOINTS.settlements.hostList : API_ENDPOINTS.settlements.list;
+  const currency = currencyParam(params.currency);
+  const { data } = await apiClient.get<ApiSuccessEnvelope<SettlementListResult>>(url, {
+    params: { ...params, search: params.search || undefined, currency },
+  });
+  const body = unwrap(data) as Partial<SettlementListResult> & { data?: Settlement[] };
+  const items = (body.items ?? body.data ?? []).map(item => normalize(item, currency));
+  return {
+    items,
+    page: body.page ?? params.page ?? 1,
+    limit: body.limit ?? params.limit ?? items.length,
+    total: body.total ?? items.length,
+    totalPages: body.totalPages ?? 1,
+  };
 }
 
-export async function approveSettlement(id: string): Promise<void> {
-  if (!USE_SAMPLE_DATA) {
-    await apiClient.patch(ENDPOINTS.approve(id));
-    return;
-  }
-  sampleSettlements = sampleSettlements.map(s =>
-    s.id === id ? { ...s, status: 'approved', processedAt: new Date().toISOString(), rejectionReason: null } : s,
-  );
-  await delay(undefined);
+export async function getSettlementStats(currency?: string): Promise<SettlementStats> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<SettlementStats>>(API_ENDPOINTS.settlements.stats, {
+    params: { currency: currencyParam(currency) },
+  });
+  return unwrap(data);
 }
 
-export async function rejectSettlement(id: string, reason: string): Promise<void> {
-  if (!USE_SAMPLE_DATA) {
-    await apiClient.patch(ENDPOINTS.reject(id), { reason });
-    return;
-  }
-  sampleSettlements = sampleSettlements.map(s =>
-    s.id === id ? { ...s, status: 'rejected', processedAt: new Date().toISOString(), rejectionReason: reason } : s,
-  );
-  await delay(undefined);
+export async function getSettlementDetail(id: string, scope: 'admin' | 'host' = 'admin', currency?: string): Promise<SettlementDetail> {
+  const url = scope === 'host' ? API_ENDPOINTS.settlements.hostById(id) : API_ENDPOINTS.settlements.byId(id);
+  const cur = currencyParam(currency);
+  const { data } = await apiClient.get<ApiSuccessEnvelope<SettlementDetail>>(url, {
+    params: { currency: cur },
+  });
+  return normalize(unwrap(data), cur);
 }
 
-export const isUsingSampleSettlements = USE_SAMPLE_DATA;
+export async function releaseSettlement(id: string, body: { transactionReference?: string; notes?: string }): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.settlements.release(id), {
+    ...(body.transactionReference?.trim() ? { transactionReference: body.transactionReference.trim() } : {}),
+    ...(body.notes?.trim() ? { notes: body.notes.trim() } : {}),
+  });
+}
+
+export async function declineSettlement(id: string, reason: string): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.settlements.decline(id), { reason });
+}
+
+export async function generateSettlementBatch(body: { startDate?: string; endDate?: string; cutoffDate?: string; hostId?: string }): Promise<void> {
+  await apiClient.post(API_ENDPOINTS.settlements.generateBatch, body);
+}

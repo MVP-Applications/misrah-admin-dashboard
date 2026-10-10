@@ -58,6 +58,7 @@ import {
 } from '../../features/experienceBookings/api';
 import type { ExperienceBookingDetail, ExperienceBookingListItem } from '../../features/experienceBookings/types';
 import { listBookingStatuses, listExperienceBookingStatuses } from '../../features/enums/api';
+import { displayCurrency } from '../../utils/money';
 import type { EnumOption } from '../../api/types';
 import { GuestContactModals } from './GuestContactModals';
 import { ExperienceBookingManageView } from './ExperienceBookingManageView';
@@ -1220,7 +1221,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                     <td className="px-6 py-4 text-xs font-medium text-primary">{booking.checkIn}</td>
                     <td className="px-6 py-4 text-xs font-medium text-primary">{booking.checkOut}</td>
                     <td className="px-6 py-4 text-xs font-bold text-center text-primary">{booking.guests}</td>
-                    <td className="px-6 py-4 text-base font-sans font-bold italic text-accent">{booking.total.toLocaleString()} AED</td>
+                    <td className="px-6 py-4 text-base font-sans font-bold italic text-accent">{booking.total.toLocaleString()} {displayCurrency(booking.currency)}</td>
                     <td className="px-6 py-4 text-center">
                       <Badge variant={STATUS_BADGE_VARIANT[booking.status]}>
                         {booking.status}

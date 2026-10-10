@@ -4,6 +4,7 @@ import { assertResponseShape } from './assertShape';
 import { API_ENDPOINTS } from './endpoints';
 import { getPreferredCurrency, routeAcceptsCurrency } from './currency';
 import { getCurrentLanguage } from '../i18n/LanguageContext';
+import { getDeviceHeaders } from './deviceInfo';
 import * as tokenStorage from '../features/auth/tokenStorage';
 import type { ApiError, ApiErrorResponse, ApiSuccessEnvelope } from './types';
 
@@ -24,6 +25,10 @@ apiClient.interceptors.request.use((config) => {
   }
   // UI language, so the backend can localize (name.en / name.ar) if it supports it.
   config.headers.set('Accept-Language', getCurrentLanguage());
+  // Device headers for the Authenticated Sessions list — auth calls only.
+  if (isAuthSessionRequest(config.url)) {
+    for (const [name, value] of Object.entries(getDeviceHeaders())) config.headers.set(name, value);
+  }
   // Preferred currency on every price-bearing route (see ./currency.ts),
   // unless the caller passed one explicitly.
   const currency = getPreferredCurrency();
@@ -35,6 +40,22 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Requests that create / renew / end a session — where device info matters.
+const AUTH_SESSION_PATHS = [
+  API_ENDPOINTS.admin.auth.login,
+  API_ENDPOINTS.admin.auth.refresh,
+  API_ENDPOINTS.admin.auth.logout,
+  API_ENDPOINTS.host.auth.login,
+  API_ENDPOINTS.host.auth.refresh,
+  '/host/auth/otp/login',
+  API_ENDPOINTS.auth.autologin,
+];
+function isAuthSessionRequest(url: string | undefined): boolean {
+  if (!url) return false;
+  const path = url.replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+  return AUTH_SESSION_PATHS.includes(path);
+}
 
 function normalizeError(error: unknown): ApiError {
   if (axios.isAxiosError(error)) {
@@ -83,7 +104,7 @@ async function refreshAccessToken(): Promise<string> {
   const response = await axios.post(
     `${env.API_BASE_URL}${refreshUrl}`,
     { refresh_token },
-    { headers: { 'x-api-key': env.API_KEY, 'Content-Type': 'application/json' } },
+    { headers: { 'x-api-key': env.API_KEY, 'Content-Type': 'application/json', ...getDeviceHeaders() } },
   );
   // Confirmed live: success responses are wrapped in { success, message, data,
   // timestamp, responseTime } — unwrap .data. Inner field names are inferred

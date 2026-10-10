@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { 
   Sparkles, 
   Search, 
@@ -29,35 +29,23 @@ import {
   Minus,
   Plus
 } from 'lucide-react';
-import { Property, PriceType, Booking } from '../../types';
+import { Property, PriceType } from '../../types';
 import { listAllExperiences, listExperienceCategories } from '../../features/experiences/api';
 import { apiExperienceToViewModel } from '../../features/experiences/mappers';
 import type { ApiExperienceCategory } from '../../features/experiences/types';
 import type { ExperienceRow } from '../../features/experiences/mappers';
 
 const PAGE_SIZE = 12;
-import { Badge } from '../ui/Badge';
 
 interface ExploreExperiencesViewProps {
   onOpenMobilePreview?: (propertyId?: string, activityId?: string) => void;
-  onAddBooking?: (booking: Booking) => void;
 }
 
 export const ExploreExperiencesView = ({
-  onOpenMobilePreview,
-  onAddBooking
+  onOpenMobilePreview
 }: ExploreExperiencesViewProps) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedActivity, setSelectedActivity] = useState<(ExperienceRow & { property: Property }) | null>(null);
-  const [activePropertyForBooking, setActivePropertyForBooking] = useState<Property | null>(null);
-  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [bookingSuccess, setBookingSuccess] = useState(false);
-  const [bookingDate, setBookingDate] = useState('2026-09-20');
-  const [bookingSlot, setBookingSlot] = useState('Evening (19:00 - 21:00)');
-  const [bookingGuests, setBookingGuests] = useState(1);
-  const [bookingAddonIds, setBookingAddonIds] = useState<string[]>([]);
-  const [bookingRequests, setBookingRequests] = useState('');
 
   // Live catalog — GET /experience/all?page&limit&search&categoryId, shared by admin & host.
   type ExploreExperience = ExperienceRow & { property: Property };
@@ -95,7 +83,7 @@ export const ExploreExperiencesView = ({
         if (cancelled) return;
         setExperiences(res.data.map(item => {
           const row = apiExperienceToViewModel(item);
-          // The booking modal below expects a property — build it from the row.
+          // Cards show "at {property} ({city})" — build a property from the row.
           const property = { id: row.propertyId, name: row.propertyName, city: row.propertyCity, image: row.propertyImage } as Property;
           return { ...row, property };
         }));
@@ -119,47 +107,6 @@ export const ExploreExperiencesView = ({
     hourly: { en: '/ hour', ar: 'بالساعة' },
     fixed: { en: 'total', ar: 'شامل' }
   };
-
-  const handleBookExperience = (activity: ExploreExperience) => {
-    setSelectedActivity(activity);
-    setActivePropertyForBooking(activity.property);
-    const slots = (activity.timeSlots && activity.timeSlots.length > 0)
-      ? activity.timeSlots
-      : ['10:00 - 12:00', '16:00 - 18:00', '19:00 - 21:00'];
-    setBookingSlot(slots[0]);
-    setBookingGuests(Math.max(1, activity.minGuests || 1));
-    setBookingAddonIds([]);
-    setBookingRequests('');
-    setIsBookingModalOpen(true);
-  };
-
-  // Live total for the reserve modal: base price by the experience's
-  // priceType, plus each selected add-on by its own pricing model.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const hours = selectedActivity?.durationHours || 1;
-  const unitTotal = (price: number, model: string | undefined) =>
-    model === 'per_person' ? price * bookingGuests : model === 'hourly' ? price * hours : price;
-  const selectedAddons = (selectedActivity?.addons ?? []).filter(a => bookingAddonIds.includes(a.id));
-  const baseTotal = selectedActivity ? round2(unitTotal(selectedActivity.price, selectedActivity.priceType)) : 0;
-  const addonsTotal = round2(selectedAddons.reduce((sum, a) => sum + unitTotal(a.price, a.priceType ?? 'fixed'), 0));
-  // Booking fee formula (shared with the backend):
-  //   subtotal = base price + add-ons total
-  //   service fee = 10% of subtotal, tax fee = 5% of subtotal
-  //   total payable = subtotal + service fee + tax fee - discount
-  // No promo code is applied in this modal, so discount is 0.
-  const SERVICE_FEE_RATE = 0.1;
-  const TAX_FEE_RATE = 0.05;
-  const subtotal = round2(baseTotal + addonsTotal);
-  const serviceFee = round2(subtotal * SERVICE_FEE_RATE);
-  const taxFee = round2(subtotal * TAX_FEE_RATE);
-  const discount = 0;
-  const bookingTotal = round2(subtotal + serviceFee + taxFee - discount);
-  const bookingCurrency = selectedActivity?.currency || 'AED';
-  const minGuests = Math.max(1, selectedActivity?.minGuests || 1);
-  const maxGuests = Math.max(minGuests, selectedActivity?.maxGuests || minGuests);
-  const toggleAddon = (id: string) =>
-    setBookingAddonIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
-  const formatMoney = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <motion.div 
@@ -325,7 +272,7 @@ export const ExploreExperiencesView = ({
                   )}
                 </div>
 
-                {/* Price & CTA */}
+                {/* Price */}
                 <div className="pt-4 border-t border-border-misrah/60 flex items-center justify-between">
                   <div>
                     <span className="text-[9px] font-black uppercase tracking-wider text-muted-text block">Experience Price</span>
@@ -337,14 +284,6 @@ export const ExploreExperiencesView = ({
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleBookExperience(exp)}
-                    className="px-5 py-2.5 rounded-2xl bg-primary text-accent hover:opacity-90 text-xs font-black uppercase tracking-wider shadow-sm hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5"
-                  >
-                    <span>Reserve</span>
-                    <ChevronRight size={14} />
-                  </button>
                 </div>
               </div>
             </div>
@@ -374,286 +313,6 @@ export const ExploreExperiencesView = ({
         </div>
       )}
 
-      {/* Instant Experience Booking Modal */}
-      <AnimatePresence>
-        {isBookingModalOpen && selectedActivity && activePropertyForBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsBookingModalOpen(false)}
-              className="absolute inset-0 bg-primary/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-[40px] w-full max-w-lg p-8 relative z-10 shadow-luxury space-y-6 max-h-[85vh] overflow-y-auto"
-            >
-              {!bookingSuccess ? (
-                <>
-                  <div className="flex items-center justify-between pb-4 border-b border-border-misrah">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-accent">Instant Experience Reservation</span>
-                      <h3 className="text-xl font-black italic text-primary uppercase mt-0.5">{selectedActivity.title}</h3>
-                    </div>
-                    <button 
-                      type="button" 
-                      onClick={() => setIsBookingModalOpen(false)}
-                      className="w-8 h-8 rounded-full bg-surface hover:bg-border-misrah flex items-center justify-center text-primary"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="p-4 bg-surface rounded-2xl border border-border-misrah flex items-center gap-4">
-                      <img 
-                        src={selectedActivity.images?.[0] || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80'} 
-                        alt={selectedActivity.title} 
-                        className="w-16 h-16 rounded-xl object-cover shrink-0"
-                      />
-                      <div>
-                        <span className="text-[10px] font-black text-accent uppercase">{selectedActivity.categoryName}</span>
-                        <h4 className="text-sm font-black text-primary">{selectedActivity.title}</h4>
-                        <p className="text-[11px] text-muted-text">At {activePropertyForBooking.name} ({activePropertyForBooking.city})</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="p-3 bg-surface rounded-xl border border-border-misrah">
-                        <span className="text-[9px] font-black uppercase text-muted-text block mb-1">Duration</span>
-                        <span className="font-bold text-primary">{selectedActivity.duration}</span>
-                      </div>
-                      <div className="p-3 bg-surface rounded-xl border border-border-misrah">
-                        <span className="text-[9px] font-black uppercase text-muted-text block mb-1">Price Rate</span>
-                        <span className="font-black text-accent">{bookingCurrency} {formatMoney(selectedActivity.price)} {priceTypeLabels[selectedActivity.priceType]?.en}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Preferred Date & Time</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <input 
-                          type="date" 
-                          value={bookingDate} 
-                          onChange={e => setBookingDate(e.target.value)}
-                          className="p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent" 
-                        />
-                        <select 
-                          value={bookingSlot}
-                          onChange={e => setBookingSlot(e.target.value)}
-                          className="p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
-                        >
-                          {((selectedActivity.timeSlots && selectedActivity.timeSlots.length > 0)
-                            ? selectedActivity.timeSlots
-                            : ['10:00 - 12:00', '16:00 - 18:00', '19:00 - 21:00']).map(slot => (
-                            <option key={slot} value={slot}>{slot}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Guest Count</label>
-                      <div className="flex items-center justify-between p-3 bg-surface border border-border-misrah rounded-xl">
-                        <span className="text-[11px] text-muted-text font-bold">{minGuests === maxGuests ? `${minGuests} guest${minGuests === 1 ? '' : 's'}` : `${minGuests} – ${maxGuests} guests`}</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setBookingGuests(g => Math.max(minGuests, g - 1))}
-                            disabled={bookingGuests <= minGuests}
-                            className="w-8 h-8 rounded-lg bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <span className="w-6 text-center text-sm font-black text-primary">{bookingGuests}</span>
-                          <button
-                            type="button"
-                            onClick={() => setBookingGuests(g => Math.min(maxGuests, g + 1))}
-                            disabled={bookingGuests >= maxGuests}
-                            className="w-8 h-8 rounded-lg bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {(selectedActivity.addons?.length ?? 0) > 0 && (
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Add-ons</label>
-                        <div className="space-y-2">
-                          {selectedActivity.addons!.map(addon => {
-                            const checked = bookingAddonIds.includes(addon.id);
-                            return (
-                              <button
-                                key={addon.id}
-                                type="button"
-                                onClick={() => toggleAddon(addon.id)}
-                                className={`w-full p-3 rounded-xl border flex items-center gap-3 text-left transition-colors ${checked ? 'bg-accent/5 border-accent' : 'bg-surface border-border-misrah hover:border-accent/40'}`}
-                              >
-                                <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${checked ? 'bg-accent border-accent text-white' : 'bg-white border-border-misrah'}`}>
-                                  {checked && <Check size={12} />}
-                                </span>
-                                <span className="flex-1 min-w-0">
-                                  <span className="block text-xs font-bold text-primary truncate">{addon.title}</span>
-                                  {addon.description && <span className="block text-[10px] text-muted-text truncate">{addon.description}</span>}
-                                </span>
-                                <span className="text-[11px] font-black text-accent shrink-0">
-                                  {bookingCurrency} {formatMoney(addon.price)}
-                                  <span className="text-[9px] font-normal text-muted-text ml-1">
-                                    {addon.priceType === 'per_person' ? '/ person' : addon.priceType === 'hourly' ? '/ hour' : 'fixed'}
-                                  </span>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block">Special Requests</label>
-                      <textarea
-                        value={bookingRequests}
-                        onChange={e => setBookingRequests(e.target.value)}
-                        rows={3}
-                        maxLength={500}
-                        placeholder="Dietary needs, accessibility, celebrations..."
-                        className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-medium text-primary outline-none focus:border-accent resize-none"
-                      />
-                    </div>
-
-                    <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 space-y-3 text-xs">
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-muted-text font-bold">
-                          <span>
-                            Experience
-                            {selectedActivity.priceType === 'per_person' && ` (${formatMoney(selectedActivity.price)} × ${bookingGuests} guest${bookingGuests === 1 ? '' : 's'})`}
-                            {selectedActivity.priceType === 'hourly' && ` (${formatMoney(selectedActivity.price)} × ${hours}h)`}
-                          </span>
-                          <span className="text-primary">{bookingCurrency} {formatMoney(baseTotal)}</span>
-                        </div>
-                        {selectedAddons.map(addon => (
-                          <div key={addon.id} className="flex justify-between text-muted-text font-bold">
-                            <span className="truncate pr-3">
-                              {addon.title}
-                              {addon.priceType === 'per_person' && ` (× ${bookingGuests})`}
-                              {addon.priceType === 'hourly' && ` (× ${hours}h)`}
-                            </span>
-                            <span className="text-primary shrink-0">{bookingCurrency} {formatMoney(unitTotal(addon.price, addon.priceType ?? 'fixed'))}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="pt-3 border-t border-primary/10 space-y-1.5">
-                        <div className="flex justify-between text-muted-text font-bold">
-                          <span>Subtotal</span>
-                          <span className="text-primary">{bookingCurrency} {formatMoney(subtotal)}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-text font-bold">
-                          <span>Service Fee (10%)</span>
-                          <span className="text-primary">{bookingCurrency} {formatMoney(serviceFee)}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-text font-bold">
-                          <span>Tax Fee (5%)</span>
-                          <span className="text-primary">{bookingCurrency} {formatMoney(taxFee)}</span>
-                        </div>
-                        {discount > 0 && (
-                          <div className="flex justify-between text-emerald-600 font-bold">
-                            <span>Discount</span>
-                            <span>− {bookingCurrency} {formatMoney(discount)}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="pt-3 border-t border-primary/10 flex justify-between items-center">
-                        <div>
-                          <span className="text-muted-text font-bold">Total Estimated:</span>
-                          <p className="text-lg font-black italic text-primary">{bookingCurrency} {formatMoney(bookingTotal)}</p>
-                        </div>
-                        <Badge variant="green">Instant Confirmation</Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsBookingModalOpen(false)}
-                      className="flex-1 py-3.5 rounded-2xl border border-border-misrah text-xs font-black uppercase tracking-wider text-primary hover:bg-surface"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onAddBooking && activePropertyForBooking && selectedActivity) {
-                          const newExpBooking: Booking = {
-                            id: `b-exp-${Date.now()}`,
-                            guestName: 'Zayed Al Qasimi',
-                            guestAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&q=80',
-                            guestPhone: '+971 50 888 1234',
-                            guestEmail: 'zayed@masara.ae',
-                            propertyName: activePropertyForBooking.name,
-                            propertyId: activePropertyForBooking.id,
-                            location: activePropertyForBooking.city,
-                            checkIn: bookingDate,
-                            checkOut: bookingDate,
-                            date: bookingDate,
-                            time: bookingSlot || (selectedActivity.timeSlots?.[0] || '10:00 - 12:00'),
-                            duration: selectedActivity.duration,
-                            guests: bookingGuests,
-                            total: bookingTotal,
-                            hostEarnings: Math.round(subtotal * 0.9),
-                            selectedAddons,
-                            addonsTotal,
-                            paymentStatus: 'Paid',
-                            status: 'Confirmed',
-                            bookingType: 'Experience',
-                            experienceName: selectedActivity.title,
-                            experienceImage: selectedActivity.images?.[0],
-                            experienceCategory: selectedActivity.categoryName,
-                            experienceEmoji: selectedActivity.categoryEmoji,
-                            specialRequests: bookingRequests.trim() || undefined
-                          };
-                          onAddBooking(newExpBooking);
-                        }
-                        setBookingSuccess(true);
-                      }}
-                      className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md"
-                    >
-                      Confirm Booking
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-6 space-y-4">
-                  <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto">
-                    <Check size={32} />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black italic text-primary uppercase">Experience Confirmed!</h3>
-                    <p className="text-xs text-muted-text max-w-sm mx-auto mt-1">
-                      Your booking for <b>{selectedActivity.title}</b> at {activePropertyForBooking.name} has been synchronized and sent to the host.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingSuccess(false);
-                      setIsBookingModalOpen(false);
-                    }}
-                    className="px-8 py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider shadow-md"
-                  >
-                    Done
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 };

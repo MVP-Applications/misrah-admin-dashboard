@@ -46,6 +46,36 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
   return mapsLoader;
 }
 
+// Geocoder call that always returns a real promise and never throws
+// synchronously. Uses the callback form: when the key is rejected or the
+// Geocoding API isn't enabled, google's geocode() can return undefined
+// instead of a promise, which crashed `.then()` callers.
+function geocodeSafe(
+  geocoder: google.maps.Geocoder | null,
+  request: google.maps.GeocoderRequest,
+): Promise<google.maps.GeocoderResult[]> {
+  return new Promise((resolve, reject) => {
+    if (!geocoder) {
+      reject({ code: 'UNAVAILABLE' });
+      return;
+    }
+    try {
+      const maybePromise = geocoder.geocode(request, (results, status) => {
+        if (status === 'OK') resolve(results ?? []);
+        else if (status === 'ZERO_RESULTS') resolve([]);
+        else reject({ code: status });
+      }) as unknown;
+      // Newer API versions also return a promise — silence its rejection,
+      // the callback above already reports the outcome.
+      if (maybePromise && typeof (maybePromise as Promise<unknown>).catch === 'function') {
+        (maybePromise as Promise<unknown>).catch(() => {});
+      }
+    } catch (err) {
+      reject({ code: 'ERROR', error: err });
+    }
+  });
+}
+
 interface SearchResult {
   address: string;
   location: LatLng;
@@ -140,9 +170,8 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
   useEffect(() => {
     if (!mapReady || !cityQuery || value || !geocoderRef.current) return;
     let cancelled = false;
-    geocoderRef.current
-      .geocode({ address: cityQuery })
-      .then(({ results: found }) => {
+    geocodeSafe(geocoderRef.current, { address: cityQuery })
+      .then(found => {
         const loc = found[0]?.geometry.location;
         if (!cancelled && loc && mapRef.current) {
           mapRef.current.setCenter(loc);
@@ -166,9 +195,8 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
     let cancelled = false;
     setResolvingAddress(true);
     const t = window.setTimeout(() => {
-      geocoderRef.current!
-        .geocode({ location: value })
-        .then(({ results: found }) => {
+      geocodeSafe(geocoderRef.current, { location: value })
+        .then(found => {
           if (cancelled) return;
           const address = found[0]?.formatted_address ?? '';
           setResolvedAddress(address || null);
@@ -192,7 +220,7 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
     setSearching(true);
     setSearchError(null);
     try {
-      const { results: found } = await geocoderRef.current.geocode({ address: q, region: 'ae' });
+      const found = await geocodeSafe(geocoderRef.current, { address: q, region: 'ae' });
       const list = found.slice(0, 5).map(r => ({
         address: r.formatted_address,
         location: { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() },
@@ -203,8 +231,8 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
       const code = (err as { code?: string })?.code;
       setResults([]);
       setSearchError(
-        code === 'ZERO_RESULTS'
-          ? 'No places found for that search.'
+        code === 'REQUEST_DENIED'
+          ? 'Location search is unavailable — enable the Geocoding API for this Google key. You can still click the map to place the pin.'
           : 'Location search failed. Make sure the Geocoding API is enabled for this key, or click the map to place the pin.',
       );
     } finally {

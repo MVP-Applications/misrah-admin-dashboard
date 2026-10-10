@@ -1,4 +1,5 @@
 import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
+import { getPreferredCurrency } from '../../api/currency';
 import type { ActivityAddon, ActivityExperience } from '../../types';
 import type { ApiExperienceListItem } from './types';
 
@@ -117,7 +118,7 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     // display-oriented ActivityExperience view-model.
     duration: formatDuration(toNumber(item.duration)),
     durationHours: toNumber(item.duration),
-    currency: toText(item.currency) || 'AED',
+    currency: toText(item.currency) || getPreferredCurrency() || 'AED',
     minGuests: toNumber(item.minGuests, 1),
     maxGuests: toNumber(item.maxGuests, 1),
     // No separate status enum is confirmed on the wire — only `isActive`

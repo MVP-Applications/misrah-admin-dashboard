@@ -12,27 +12,54 @@ const STATUS_TO_VIEW_MODEL: Record<ApiPropertyListItem['status'], NonNullable<Pr
 // Keeps the frontend's flat Property view-model unchanged so every existing
 // card/list/detail renderer keeps working as-is — only this function needs to
 // know about the backend's real (nested, differently-cased) shape.
+// Plain text from a value that may be a string, a localized { en, ar }
+// object, or a populated document with a name.
+const asText = (v: unknown, fallback = ''): string => {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    if (typeof o.en === 'string') return o.en;
+    if (o.name !== undefined) return asText(o.name, fallback);
+    if (typeof o.title === 'string') return o.title;
+  }
+  return fallback;
+};
+
+const asNumber = (v: unknown, fallback = 0): number => {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+};
+
 export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
+  // Defensive: list items have been seen with populated / localized fields,
+  // and a missing pricing block must not crash the whole page.
+  const raw = doc as unknown as Record<string, any>;
   return {
     id: doc._id,
-    name: doc.title,
-    city: doc.city?.name ?? 'Unknown',
-    type: doc.propertyType,
+    name: asText(doc.title, 'Untitled property'),
+    city: asText(doc.city?.name ?? raw.cityId, 'Unknown'),
+    type: asText(doc.propertyType),
     rating: doc.avgRating ?? 0,
     load: doc.load === null || doc.load === undefined || doc.load === '' || !Number.isFinite(Number(doc.load)) ? null : Number(doc.load),
     reviews: doc.reviewCount ?? 0,
-    price: doc.pricing.basePrice,
-    beds: doc.beds,
-    baths: doc.bathrooms,
+    price: asNumber(doc.pricing?.basePrice),
+    currency: doc.pricing?.currency ? asText(doc.pricing.currency).toUpperCase() : undefined,
+    beds: asNumber(doc.beds),
+    baths: asNumber(doc.bathrooms),
     image: doc.images?.[0]?.fullUrl ?? FALLBACK_IMAGE_URL,
     active: doc.isActive ?? true,
     hostId: doc.owner?._id ?? doc.userId,
-    hostName: doc.owner?.name,
-    description: doc.description,
+    hostName: doc.owner?.name !== undefined ? asText(doc.owner.name) : undefined,
+    description: asText(doc.description),
     isFeatured: false,
     // Case-insensitive — tolerate PENDING/APPROVED/REJECTED as well.
     status: STATUS_TO_VIEW_MODEL[String(doc.status ?? '').toLowerCase() as ApiPropertyListItem['status']],
-    rejectionReason: doc.rejectionReason,
+    rejectionReason: doc.rejectionReason !== undefined && doc.rejectionReason !== null ? asText(doc.rejectionReason) : undefined,
+    // ISO "2026-10-09T00:00:00.000Z" → "2026-10-09" (the UTC calendar day).
+    availableForever: raw.availableForever === undefined ? undefined : raw.availableForever !== false,
+    availabilityStart: typeof raw.startDate === 'string' ? raw.startDate.slice(0, 10) : null,
+    availabilityEnd: typeof raw.endDate === 'string' ? raw.endDate.slice(0, 10) : null,
   };
 }
 
@@ -52,7 +79,21 @@ export function viewModelPartialToUpdateRequest(updates: Partial<Property>): Upd
   if (updates.baths !== undefined) payload.bathrooms = updates.baths;
   if (updates.active !== undefined) payload.isActive = updates.active;
   if (updates.price !== undefined) {
-    payload.pricing = { basePrice: updates.price, weekdayPrice: updates.price, weekendPrice: updates.price };
+    // The edited price is in the currency the property was shown in (the API
+    // converts to the user's preferred currency) — send it so it's stored right.
+    payload.pricing = {
+      basePrice: updates.price,
+      weekdayPrice: updates.price,
+      weekendPrice: updates.price,
+      ...(updates.currency ? { currency: updates.currency } : {}),
+    };
+  }
+  // Availability: "YYYY-MM-DD" → start / end of that UTC day. endDate is not
+  // sent when availableForever is true (per the API).
+  if (updates.availableForever !== undefined) payload.availableForever = updates.availableForever;
+  if (updates.availabilityStart) payload.startDate = `${updates.availabilityStart}T00:00:00.000Z`;
+  if (updates.availableForever === false && updates.availabilityEnd) {
+    payload.endDate = `${updates.availabilityEnd}T23:59:59.999Z`;
   }
   return payload;
 }

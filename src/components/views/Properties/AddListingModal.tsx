@@ -45,6 +45,17 @@ const CATEGORY_TO_PROPERTY_TYPE: Record<string, CreatePropertyRequest['propertyT
   Penthouse: 'PENTHOUSE',
 };
 
+// A picked calendar day (stored as a local-time ISO string) → that same
+// calendar date at 00:00:00.000Z or 23:59:59.999Z.
+const toUtcDayBoundary = (iso: string, edge: 'start' | 'end'): string => {
+  const d = new Date(iso);
+  return new Date(
+    edge === 'start'
+      ? Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
+      : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999),
+  ).toISOString();
+};
+
 interface AddListingModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -194,6 +205,10 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
       !formData.description.trim() ? { step: 5, message: `Description is required (Phase ${phaseNo(5)} · Strategic Narrative).` } :
       !formData.cityId ? { step: 2, message: `Select a city (Phase ${phaseNo(2)} · Geography Index).` } :
       !(basePrice > 0) ? { step: 4, message: `Base price per night is required (Phase ${phaseNo(4)} · Visual Inventory).` } :
+      !formData.availabilityDate
+        ? { step: 3, message: `Choose an availability start date (Phase ${phaseNo(3)} · Time Synchronization).` } :
+      !formData.availabilityForever && !formData.availabilityEndDate
+        ? { step: 3, message: `Choose an end date or turn on Available Forever (Phase ${phaseNo(3)} · Time Synchronization).` } :
       null;
     if (missing) {
       setSubmitError(missing.message);
@@ -222,6 +237,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
         pets: { allowed: false, maxPets: 0 },
         amenities: formData.amenities,
         selfCheckInAvailable: formData.selfCheckIn,
+        // Availability: the picked calendar days as UTC start / end of day,
+        // e.g. 2026-10-09T00:00:00.000Z → 2026-10-16T23:59:59.999Z.
+        availableForever: formData.availabilityForever,
+        startDate: toUtcDayBoundary(formData.availabilityDate, 'start'),
+        ...(!formData.availabilityForever && formData.availabilityEndDate
+          ? { endDate: toUtcDayBoundary(formData.availabilityEndDate, 'end') }
+          : {}),
         ...(formData.selfCheckIn && formData.selfCheckInInstruction.trim()
           ? { selfCheckInInstruction: formData.selfCheckInInstruction.trim() }
           : {}),
@@ -431,7 +453,8 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                   <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">Where is it<br />located?</h2>
                   <p className="text-muted-text text-xs mt-2">Choose the city, then pin the exact location on the map below.</p>
                 </div>
-                <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text block -mb-3">City <span className="text-accent">*</span></label>
+                <div className="space-y-2">
+                <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text block">City <span className="text-accent">*</span></label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {citiesLoading && (
                     <div className="col-span-full flex items-center justify-center gap-2 py-6 text-muted-text text-[10px] font-black uppercase tracking-widest">
@@ -458,7 +481,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                       className={`px-4 py-3 rounded-2xl border text-left transition-all
                         ${formData.cityId === city._id
                           ? 'bg-primary text-accent border-primary shadow-lg shadow-primary/10'
-                          : 'bg-[#FCFAF8]/50 border-[#F2E8DF] text-primary/70 hover:border-accent hover:text-accent'}`}
+                          : 'bg-[#FCFAF8] border-[#F2E8DF] text-primary hover:border-accent hover:bg-accent/10'}`}
                     >
                       <span className="block text-[11px] font-black uppercase tracking-[1px] truncate">{city.name}</span>
                       <span className={`block text-[9px] font-bold uppercase tracking-wider truncate ${formData.cityId === city._id ? 'text-white/50' : 'text-muted-text/60'}`}>
@@ -466,6 +489,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                       </span>
                     </button>
                   ))}
+                </div>
                 </div>
                 <LocationPicker
                   value={formData.location}
@@ -509,7 +533,19 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                   };
 
                   const pickDay = (day: Date) => {
-                    if (rangeField === 'start' || isForever) {
+                    // Clicking a selected day unselects it. Clearing the start
+                    // clears the end too and goes back to picking a start.
+                    if (startDate && isSameDay(day, startDate)) {
+                      setFormData({ ...formData, availabilityDate: '', availabilityEndDate: '' });
+                      setRangeField('start');
+                      return;
+                    }
+                    if (endDate && isSameDay(day, endDate)) {
+                      setFormData({ ...formData, availabilityEndDate: '' });
+                      setRangeField('end');
+                      return;
+                    }
+                    if (rangeField === 'start' || isForever || !startDate) {
                       setFormData({
                         ...formData,
                         availabilityDate: day.toISOString(),
@@ -673,6 +709,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
                             ? 'Tap a day to set the start date. Available forever from then on.'
                             : rangeField === 'start' ? 'Tap a day to set the start date.' : 'Tap a day to set the end date.'}
                           {!isForever && startDate && endDate && ` · ${Math.round((startOfDay(endDate).getTime() - startOfDay(startDate).getTime()) / 86400000) + 1} days`}
+                          {startDate && ' Tap a selected date again to clear it.'}
                         </p>
                         {!isForever && endDate && (
                           <button

@@ -52,7 +52,8 @@ import {
   type NotificationSettingKey,
   type NotificationSettings,
 } from '../../features/profile/api';
-import { requestPasswordReset, resetPassword } from '../../features/auth/api';
+import { requestPasswordReset, resetPassword, verifyPasswordResetOtp } from '../../features/auth/api';
+import { errorMessage } from '../../api/errors';
 import { setPreferredCurrencyCode } from '../../api/currency';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { listActiveHostingGuides, type HostingGuide } from '../../features/hostingGuide/api';
@@ -85,6 +86,7 @@ import { UserRound, Loader2 as ProfileLoader } from 'lucide-react';
 import { AppearanceNodeView } from './Profile/AppearanceNodeView';
 import { SupportChannelsView } from './Profile/SupportChannelsView';
 import { LegalFrameworkView } from './Profile/LegalFrameworkView';
+import { PaymentNodeView } from './Profile/PaymentNodeView';
 import { listSessions, logoutAllSessions, revokeSession, type AuthSession } from '../../features/auth/sessions';
 
 // Display helpers for an authenticated session row.
@@ -346,25 +348,11 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   const [copiedSecret, setCopiedSecret] = useState(false);
   const authenticatorSecret = 'JBSWY3DPEHPK3PXP';
 
-  const [payoutDestination, setPayoutDestination] = useState({
-    accountHolder: 'Ahmed al mansouri',
-    accountNumber: '•••• •••• •••• 4521',
-    iban: 'AE03 0260 0010 4521 8892 01',
-    bankName: 'ENBD Bank PLC',
-    currency: 'AED Settlements (Dirhams)',
-  });
 
   // Language state
   // UI language — app-wide (i18n/LanguageContext), switches to Arabic + RTL.
   const { t, language: selectedLanguage, setLanguage } = useLanguage();
 
-  // Payment Node: Update Destination modal
-  const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
-  // Form State for Destination Update
-  const [editBankName, setEditBankName] = useState(payoutDestination.bankName);
-  const [editAccountHolder, setEditAccountHolder] = useState(payoutDestination.accountHolder);
-  const [editIban, setEditIban] = useState(payoutDestination.iban);
-  const [editCurrency, setEditCurrency] = useState(payoutDestination.currency);
 
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
     setNotification({ message, type });
@@ -511,7 +499,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
   const hasMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
-  // Step 1: email a reset token (POST …/forgot-password { email }).
+  // Step 1: send a recovery code (POST …/forgot-password { email }).
   const handleRequestReset = async () => {
     setPasswordError('');
     setPasswordSuccess('');
@@ -524,22 +512,23 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     try {
       await requestPasswordReset(email, user.role);
       setResetStep('reset');
-      setPasswordSuccess(`We’ve emailed a reset code to ${email}.`);
+      setPasswordSuccess(`We’ve sent a verification code to ${email}.`);
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Failed to send the reset code.');
+      setPasswordError(errorMessage(err, 'Failed to send the verification code.'));
     } finally {
       setIsRequestingReset(false);
     }
   };
 
-  // Step 2: POST …/reset-password { token (from the email), newPassword }.
+  // Step 2: POST …/verify-otp { email, otp } → token, then
+  // POST …/reset-password { token, newPassword }.
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError('');
     setPasswordSuccess('');
 
     if (!resetToken.trim()) {
-      setPasswordError('Enter the reset code from your email.');
+      setPasswordError('Enter the verification code you received.');
       return;
     }
 
@@ -562,9 +551,10 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
     setIsUpdatingPassword(true);
     try {
-      await resetPassword(resetToken.trim(), newPassword, user.role);
+      const token = await verifyPasswordResetOtp(resetEmail.trim(), resetToken.trim(), user.role);
+      await resetPassword(token, newPassword, user.role);
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Failed to update your password.');
+      setPasswordError(errorMessage(err, 'Failed to update your password. Check the code and try again.'));
       setIsUpdatingPassword(false);
       return;
     }
@@ -1321,7 +1311,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                   {resetStep === 'request' ? (
                     <div className="space-y-4">
                       <p className="text-xs text-muted-text font-medium leading-relaxed">
-                        We’ll email you a reset code. Enter it in the next step together with your new password.
+                        We’ll send a verification code to your email. Enter it in the next step together with your new password.
                       </p>
                       <div className="space-y-1">
                         <label className="text-[9px] font-black uppercase tracking-widest text-muted-text block">
@@ -1341,7 +1331,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <label className="text-[9px] font-black uppercase tracking-widest text-muted-text block">
-                        Reset Code (from email):
+                        Verification Code:
                       </label>
                       <button
                         type="button"
@@ -1355,7 +1345,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                     <input
                       value={resetToken}
                       onChange={(e) => setResetToken(e.target.value.trim())}
-                      placeholder="Paste the code from your email"
+                      placeholder="Enter the code you received"
                       autoComplete="one-time-code"
                       className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-4 py-3 text-xs font-bold font-mono text-primary outline-none focus:border-accent"
                     />
@@ -1461,7 +1451,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                         className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                       >
                         {isRequestingReset ? <RefreshCw size={13} className="animate-spin" /> : <Mail size={13} />}
-                        <span>{isRequestingReset ? 'Sending...' : 'Send Reset Code'}</span>
+                        <span>{isRequestingReset ? 'Sending...' : 'Send Verification Code'}</span>
                       </button>
                     ) : (
                       <button
@@ -1485,225 +1475,10 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
   if (activeTab === 'payment') {
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setActiveTab('main')} className="w-10 h-10 rounded-xl bg-white border border-[#F2E8DF] flex items-center justify-center hover:bg-surface transition-all text-primary">
-              <ChevronRight className="rotate-180" size={20} />
-            </button>
-            <h1 className="text-2xl font-black italic text-primary uppercase">Payment Node</h1>
-          </div>
-
-          {/* Global Toast */}
-          <AnimatePresence>
-            {notification && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="bg-primary text-white border border-accent/40 px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold"
-              >
-                <CheckCircle2 size={15} className="text-accent" />
-                <span>{notification.message}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-           <div className="bg-[#1A1B2E] rounded-[48px] p-10 text-white min-h-[300px] flex flex-col justify-between relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-accent/10 rounded-full blur-3xl pointer-events-none group-hover:bg-accent/20 transition-all duration-1000" />
-              <div className="flex items-center justify-between relative z-10">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center"><Shield size={20} className="text-accent" /></div>
-                  <span className="text-[10px] font-black uppercase tracking-[3px] italic">Verified Treasury</span>
-                </div>
-                <CreditCard size={32} className="text-[#D4C3B5]/30 group-hover:text-accent transition-all duration-700" />
-              </div>
-
-              <div className="space-y-2 relative z-10">
-                 <p className="text-[9px] font-black text-[#D4C3B5] uppercase tracking-[4px]">Payout Destination</p>
-                 <h3 className="text-3xl font-black italic uppercase tracking-tighter">{payoutDestination.accountHolder}</h3>
-                 <p className="text-xl font-black text-accent tracking-[2px]">{payoutDestination.accountNumber}</p>
-              </div>
-
-              <div className="flex items-center justify-between pt-8 border-t border-white/5 relative z-10">
-                <div>
-                   <p className="text-[8px] font-black text-[#D4C3B5] uppercase tracking-[3px]">{payoutDestination.bankName}</p>
-                   <p className="text-[9px] font-bold text-white/50">{payoutDestination.currency}</p>
-                </div>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setEditBankName(payoutDestination.bankName);
-                    setEditAccountHolder(payoutDestination.accountHolder);
-                    setEditIban(payoutDestination.iban);
-                    setEditCurrency(payoutDestination.currency);
-                    setIsUpdatePaymentOpen(true);
-                  }}
-                  className="bg-white/10 hover:bg-white/20 px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-[2px] backdrop-blur-sm transition-all cursor-pointer active:scale-95"
-                >
-                  Update
-                </button>
-              </div>
-           </div>
-
-           <div className="bg-white rounded-[40px] border border-[#F2E8DF] p-10 space-y-8 shadow-sm">
-             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-success/10 text-success flex items-center justify-center"><History size={20} /></div>
-                    <div>
-                      <h3 className="text-lg font-black italic text-primary uppercase">Recent Settlements</h3>
-                      <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-0.5">Cleared payout history</p>
-                    </div>
-                </div>
-                <button className="text-[10px] font-black text-accent uppercase tracking-widest">View PDF</button>
-             </div>
-
-             <div className="space-y-2">
-                {[
-                  { date: 'Jan 15, 2026', amount: 4500, status: 'Success', node: 'ENBD-4521' },
-                  { date: 'Dec 28, 2025', amount: 9200, status: 'Success', node: 'ENBD-4521' },
-                  { date: 'Dec 12, 2025', amount: 3750, status: 'Success', node: 'ENBD-4521' },
-                ].map((p, i) => (
-                  <div key={i} className="group p-5 rounded-3xl border border-border-misrah bg-[#FCFAF8]/50 flex items-center justify-between hover:border-accent transition-all">
-                     <div>
-                       <p className="text-xs font-black italic text-primary uppercase">{p.date}</p>
-                       <p className="text-[9px] font-bold text-muted-text uppercase mt-0.5">{p.node} · BATCH-{i+450}</p>
-                     </div>
-                     <div className="text-right">
-                       <p className="text-sm font-black text-primary italic">AED {p.amount.toLocaleString()}</p>
-                       <p className="text-9px text-success font-black uppercase mt-0.5">DISBURSED</p>
-                     </div>
-                  </div>
-                ))}
-             </div>
-           </div>
-        </div>
-
-        {/* Update Destination Modal */}
-        <AnimatePresence>
-          {isUpdatePaymentOpen && (
-            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }} 
-                exit={{ opacity: 0 }}
-                onClick={() => setIsUpdatePaymentOpen(false)}
-                className="absolute inset-0 bg-primary/60 backdrop-blur-md"
-              />
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                className="relative bg-white w-full max-w-lg rounded-[40px] shadow-2xl border border-border-misrah p-8 space-y-6"
-              >
-                <div className="flex items-center justify-between pb-4 border-b border-border-misrah">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-accent/15 flex items-center justify-center text-accent">
-                      <CreditCard size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-black italic text-primary uppercase">Update Payout Destination</h3>
-                      <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">
-                        UAE Banking Rail Configuration
-                      </p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setIsUpdatePaymentOpen(false)}
-                    className="w-8 h-8 rounded-full bg-surface hover:bg-border-misrah/40 text-primary flex items-center justify-center transition-all cursor-pointer"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  const cleanIban = editIban.replace(/\s+/g, '');
-                  const last4 = cleanIban.slice(-4) || '4521';
-                  setPayoutDestination({
-                    accountHolder: editAccountHolder,
-                    accountNumber: `•••• •••• •••• ${last4}`,
-                    iban: editIban,
-                    bankName: editBankName,
-                    currency: editCurrency,
-                  });
-                  setIsUpdatePaymentOpen(false);
-                  showToast('Payout destination updated successfully');
-                }} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-primary/60 uppercase tracking-[2px]">Bank Name</label>
-                    <select 
-                      value={editBankName}
-                      onChange={(e) => setEditBankName(e.target.value)}
-                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-5 py-3 text-xs font-bold text-primary focus:border-accent outline-hidden"
-                    >
-                      <option value="ENBD Bank PLC">ENBD Bank PLC (Emirates NBD)</option>
-                      <option value="Abu Dhabi Commercial Bank (ADCB)">Abu Dhabi Commercial Bank (ADCB)</option>
-                      <option value="First Abu Dhabi Bank (FAB)">First Abu Dhabi Bank (FAB)</option>
-                      <option value="Dubai Islamic Bank (DIB)">Dubai Islamic Bank (DIB)</option>
-                      <option value="Mashreq Bank">Mashreq Bank</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-primary/60 uppercase tracking-[2px]">Account Holder Name</label>
-                    <input 
-                      type="text"
-                      value={editAccountHolder}
-                      onChange={(e) => setEditAccountHolder(e.target.value)}
-                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-5 py-3 text-xs font-bold text-primary focus:border-accent outline-hidden"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-primary/60 uppercase tracking-[2px]">IBAN Number</label>
-                    <input 
-                      type="text"
-                      value={editIban}
-                      onChange={(e) => setEditIban(e.target.value.toUpperCase())}
-                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-5 py-3 text-xs font-mono font-bold text-primary focus:border-accent outline-hidden"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-primary/60 uppercase tracking-[2px]">Settlement Currency</label>
-                    <select 
-                      value={editCurrency}
-                      onChange={(e) => setEditCurrency(e.target.value)}
-                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-5 py-3 text-xs font-bold text-primary focus:border-accent outline-hidden"
-                    >
-                      <option value="AED Settlements (Dirhams)">AED Settlements (Dirhams)</option>
-                      <option value="USD Settlements ($)">USD Settlements ($)</option>
-                      <option value="EUR Settlements (€)">EUR Settlements (€)</option>
-                    </select>
-                  </div>
-
-                  <div className="pt-4 flex items-center justify-end gap-3">
-                    <button 
-                      type="button"
-                      onClick={() => setIsUpdatePaymentOpen(false)}
-                      className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-muted-text hover:text-primary cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit"
-                      className="px-6 py-2.5 rounded-xl bg-primary text-accent font-black uppercase text-[10px] tracking-wider shadow-lg hover:opacity-95 cursor-pointer active:scale-95"
-                    >
-                      Save Destination
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-      </div>
+      <>
+        {floatingToast}
+        <PaymentNodeView role={user.role} onBack={() => setActiveTab('main')} showToast={showToast} />
+      </>
     );
   }
 

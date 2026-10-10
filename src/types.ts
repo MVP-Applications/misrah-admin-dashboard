@@ -104,6 +104,13 @@ export interface Property {
   status?: 'Pending' | 'Approved' | 'Rejected';
   rejectionReason?: string;
   activities?: ActivityExperience[];
+  // Availability window — calendar dates as "YYYY-MM-DD" (UTC day).
+  // availableForever = no end date.
+  availableForever?: boolean;
+  availabilityStart?: string | null;
+  availabilityEnd?: string | null;
+  // Currency `price` is expressed in (as returned by the API).
+  currency?: string;
 }
 
 export interface Banner {
@@ -143,6 +150,8 @@ export interface BookedExperienceItem {
 
 export interface Booking {
   id: string;
+  // Currency `total` is expressed in (as returned by the API).
+  currency?: string;
   guestName: string;
   guestAvatar: string;
   guestPhone?: string;

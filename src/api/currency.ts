@@ -22,8 +22,22 @@ export function getPreferredCurrency(): string | null {
   return preferredCurrency;
 }
 
+// Screens that show converted amounts subscribe (usePreferredCurrency) so
+// they re-fetch once the saved currency loads or the user switches it.
+const listeners = new Set<(code: string | null) => void>();
+
+export function subscribePreferredCurrency(listener: (code: string | null) => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export function setPreferredCurrencyCode(code: string | null): void {
-  preferredCurrency = code ? code.toUpperCase() : null;
+  const next = code ? code.toUpperCase() : null;
+  const changed = next !== preferredCurrency;
+  preferredCurrency = next;
+  if (changed) listeners.forEach(listener => listener(next));
   try {
     if (preferredCurrency) localStorage.setItem(STORAGE_KEY, preferredCurrency);
     else localStorage.removeItem(STORAGE_KEY);
