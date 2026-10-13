@@ -41,6 +41,9 @@ export interface ListUsersResponse {
 // settable via any admin endpoint before.
 export interface UpdateConsumerUserRequest {
   name?: string;
+  email?: string;
+  // Sets a new password — only sent when the admin types one.
+  password?: string;
   isActive?: boolean;
   canHost?: boolean;
   isSuperHost?: boolean;

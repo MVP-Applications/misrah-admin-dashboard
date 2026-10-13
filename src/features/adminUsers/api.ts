@@ -18,3 +18,14 @@ export async function updateConsumerUser(id: string, payload: UpdateConsumerUser
   );
   return assertResponseShape('update consumer user', data.data, ['_id', 'isActive']);
 }
+
+// DELETE /admin/users/consumer/{id} — removes a consumer user.
+export async function deleteConsumerUser(id: string): Promise<void> {
+  await apiClient.delete(API_ENDPOINTS.adminUsers.updateConsumer(id));
+}
+
+// PATCH /admin/users/consumer/{id} without depending on the response body —
+// for callers that reload afterwards (Users page edit).
+export async function patchConsumerUser(id: string, payload: UpdateConsumerUserRequest): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.adminUsers.updateConsumer(id), payload);
+}
