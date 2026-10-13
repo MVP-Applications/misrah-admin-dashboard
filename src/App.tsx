@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { GuestAvatar } from './components/GuestAvatar';
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Users,
   UserCog,
+  Handshake,
   Star,
   Banknote,
   HandCoins,
@@ -67,6 +68,7 @@ import { BannersModule } from './components/views/Admin/BannersModule';
 import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
 import { SettlementsModule } from './components/views/Admin/SettlementsModule';
 import { UsersModule } from './components/views/Admin/UsersModule';
+import { PartnerLeadsModule } from './components/views/Admin/PartnerLeadsModule';
 import { HostSettlementsView } from './components/views/HostSettlementsView';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
@@ -83,6 +85,7 @@ const PAGE_TITLES: Record<string, TranslationKey> = {
   '/admin/hosting': 'page.hosting',
   '/admin/elite-nodes': 'page.eliteNodes',
   '/admin/users': 'page.users',
+  '/admin/partner-leads': 'page.partnerLeads',
   '/experiences': 'page.experiences',
   '/explore-experiences': 'page.guestExplore',
   '/reviews': 'page.reviews',
@@ -165,6 +168,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} />
                 <SidebarItem icon={Home} label={t('nav.assetsQueue')} active={isHostingActive} onClick={() => navigate('/admin/hosting')} />
                 <SidebarItem icon={UserCog} label={t('nav.users')} active={location.pathname === '/admin/users'} onClick={() => navigate('/admin/users')} />
+                <SidebarItem icon={Handshake} label={t('nav.partnerLeads')} active={location.pathname === '/admin/partner-leads'} onClick={() => navigate('/admin/partner-leads')} />
               </section>
 
               <section className="space-y-1">
@@ -480,6 +484,7 @@ function AppRoutes() {
         <Route path="admin/hosting/:id" element={<ErrorBoundary label="Property"><PropertyDetailRoute user={currentUser!} /></ErrorBoundary>} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
         <Route path="admin/users" element={<ErrorBoundary label="Users"><UsersModule /></ErrorBoundary>} />
+        <Route path="admin/partner-leads" element={<ErrorBoundary label="Partner Requests"><PartnerLeadsModule /></ErrorBoundary>} />
         <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="explore-experiences" element={<ExploreExperiencesView />} />
         <Route path="reviews" element={<ErrorBoundary label="Reviews"><ReviewsView user={currentUser!} /></ErrorBoundary>} />
@@ -494,7 +499,19 @@ function AppRoutes() {
   );
 }
 
+// Public partner onboarding page — its own bundle chunk, served before (and
+// without) the auth bootstrap so the shareable /partners link opens instantly.
+const PartnerOnboardingPage = lazy(() => import('./components/views/Onboarding/PartnerOnboardingPage'));
+
 export default function App() {
+  const { pathname } = useLocation();
+  if (pathname === '/partners' || pathname.startsWith('/partners/')) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-[#0E234B]" />}>
+        <PartnerOnboardingPage />
+      </Suspense>
+    );
+  }
   return (
     <AuthProvider>
       <AppRoutes />

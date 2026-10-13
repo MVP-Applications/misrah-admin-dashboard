@@ -1,4 +1,5 @@
 import { apiClient } from '../../api/client';
+import { saveBlobResponse } from '../../api/download';
 import { assertResponseShape } from '../../api/assertShape';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
@@ -30,24 +31,9 @@ export async function downloadHostAuditReport(params: { currency: string; format
     params: { format, currency: params.currency },
     responseType: 'blob',
   });
-  const blob = response.data;
-  // A JSON body here means the server answered with an error envelope.
-  if (blob.type.includes('application/json')) {
-    const body = JSON.parse(await blob.text()) as { message?: string };
-    throw new Error(body.message || 'The audit report could not be generated.');
-  }
-  const disposition = String(response.headers['content-disposition'] ?? '');
-  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
-  const fileName = match
-    ? decodeURIComponent(match[1])
-    : `misrah-earnings-audit-${new Date().toISOString().slice(0, 10)}.${format}`;
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-  return fileName;
+  return saveBlobResponse(
+    response,
+    `misrah-earnings-audit-${new Date().toISOString().slice(0, 10)}.${format}`,
+    'The audit report could not be generated.',
+  );
 }
