@@ -1,0 +1,167 @@
+/* Partner onboarding page — converted from onboarding/styles.css + fonts.css.
+   Everything is scoped under .ob-root so none of it leaks into the dashboard.
+   Fonts are self-hosted (public/onboarding/fonts, SIL OFL) under their own
+   family names so they can't clash with the dashboard's Google-loaded Inter. */
+
+@font-face {
+  font-family: 'OB Inter';
+  src: url('/onboarding/fonts/Inter-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OB Inter';
+  src: url('/onboarding/fonts/Inter-Italic-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OB Cairo';
+  src: url('/onboarding/fonts/Cairo-Variable.ttf') format('truetype');
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Doubled class beats the dashboard's `html[lang="ar"] *` font rule. */
+.ob-root.ob-root,
+.ob-root.ob-root * {
+  font-family: 'OB Inter', 'OB Cairo', sans-serif;
+}
+.ob-root.ob-root[data-lang="ar"],
+.ob-root.ob-root[data-lang="ar"] * {
+  font-family: 'OB Cairo', 'OB Inter', sans-serif;
+  letter-spacing: 0 !important; /* breaks joined Arabic letters */
+}
+.ob-root {
+  min-height: 100vh;
+  background: #FFFFFF;
+  color: #0E234B;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes ob-pulse-slow {
+  0%, 100% { transform: scale(1.1); }
+  50% { transform: scale(1.04); }
+}
+.ob-root .ob-pulse-slow { animation: ob-pulse-slow 20s infinite ease-in-out; }
+@keyframes ob-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ob-root .ob-rise { animation: ob-rise .8s cubic-bezier(.2,.7,.2,1) both; }
+.ob-root .ob-rise-2 { animation-delay: .12s; }
+.ob-root .ob-rise-3 { animation-delay: .24s; }
+
+/* Selection chips — mirrors the app's SelectionCard states */
+.ob-root .ob-chip {
+  display: inline-flex; align-items: center; gap: .5rem;
+  height: 3rem; padding: 0 1.1rem;
+  border-radius: 1rem; border: 2px solid rgba(223,195,165,.18);
+  background: rgba(223,195,165,.07);
+  font-size: 10px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase;
+  color: rgba(14,35,75,.55);
+  transition: all .25s ease; cursor: pointer; user-select: none;
+}
+.ob-root .ob-chip:hover { border-color: rgba(223,195,165,.6); color: #0E234B; }
+.ob-root .ob-chip:active { transform: scale(.97); }
+.ob-root .ob-chip[aria-pressed="true"] {
+  border-color: #0E234B; background: rgba(14,35,75,.05); color: #0E234B;
+  box-shadow: 0 10px 20px -10px rgba(14,35,75,.35);
+}
+.ob-root .ob-chip .ob-tick {
+  width: 1.1rem; height: 1.1rem; border-radius: 9999px;
+  border: 2px solid rgba(223,195,165,.6);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .25s ease; flex-shrink: 0;
+}
+.ob-root .ob-chip[aria-pressed="true"] .ob-tick { background: #0E234B; border-color: #0E234B; }
+.ob-root .ob-chip .ob-tick svg { width: .65rem; height: .65rem; color: #DFC3A5; opacity: 0; }
+.ob-root .ob-chip[aria-pressed="true"] .ob-tick svg { opacity: 1; }
+
+.ob-root .ob-type-card {
+  display: flex; flex-direction: column; align-items: flex-start; text-align: start;
+  padding: 1.1rem; border-radius: 1.5rem;
+  border: 2px solid rgba(223,195,165,.18); background: rgba(223,195,165,.07);
+  transition: all .3s ease; cursor: pointer;
+}
+.ob-root .ob-type-card:hover { border-color: rgba(223,195,165,.6); }
+.ob-root .ob-type-card:active { transform: scale(.97); }
+.ob-root .ob-type-card .ob-ico {
+  padding: .75rem; border-radius: .9rem; background: rgba(223,195,165,.25); color: rgba(14,35,75,.55);
+  transition: all .3s ease;
+}
+.ob-root .ob-type-card[aria-pressed="true"] {
+  border-color: #0E234B; background: rgba(14,35,75,.05);
+  box-shadow: 0 18px 30px -16px rgba(14,35,75,.4);
+}
+.ob-root .ob-type-card[aria-pressed="true"] .ob-ico { background: #0E234B; color: #DFC3A5; }
+
+.ob-root .ob-field {
+  width: 100%; height: 3.5rem;
+  background: #F9FAFB; border: 1px solid #F3F4F6; border-radius: 1rem;
+  padding-block: 0; padding-inline: 3rem 1rem;
+  font-size: 13px; font-weight: 700; color: #0E234B;
+  outline: none; transition: all .2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,.03);
+}
+.ob-root .ob-field::placeholder { color: #C4C8CF; font-weight: 600; }
+.ob-root .ob-field:focus { background: #fff; border-color: #DFC3A5; }
+.ob-root .ob-field-wrap:focus-within .ob-field-ico { color: #0E234B; }
+.ob-root .ob-invalid .ob-field { border-color: #f87171; background: #fff; }
+.ob-root .ob-reveal { animation: ob-rise .35s ease both; }
+
+/* Social profiles — LinkedIn-style "add skill" picker */
+.ob-root .ob-social-ico { display: inline-flex; width: 1rem; height: 1rem; }
+.ob-root .ob-social-ico svg { width: 100%; height: 100%; }
+.ob-root .ob-social-suggest {
+  display: inline-flex; align-items: center; gap: .45rem;
+  height: 2.5rem; padding: 0 1rem; border-radius: 9999px;
+  border: 1.5px dashed rgba(14,35,75,.18); background: #fff;
+  font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(14,35,75,.6); transition: all .2s ease;
+}
+.ob-root .ob-social-suggest:hover { border-color: #DFC3A5; border-style: solid; color: #0E234B; background: rgba(223,195,165,.08); }
+.ob-root .ob-social-suggest:active { transform: scale(.97); }
+.ob-root .ob-social-suggest[aria-pressed="true"] { border-style: solid; border-color: #0E234B; color: #0E234B; }
+.ob-root .ob-social-pill {
+  display: inline-flex; align-items: center; gap: .5rem; max-width: 100%;
+  height: 2.5rem; padding-block: 0; padding-inline: .9rem .4rem; border-radius: 9999px;
+  background: #0E234B; color: #fff;
+  font-size: 12px; font-weight: 700;
+  animation: ob-rise .3s ease both;
+}
+.ob-root .ob-social-pill .ob-social-ico { color: #DFC3A5; width: .9rem; height: .9rem; flex-shrink: 0; }
+.ob-root .ob-social-pill .ob-handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-root .ob-social-pill button {
+  width: 1.75rem; height: 1.75rem; border-radius: 9999px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.6); transition: all .2s ease;
+}
+.ob-root .ob-social-pill button:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+/* About tabs */
+.ob-root .ob-tab {
+  height: 2.75rem; padding: 0 1.4rem; border-radius: .9rem;
+  font-size: 10px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(14,35,75,.55); transition: all .25s ease; white-space: nowrap;
+}
+.ob-root .ob-tab:hover { color: #0E234B; }
+.ob-root .ob-tab[aria-selected="true"] { background: #0E234B; color: #DFC3A5; box-shadow: 0 10px 20px -10px rgba(14,35,75,.45); }
+.ob-root .ob-tab-panel { animation: ob-rise .4s ease both; }
+
+/* Arabic typography: no faux italics, roomier line-height, slightly larger small text */
+.ob-root[data-lang="ar"] .italic { font-style: normal; }
+.ob-root[data-lang="ar"] h1, .ob-root[data-lang="ar"] h2, .ob-root[data-lang="ar"] h3 { line-height: 1.3; }
+.ob-root[data-lang="ar"] .text-\[9px\] { font-size: 11px; }
+.ob-root[data-lang="ar"] .text-\[10px\],
+.ob-root[data-lang="ar"] .ob-chip,
+.ob-root[data-lang="ar"] .ob-social-suggest,
+.ob-root[data-lang="ar"] .ob-tab { font-size: 12.5px; }
+.ob-root[data-lang="ar"] .text-\[11px\] { font-size: 13px; }
+.ob-root[data-lang="ar"] .text-\[13px\] { font-size: 14px; }
+/* Hero headline: a bit more room between its two lines in Arabic */
+.ob-root[data-lang="ar"] .ob-hero-title { line-height: 1.6; }

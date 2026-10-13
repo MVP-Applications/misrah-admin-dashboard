@@ -11,6 +11,16 @@ export const API_ENDPOINTS = {
   // Host Hub → Profile → Hosting Guide.
   // Generic settings documents (e.g. type=legal, key=LEGAL_FRAMEWORK).
   // GET one is readable by any signed-in user; writes are admin-only.
+  // Public partner onboarding (/partners) — POST a lead (x-api-key only, no login).
+  partnerLeads: {
+    create: '/partner-leads',
+    // Admin → Partner Requests: GET list · GET/DELETE one · PATCH status.
+    adminList: '/admin/partner-leads',
+    adminById: (id: string) => `/admin/partner-leads/${id}`,
+    adminStatus: (id: string) => `/admin/partner-leads/${id}/status`,
+    // GET (same filters as adminList) → .xlsx file.
+    adminDownload: '/admin/partner-leads/download-excel',
+  },
   // Profile → Payment Node (payout bank account). GET · POST (create) · PATCH · DELETE.
   paymentNode: {
     admin: '/admin/payment-node',

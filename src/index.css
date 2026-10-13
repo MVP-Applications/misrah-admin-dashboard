@@ -12,6 +12,11 @@
   --color-success: #10b981;
   --color-danger: #ef4444;
   --color-info: #3b82f6;
+
+  /* Partner onboarding page (/partners) palette — bg-ob-primary etc. */
+  --color-ob-primary: #0E234B;
+  --color-ob-accent: #DFC3A5;
+  --color-ob-bg: #F7F7F7;
 }
 
 @layer base {
