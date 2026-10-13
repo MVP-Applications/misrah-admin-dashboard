@@ -9,6 +9,7 @@ import {
   Layout,
   Image as ImageIcon,
   Users,
+  UserCog,
   Star,
   Banknote,
   HandCoins,
@@ -65,6 +66,7 @@ import { CategoriesModule } from './components/views/Admin/CategoriesModule';
 import { BannersModule } from './components/views/Admin/BannersModule';
 import { PromoCodesModule } from './components/views/Admin/PromoCodesModule';
 import { SettlementsModule } from './components/views/Admin/SettlementsModule';
+import { UsersModule } from './components/views/Admin/UsersModule';
 import { HostSettlementsView } from './components/views/HostSettlementsView';
 import { HostingModule } from './components/views/Admin/HostingModule';
 import { EliteNodesModule } from './components/views/Admin/EliteNodesModule';
@@ -80,6 +82,7 @@ const PAGE_TITLES: Record<string, TranslationKey> = {
   '/settlements': 'nav.settlements',
   '/admin/hosting': 'page.hosting',
   '/admin/elite-nodes': 'page.eliteNodes',
+  '/admin/users': 'page.users',
   '/experiences': 'page.experiences',
   '/explore-experiences': 'page.guestExplore',
   '/reviews': 'page.reviews',
@@ -161,6 +164,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={LayoutDashboard} label={t('nav.overview')} active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
                 <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} />
                 <SidebarItem icon={Home} label={t('nav.assetsQueue')} active={isHostingActive} onClick={() => navigate('/admin/hosting')} />
+                <SidebarItem icon={UserCog} label={t('nav.users')} active={location.pathname === '/admin/users'} onClick={() => navigate('/admin/users')} />
               </section>
 
               <section className="space-y-1">
@@ -475,6 +479,7 @@ function AppRoutes() {
         <Route path="admin/hosting" element={<ErrorBoundary label="Hosting"><HostingModule user={currentUser!} /></ErrorBoundary>} />
         <Route path="admin/hosting/:id" element={<ErrorBoundary label="Property"><PropertyDetailRoute user={currentUser!} /></ErrorBoundary>} />
         <Route path="admin/elite-nodes" element={<EliteNodesModule />} />
+        <Route path="admin/users" element={<ErrorBoundary label="Users"><UsersModule /></ErrorBoundary>} />
         <Route path="experiences" element={<ErrorBoundary label="Experiences"><ExperiencesView user={currentUser!} /></ErrorBoundary>} />
         <Route path="explore-experiences" element={<ExploreExperiencesView />} />
         <Route path="reviews" element={<ErrorBoundary label="Reviews"><ReviewsView user={currentUser!} /></ErrorBoundary>} />

@@ -208,6 +208,7 @@ export const API_ENDPOINTS = {
   adminUsers: {
     all: '/admin/users',
     byId: (id: string) => `/admin/users/${id}`,
+    // PATCH (update) · DELETE (remove) a consumer user.
     updateConsumer: (id: string) => `/admin/users/consumer/${id}`,
   },
   // Added to the backend ourselves (misra-api-nest/src/modules/review) — no
