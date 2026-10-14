@@ -1,4 +1,4 @@
-// Partner onboarding page copy — Arabic (default) and English. Converted from
+// Partner onboarding page copy — English (default) and Arabic. Converted from
 // the standalone onboarding/index.html (Arabic lived in the markup, English
 // in its EN table). Multi-part headings are split so the page can style the
 // highlighted part and insert line breaks.

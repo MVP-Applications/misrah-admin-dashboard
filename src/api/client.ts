@@ -95,7 +95,7 @@ async function refreshAccessToken(): Promise<string> {
   // a host's refresh_token is only valid against /host/auth/refresh. Which
   // one to call can't be read from React state here (this module has no
   // access to AuthContext), so it's read from the portal tokenStorage
-  // persisted alongside the tokens at login (see login()/loginWithMock() in
+  // persisted alongside the tokens at login (see login() in
   // AuthContext.tsx).
   const refreshUrl =
     tokenStorage.getPortal() === 'manager' ? API_ENDPOINTS.host.auth.refresh : API_ENDPOINTS.admin.auth.refresh;
@@ -154,16 +154,9 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isExemptEndpoint) {
       originalRequest._retry = true;
 
-      // Both Admin HQ and Host Hub now sign in through the real
-      // POST /admin/auth/login call (see login() in AuthContext.tsx) and get
-      // real tokens either way — but the dev-only loginWithMock() bypass
-      // (either portal) still never touches tokenStorage. Any background API
-      // call from a mocked session 401s (no Authorization header was ever
-      // sent), and with no refresh token to even attempt, forcing a logout
-      // here would bounce a dev-mocked session straight back to /login the
-      // moment any dashboard fetch runs. Skip the forced-logout branch below
-      // when there was never a refresh token to begin with — only a session
-      // that HAD one and failed to renew it counts as a real expiry.
+      // No refresh token means there's no session to renew (e.g. a 401 on a
+      // signed-out page) — just reject. Only a session that HAD a refresh
+      // token and failed to renew it counts as a real expiry below.
       if (!tokenStorage.getRefreshToken()) {
         return Promise.reject(normalizeError(error));
       }
