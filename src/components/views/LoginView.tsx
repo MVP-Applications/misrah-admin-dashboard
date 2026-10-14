@@ -10,14 +10,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Code2,
   Smartphone,
   Mail,
   KeyRound,
   ArrowLeft,
   Check,
 } from 'lucide-react';
-import { isLocalhost } from '../../config/env';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { requestPasswordReset, resetPassword, sendHostLoginOtp, verifyPasswordResetOtp } from '../../features/auth/api';
@@ -26,7 +24,7 @@ import { refreshClientLocation } from '../../api/deviceInfo';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
-  const { login, loginWithMock } = useAuth();
+  const { login } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
   // Which portal the person is signing into — passed through to
@@ -91,9 +89,9 @@ export const LoginView = () => {
     setError(null);
 
     if (selectedRole !== 'manager') {
-      // Admin HQ has no SMS endpoint — demo code only.
+      // Admin HQ has no SMS endpoint — nothing is actually sent.
       setOtpSent(true);
-      setOtpCode('4829');
+      setOtpCode('');
       return;
     }
 
@@ -668,7 +666,7 @@ export const LoginView = () => {
                       </button>
                     ) : (
                       <span className="text-[10px] text-accent font-bold">
-                        Code Sent ({otpCode})
+                        Code Sent
                       </span>
                     )}
                   </div>
@@ -677,20 +675,11 @@ export const LoginView = () => {
                     <input
                       type="text"
                       maxLength={6}
-                      placeholder="e.g. 4829"
+                      placeholder="Enter code"
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value)}
                       className="flex-1 py-2.5 px-4 bg-white/10 border border-white/20 rounded-xl text-center text-sm font-black tracking-widest text-white outline-none focus:border-accent"
                     />
-                    {selectedRole !== 'manager' && (
-                      <button
-                        type="button"
-                        onClick={() => setOtpCode('4829')}
-                        className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-accent/25 transition-colors"
-                      >
-                        Fill (4829)
-                      </button>
-                    )}
                   </div>
                 </div>
               )}
@@ -751,17 +740,6 @@ export const LoginView = () => {
                 )}
               </button>
             </form>
-
-            {isLocalhost() && (
-              <button
-                type="button"
-                onClick={() => loginWithMock(selectedRole)}
-                className="w-full flex items-center justify-center gap-2 text-[9px] font-black text-white/50 hover:text-white/80 uppercase tracking-[2px] border border-dashed border-white/20 rounded-2xl py-3 transition-colors"
-              >
-                <Code2 size={12} />
-                Dev: skip login (localhost only)
-              </button>
-            )}
           </div>
         )}
 

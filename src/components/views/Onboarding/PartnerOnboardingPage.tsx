@@ -35,21 +35,24 @@ import './onboarding.css';
 // stays / experiences / catering partners. Converted from the standalone
 // onboarding/index.html. Submits to POST /partner-leads (x-api-key only).
 //
-// It owns its language (Arabic default; ?lang=en|ar, remembered per browser),
+// It owns its language (English default; ?lang=en|ar; the toggle choice is remembered),
 // and isolates itself from the dashboard: data-no-translate stops the
 // dashboard's Arabic DOM translator, dark mode is lifted while it's open, and
 // the document's lang/dir/title are restored on leave.
 
 const ASSET = '/onboarding';
-const LANG_KEY = 'misrah-lang';
+// English by default. ?lang=ar|en in the link wins, then a language the
+// visitor picked with the toggle (stored under a new key, so the old
+// auto-saved Arabic default from earlier visits is ignored).
+const LANG_KEY = 'misrah-partners-lang';
 
 const readInitialLang = (): OnboardingLang => {
   const param = new URLSearchParams(window.location.search).get('lang');
   if (param === 'en' || param === 'ar') return param;
   try {
-    return localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'ar';
+    return localStorage.getItem(LANG_KEY) === 'ar' ? 'ar' : 'en';
   } catch {
-    return 'ar';
+    return 'en';
   }
 };
 
@@ -108,12 +111,18 @@ export const PartnerOnboardingPage = () => {
     root.dir = lang === 'ar' ? 'rtl' : 'ltr';
     document.title = s.title;
     document.querySelector('meta[name="description"]')?.setAttribute('content', s.description);
+  }, [lang, s.title, s.description]);
+
+  // Remember only an explicit choice from the toggle.
+  const toggleLang = () => {
+    const next: OnboardingLang = lang === 'ar' ? 'en' : 'ar';
+    setLang(next);
     try {
-      localStorage.setItem(LANG_KEY, lang);
+      localStorage.setItem(LANG_KEY, next);
     } catch {
       // storage unavailable
     }
-  }, [lang, s.title, s.description]);
+  };
 
   useEffect(() => {
     const html = document.documentElement;
@@ -331,7 +340,7 @@ export const PartnerOnboardingPage = () => {
             <a href="#about" onClick={goToAbout('how')} className={`hidden md:inline text-[10px] font-black uppercase tracking-[0.2em] ${navLinkClass}`}>{s.nav_how}</a>
             <button
               type="button"
-              onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
+              onClick={toggleLang}
               style={{ borderColor: 'color-mix(in srgb, currentColor 30%, transparent)' }}
               className={`h-11 px-4 rounded-2xl border text-[11px] font-black uppercase tracking-[0.15em] flex items-center gap-2 ${navLinkClass}`}
             >

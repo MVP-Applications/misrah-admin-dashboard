@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getRefreshedAccessToken, setOnSessionExpired } from '../../api/client';
-import { isLocalhost } from '../../config/env';
 import type { UserRole } from '../../types';
 import * as authApi from './api';
 import * as tokenStorage from './tokenStorage';
@@ -27,17 +26,6 @@ interface AuthContextValue {
    */
   login: (identifier: string, password: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
-  /**
-   * Dev-only escape hatch for working on the UI before a real x-api-key is
-   * available — bypasses the API entirely and fakes a session for either
-   * portal. No-ops unless isLocalhost() is true, so it can never activate on
-   * a deployed build even if env vars are misconfigured. Doesn't touch
-   * tokenStorage, so it never persists across a reload and can't be confused
-   * with a real session.
-   * TODO: safe to delete once real login is fully verified end-to-end, though
-   * harmless to leave since it's hostname-gated.
-   */
-  loginWithMock: (role?: UserRole) => void;
 }
 
 // The login screen has one field for email OR phone number. An "@" means
@@ -49,20 +37,6 @@ function toLoginRequest(identifier: string, password: string): LoginRequest {
   if (value.includes('@')) return { email: value, password };
   return { phoneNumber: value.replace(/[\s\-.()]/g, ''), password };
 }
-
-// Fixed fake users used only by loginWithMock() — never sent to or received
-// from the API.
-const MOCK_ADMIN_USER: AdminUser = {
-  id: 'mock-admin-id',
-  email: 'mock-admin@localhost.dev',
-  userType: 'admin',
-};
-
-const MOCK_HOST_USER: AdminUser = {
-  id: 'mock-host-id',
-  email: 'mock-host@localhost.dev',
-  userType: 'manager',
-};
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -175,16 +149,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
-  const loginWithMock = useCallback((role: UserRole = 'admin') => {
-    if (!isLocalhost()) return;
-    setUser(role === 'manager' ? MOCK_HOST_USER : MOCK_ADMIN_USER);
-    setPortalRole(role);
-    setStatus('authenticated');
-  }, []);
-
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, portalRole, login, logout, loginWithMock }),
-    [status, user, portalRole, login, logout, loginWithMock],
+    () => ({ status, user, portalRole, login, logout }),
+    [status, user, portalRole, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
