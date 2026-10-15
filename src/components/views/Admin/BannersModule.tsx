@@ -9,11 +9,10 @@ import type { ApiBanner } from '../../../features/banners/types';
 interface BannerFormState {
   titleEn: string;
   titleAr: string;
-  link: string;
   imageUrl: string;
 }
 
-const EMPTY_FORM: BannerFormState = { titleEn: '', titleAr: '', link: '', imageUrl: '' };
+const EMPTY_FORM: BannerFormState = { titleEn: '', titleAr: '', imageUrl: '' };
 
 export const BannersModule = () => {
   const [banners, setBanners] = useState<ApiBanner[]>([]);
@@ -58,7 +57,7 @@ export const BannersModule = () => {
 
   const handleEditItem = (item: ApiBanner) => {
     setEditingItem(item);
-    setFormData({ titleEn: item.title.en, titleAr: item.title.ar, link: item.link, imageUrl: item.imageUrl });
+    setFormData({ titleEn: item.title.en, titleAr: item.title.ar, imageUrl: item.imageUrl });
     setSaveError(null);
     setIsModalOpen(true);
   };
@@ -114,23 +113,17 @@ export const BannersModule = () => {
       setSaveError('A banner image is required.');
       return;
     }
-    if (!formData.link.trim()) {
-      setSaveError('A redirect link is required.');
-      return;
-    }
     setIsSaving(true);
     setSaveError(null);
     try {
       if (editingItem) {
         await updateBanner(editingItem._id, {
           title: { en: formData.titleEn.trim(), ar: formData.titleAr.trim() },
-          link: formData.link.trim(),
           imageUrl: formData.imageUrl,
         });
       } else {
         await createBanner({
           title: { en: formData.titleEn.trim(), ar: formData.titleAr.trim() },
-          link: formData.link.trim(),
           imageUrl: formData.imageUrl,
           displayOrder: banners.length,
           isActive: true,
@@ -281,15 +274,6 @@ export const BannersModule = () => {
                     onChange={e => setFormData({ ...formData, titleAr: e.target.value })}
                     placeholder="هروب الصيف"
                     dir="rtl"
-                    className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase tracking-[2px] text-muted-text px-1">Action Redirect</label>
-                  <input
-                    value={formData.link}
-                    onChange={e => setFormData({ ...formData, link: e.target.value })}
-                    placeholder="e.g. /promo/summer"
                     className="w-full bg-surface border border-border-misrah rounded-2xl px-6 py-4 text-xs font-bold"
                   />
                 </div>

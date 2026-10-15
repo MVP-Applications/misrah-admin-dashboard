@@ -15,11 +15,11 @@ export const SidebarItem = ({ icon: Icon, label, active, onClick, badge }: any) 
       />
     )}
     
-    <div className={`relative z-10 p-1.5 rounded-lg transition-colors duration-300 ${active ? 'bg-accent/10 text-accent' : 'text-inherit group-hover:text-white'}`}>
+    <div className={`relative z-10 shrink-0 p-1.5 rounded-lg transition-colors duration-300 ${active ? 'bg-accent/10 text-accent' : 'text-inherit group-hover:text-white'}`}>
       <Icon size={18} className="shrink-0" />
     </div>
     
-    <span className="relative z-10 text-[11px] font-black uppercase tracking-widest">{label}</span>
+    <span className="relative z-10 text-start leading-tight text-[11px] font-black uppercase tracking-widest">{label}</span>
     
     {badge && (
       <span className="relative z-10 ms-auto bg-accent text-primary text-[9px] font-black px-2 py-0.5 rounded-lg shadow-sm">

@@ -137,6 +137,8 @@ export const API_ENDPOINTS = {
     adminAll: '/admin/bookings',
     adminById: (id: string) => `/admin/bookings/${id}`,
     adminCancel: (id: string) => `/admin/bookings/${id}/cancel`,
+    // Body: { status } — a value from GET /enums/booking-statuses.
+    adminStatus: (id: string) => `/admin/bookings/${id}/status`,
     // Added to the backend ourselves (misra-api-nest) — no admin-capable
     // reschedule endpoint existed before. Requires that backend change to be
     // deployed to misra-test before this will work — see API_INTEGRATION.md.

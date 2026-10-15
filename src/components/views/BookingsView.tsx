@@ -32,6 +32,7 @@ import {
   Search,
   Clock,
   DollarSign,
+  BadgeCheck,
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User, Booking } from '../../types';
@@ -44,8 +45,9 @@ import {
   cancelHostBooking,
   rescheduleBooking,
   rescheduleHostBooking,
+  updateBookingStatus,
 } from '../../features/bookings/api';
-import { toLegacyBooking, formatBookingDate } from '../../features/bookings/mappers';
+import { toLegacyBooking, formatBookingDate, deriveDisplayStatus } from '../../features/bookings/mappers';
 import type { BookingDetail } from '../../features/bookings/types';
 import {
   cancelExperienceBooking,
@@ -58,7 +60,7 @@ import {
 } from '../../features/experienceBookings/api';
 import type { ExperienceBookingDetail, ExperienceBookingListItem } from '../../features/experienceBookings/types';
 import { listBookingStatuses, listExperienceBookingStatuses } from '../../features/enums/api';
-import { displayCurrency } from '../../utils/money';
+import { displayCurrency, formatMoney } from '../../utils/money';
 import type { EnumOption } from '../../api/types';
 import { GuestContactModals } from './GuestContactModals';
 import { ExperienceBookingManageView } from './ExperienceBookingManageView';
@@ -114,6 +116,9 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
 
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [page, setPage] = useState(1);
@@ -370,6 +375,25 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
   const closeDetail = () => {
     setSelectedBookingId(null);
     setIsManaging(false);
+    setStatusError(null);
+  };
+
+  // Admin only — PATCH /admin/bookings/{id}/status with a value from
+  // GET /enums/booking-statuses.
+  const handleStatusChange = async (status: string) => {
+    if (!bookingDetail || status === bookingDetail.status) return;
+    if (!window.confirm(`Change this booking's status to "${formatEnumLabel(status)}"?`)) return;
+    setIsUpdatingStatus(true);
+    setStatusError(null);
+    try {
+      await updateBookingStatus(bookingDetail._id, { status });
+      await fetchDetail(bookingDetail._id);
+      await fetchBookings(page);
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Failed to update the booking status.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   const openManage = () => {
@@ -513,10 +537,13 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                     onClick={() => handleDayClick(day)}
                     disabled={!isCurrentMonth || isPast}
                     className={`relative z-10 w-12 h-12 rounded-full text-[13px] font-black transition-all
-                      ${(isStart || isEnd) ? 'bg-[#122341] text-[#D4C3B5] shadow-xl shadow-primary/20 scale-110' : ''}
-                      ${isInRange ? 'text-primary' : 'text-primary/60'}
+                      ${(isStart || isEnd)
+                        ? 'bg-accent text-[#1a1a2e] ring-2 ring-[#1a1a2e]/20 shadow-xl shadow-accent/40 scale-110'
+                        : isInRange
+                          ? 'text-primary'
+                          : 'text-primary/60'}
                       ${!isCurrentMonth ? 'opacity-0 pointer-events-none' : ''}
-                      ${isPast ? 'opacity-20 cursor-not-allowed' : ''}
+                      ${isPast && !isStart && !isEnd ? 'opacity-20 cursor-not-allowed' : ''}
                     `}
                   >
                     {format(day, 'd')}
@@ -1037,6 +1064,42 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               <div className="bg-[#F8F9FA] rounded-[40px] p-6 space-y-8 border border-[#F2E8DF]">
                 <div className="flex items-center gap-5">
                   <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
+                    <BadgeCheck size={24} />
+                  </div>
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Status</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {(() => {
+                        const displayStatus = deriveDisplayStatus(bookingDetail.status, bookingDetail.checkInDate, bookingDetail.checkOutDate);
+                        return <Badge variant={STATUS_BADGE_VARIANT[displayStatus]}>{displayStatus}</Badge>;
+                      })()}
+                      {user.role === 'admin' && bookingStatusOptions.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={bookingDetail.status}
+                            onChange={e => handleStatusChange(e.target.value)}
+                            disabled={isUpdatingStatus}
+                            className="py-2 px-3 rounded-xl bg-white border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent shadow-2xs cursor-pointer disabled:opacity-50"
+                          >
+                            {!bookingStatusOptions.some(o => o.value === bookingDetail.status) && (
+                              <option value={bookingDetail.status}>{formatEnumLabel(bookingDetail.status)}</option>
+                            )}
+                            {bookingStatusOptions.map(opt => (
+                              <option key={opt.key} value={opt.value}>{formatEnumLabel(opt.key)}</option>
+                            ))}
+                          </select>
+                          {isUpdatingStatus && <Loader2 size={14} className="animate-spin text-primary/40" />}
+                        </div>
+                      )}
+                    </div>
+                    {statusError && (
+                      <p className="text-[10px] font-bold text-danger">{statusError}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-5">
+                  <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
                     <CalendarIcon size={24} />
                   </div>
                   <div className="space-y-0.5">
@@ -1069,6 +1132,50 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                 </div>
               </div>
             </div>
+
+            {bookingDetail.pricing && (() => {
+              const pricing = bookingDetail.pricing;
+              const nights = pricing.totalNights ?? bookingDetail.totalNights;
+              const discountAmount = pricing.discount?.amount ?? 0;
+              const refundAmount = bookingDetail.cancellation?.refundAmount;
+              return (
+                <div className="space-y-4">
+                  <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px] px-2">Booking Amount</h3>
+                  <div className="bg-white rounded-[40px] p-6 space-y-3 border border-[#F2E8DF] shadow-sm text-xs">
+                    <div className="flex items-center justify-between text-muted-text font-medium">
+                      <span>{formatMoney(pricing.nightlyPrice, pricing.currency)} × {nights} {nights === 1 ? 'Night' : 'Nights'}</span>
+                      <span>{formatMoney(pricing.subtotal, pricing.currency)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-text font-medium">
+                      <span>Service Fee</span>
+                      <span>{formatMoney(pricing.serviceFee, pricing.currency)}</span>
+                    </div>
+                    {!!pricing.taxes && (
+                      <div className="flex items-center justify-between text-muted-text font-medium">
+                        <span>Taxes</span>
+                        <span>{formatMoney(pricing.taxes, pricing.currency)}</span>
+                      </div>
+                    )}
+                    {discountAmount > 0 && (
+                      <div className="flex items-center justify-between text-success font-medium">
+                        <span>Discount{pricing.discount?.code ? ` (${pricing.discount.code})` : ''}</span>
+                        <span>− {formatMoney(discountAmount, pricing.currency)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-3 border-t border-[#F2E8DF] font-black text-primary text-sm">
+                      <span>Total</span>
+                      <span className="text-accent italic text-base">{formatMoney(pricing.totalPayable, pricing.currency)}</span>
+                    </div>
+                    {typeof refundAmount === 'number' && (
+                      <div className="flex items-center justify-between text-muted-text font-medium">
+                        <span>Refund{bookingDetail.cancellation?.refundStatus ? ` (${bookingDetail.cancellation.refundStatus})` : ''}</span>
+                        <span>{formatMoney(refundAmount, pricing.currency)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {cancelError && (
               <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">

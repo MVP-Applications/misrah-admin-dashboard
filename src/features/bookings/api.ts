@@ -9,6 +9,7 @@ import type {
   ListBookingsResponse,
   RescheduleBookingRequest,
   RescheduleBookingResponse,
+  UpdateBookingStatusRequest,
 } from './types';
 
 // Admin-wide listing. Host Hub uses listHostBookings (/booking/host) below.
@@ -49,6 +50,12 @@ export async function getBookingById(id: string): Promise<BookingDetail> {
 
 export async function cancelBooking(id: string, payload: CancelBookingRequest): Promise<void> {
   await apiClient.patch(API_ENDPOINTS.bookings.adminCancel(id), payload);
+}
+
+// PATCH /admin/bookings/{id}/status — admin-only. Response isn't relied on;
+// the caller refetches the detail.
+export async function updateBookingStatus(id: string, payload: UpdateBookingStatusRequest): Promise<void> {
+  await apiClient.patch(API_ENDPOINTS.bookings.adminStatus(id), payload);
 }
 
 // Hits PATCH /admin/bookings/{id}/reschedule — an endpoint we added to the

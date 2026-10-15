@@ -143,6 +143,12 @@ export interface CancelBookingRequest {
   reason?: string;
 }
 
+// PATCH /admin/bookings/{id}/status — `status` is a value from
+// GET /enums/booking-statuses.
+export interface UpdateBookingStatusRequest {
+  status: string;
+}
+
 // Confirmed from RescheduleBookingDto.
 export interface RescheduleBookingRequest {
   checkInDate: string;
