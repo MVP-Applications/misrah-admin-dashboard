@@ -26,7 +26,7 @@ export type ListBannersResponse = ApiBanner[];
 export interface CreateBannerRequest {
   title: LocalizedName;
   imageUrl: string;
-  link: string;
+  link?: string;
   displayOrder: number;
   isActive?: boolean;
 }

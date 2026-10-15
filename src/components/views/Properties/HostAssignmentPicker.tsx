@@ -99,17 +99,22 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
   // password is optional — the backend (AdminCreatePropertyDto/AssignHostDto)
   // only requires >= 6 chars when one is actually provided.
   const passwordError = newOwner.password && newOwner.password.length < 6 ? 'Must be at least 6 characters' : undefined;
+  const emailError =
+    newOwner.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newOwner.email.trim())
+      ? 'Enter a valid email address'
+      : undefined;
   const newOwnerValid =
     newOwner.name.trim() &&
     newOwner.nationalId.trim() &&
     newOwner.phoneNumber.trim() &&
     newOwner.email.trim() &&
+    !emailError &&
     newOwner.residentialAddress.trim() &&
     !passwordError;
 
   const registerNewOwner = () => {
     if (!newOwnerValid) return;
-    onChange({ mode: 'new', ...newOwner, password: newOwner.password.trim() || undefined });
+    onChange({ mode: 'new', ...newOwner, email: newOwner.email.trim(), password: newOwner.password.trim() || undefined });
   };
 
   const selectAdmin = () => onChange({ mode: 'admin' });
@@ -231,8 +236,10 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
             <Field
               label="Email Address"
               required
+              type="email"
               value={newOwner.email}
               placeholder="tariq@example.com"
+              error={emailError}
               onChange={(v) => setNewOwner((p) => ({ ...p, email: v }))}
             />
           </div>

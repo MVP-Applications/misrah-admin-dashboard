@@ -49,7 +49,7 @@ export const AssetListingsTab = () => {
       const result = await listHomePageListingsAdmin();
       setListings([...result].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load asset listings.');
+      setLoadError(err instanceof Error ? err.message : 'Failed to load property listings.');
     } finally {
       setIsLoading(false);
     }
@@ -76,7 +76,7 @@ export const AssetListingsTab = () => {
   };
 
   const handleDelete = async (listing: AdminHomePageListing) => {
-    if (!window.confirm(`Delete asset listing "${listing.title.en}"? It will be removed from the traveller home page.`)) return;
+    if (!window.confirm(`Delete property listing "${listing.title.en}"? It will be removed from the traveller home page.`)) return;
     setDeletingId(listing._id);
     setActionError(null);
     try {
@@ -117,7 +117,7 @@ export const AssetListingsTab = () => {
           onClick={() => setIsCreateOpen(true)}
           className="bg-primary text-accent px-6 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
         >
-          <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Create Asset Listing
+          <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Create Property Listing
         </button>
       </div>
 
@@ -147,12 +147,12 @@ export const AssetListingsTab = () => {
       ) : listings.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-24 text-center shadow-sm space-y-4">
           <LayoutList size={40} className="mx-auto text-muted-text/30" />
-          <p className="text-xs font-bold text-muted-text/60 uppercase tracking-widest">No asset listings yet.</p>
+          <p className="text-xs font-bold text-muted-text/60 uppercase tracking-widest">No property listings yet.</p>
           <button
             onClick={() => setIsCreateOpen(true)}
             className="px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-accent hover:opacity-90 transition-all inline-flex items-center gap-2"
           >
-            <Plus size={14} /> Create Asset Listing
+            <Plus size={14} /> Create Property Listing
           </button>
         </div>
       ) : (

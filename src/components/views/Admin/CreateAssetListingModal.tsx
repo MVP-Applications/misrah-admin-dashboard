@@ -72,7 +72,7 @@ export const CreateAssetListingModal = ({ listing, onClose, onSaved }: CreateAss
         onSaved(created.title.en);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} asset listing.`);
+      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} property listing.`);
     } finally {
       setIsSaving(false);
     }
@@ -102,7 +102,7 @@ export const CreateAssetListingModal = ({ listing, onClose, onSaved }: CreateAss
               <span className="p-2 rounded-xl bg-accent/20 text-accent">
                 <LayoutList size={16} />
               </span>
-              <h2 className="text-xl font-black italic text-primary uppercase">{isEdit ? 'Edit Asset Listing' : 'New Asset Listing'}</h2>
+              <h2 className="text-xl font-black italic text-primary uppercase">{isEdit ? 'Edit Property Listing' : 'New Property Listing'}</h2>
             </div>
             <p className="text-xs text-muted-text font-bold mt-1">Home page section shown in the traveller app</p>
           </div>
@@ -174,7 +174,7 @@ export const CreateAssetListingModal = ({ listing, onClose, onSaved }: CreateAss
               className="flex-[2] py-3.5 bg-primary text-accent rounded-2xl text-xs font-black uppercase tracking-wider hover:opacity-95 shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isSaving && <Loader2 size={14} className="animate-spin" />}
-              {isEdit ? 'Save Changes' : 'Create Asset Listing'}
+              {isEdit ? 'Save Changes' : 'Create Property Listing'}
             </button>
           </div>
         </form>

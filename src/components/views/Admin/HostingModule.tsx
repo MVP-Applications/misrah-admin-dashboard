@@ -20,7 +20,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // 'requests' = hosting moderation queue, 'listings' = home page asset listings.
+  // 'requests' = hosting moderation queue, 'listings' = home page property listings.
   const [activeTab, setActiveTab] = useState<'requests' | 'listings'>('requests');
   const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">
-            {activeTab === 'requests' ? 'Hosting Requests' : 'Asset Listings'}
+            {activeTab === 'requests' ? 'Hosting Requests' : 'Property Listings'}
           </h1>
           <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">
             {activeTab === 'requests' ? 'Global Moderation Queue & Compliance Protocol' : 'Home Page Sections & Curated Collections'}
@@ -80,7 +80,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
         )}
       </header>
 
-      {/* Tab Switcher: Hosting Requests vs Asset Listings */}
+      {/* Tab Switcher: Hosting Requests vs Property Listings */}
       <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
         <button
           type="button"
@@ -100,7 +100,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
           }`}
         >
           <LayoutList size={14} />
-          <span>Asset Listings</span>
+          <span>Property Listings</span>
         </button>
       </div>
 
