@@ -25,7 +25,8 @@ import {
   X,
   TrendingUp,
   ArrowUpRight,
-  TicketPercent
+  TicketPercent,
+  Loader2
 } from 'lucide-react';
 
 // Types
@@ -433,7 +434,7 @@ function toLegacyUser(admin: AdminUser, portalRole: UserRole): UserType {
 
 const BootstrappingScreen = () => (
   <div className="min-h-screen bg-primary flex items-center justify-center">
-    <div className="w-10 h-10 border-4 border-white/10 border-t-accent rounded-full animate-spin" />
+    <Loader2 size={32} className="animate-spin text-accent" />
   </div>
 );
 

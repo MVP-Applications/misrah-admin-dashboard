@@ -48,3 +48,17 @@ export interface UpdateConsumerUserRequest {
   canHost?: boolean;
   isSuperHost?: boolean;
 }
+
+// GET /admin/users/check-email?email&phoneNumber
+export interface CheckUserExistsParams {
+  email?: string;
+  phoneNumber?: string;
+}
+
+export interface CheckUserExistsResponse {
+  exists: boolean;
+  isHost?: boolean;
+  canHost?: boolean;
+  user?: AdminUserRecord & { profileImage?: string };
+  message?: string;
+}

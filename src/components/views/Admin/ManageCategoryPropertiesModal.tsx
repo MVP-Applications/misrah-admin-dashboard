@@ -5,6 +5,7 @@ import { listAdminProperties } from '../../../features/properties/api';
 import { addPropertiesToCategory, removePropertiesFromCategory } from '../../../features/categories/api';
 import type { ApiPropertyListItem } from '../../../features/properties/types';
 import type { ApiCategory } from '../../../features/categories/types';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 interface ManageCategoryPropertiesModalProps {
   category: ApiCategory;
@@ -100,7 +101,7 @@ export const ManageCategoryPropertiesModal = ({ category, onClose, onUpdated }: 
 
           {isLoading ? (
             <div className="flex-1 flex items-center justify-center py-16">
-              <Loader2 size={32} className="animate-spin text-primary/30" />
+              <LoadingSpinner />
             </div>
           ) : loadError ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">

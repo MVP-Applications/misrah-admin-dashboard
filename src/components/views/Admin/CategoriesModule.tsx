@@ -12,6 +12,7 @@ import { uploadFile } from '../../../features/properties/api';
 import type { ApiCategory } from '../../../features/categories/types';
 import { ManageCategoryPropertiesModal } from './ManageCategoryPropertiesModal';
 import { ExperienceCategoriesTab } from './ExperienceCategoriesTab';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Confirmed from misra-api-nest/src/database/seeds/property-category.seeder.ts:
 // every real seeded category's iconName is a lowercase, hyphenated slug of
@@ -234,7 +235,7 @@ export const CategoriesModule = () => {
 
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
-          <Loader2 size={40} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

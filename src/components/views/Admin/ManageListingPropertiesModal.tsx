@@ -5,6 +5,7 @@ import { listAdminProperties } from '../../../features/properties/api';
 import { addPropertiesToListing, removePropertiesFromListing } from '../../../features/homePageListings/api';
 import type { ApiPropertyListItem } from '../../../features/properties/types';
 import type { AdminHomePageListing } from '../../../features/homePageListings/types';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 interface ManageListingPropertiesModalProps {
   listing: AdminHomePageListing;
@@ -97,7 +98,7 @@ export const ManageListingPropertiesModal = ({ listing, onClose, onUpdated }: Ma
 
           {isLoading ? (
             <div className="flex-1 flex items-center justify-center py-16">
-              <Loader2 size={32} className="animate-spin text-primary/30" />
+              <LoadingSpinner />
             </div>
           ) : loadError ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">

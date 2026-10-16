@@ -18,7 +18,8 @@ import {
   AlertCircle,
   ExternalLink,
   Lock,
-  Star
+  Star,
+  Loader2
 } from 'lucide-react';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
@@ -352,7 +353,7 @@ Certificate Hash: SHA256:HST_${btoa(hostId + hostName).slice(0, 24)}
                 ? 'bg-primary/70 text-accent cursor-wait' 
                 : 'bg-primary text-accent hover:bg-primary/90 hover:scale-105 active:scale-95'}`}
           >
-            <Sparkles size={14} className={isVerifying ? 'animate-spin' : ''} />
+            {isVerifying ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
             <span>{isVerifying ? 'Verifying Node Credentials...' : 'Certify & Re-Verify Node'}</span>
           </button>
 

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { createPromoCode, deletePromoCode, listPromoCodes, togglePromoCodeActive, updatePromoCode } from '../../../features/promoCodes/api';
 import type { CreatePromoCodeRequest, PromoAppliesTo, PromoCode, PromoDiscountType } from '../../../features/promoCodes/types';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Admin → Promo Codes. Add / list / edit / delete / enable-disable against
 // /admin/promo-codes (features/promoCodes/api.ts).
@@ -341,7 +342,7 @@ export const PromoCodesModule = () => {
 
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
-          <Loader2 size={40} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

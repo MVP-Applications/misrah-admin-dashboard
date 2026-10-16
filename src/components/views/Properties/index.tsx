@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck, Loader2 } from 'lucide-react';
+import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
@@ -10,6 +10,7 @@ import { listAdminProperties, listActiveCities, listMyProperties } from '../../.
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
 import { displayCurrency } from '../../../utils/money';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 interface RejectionModalProps {
   isOpen: boolean;
@@ -247,7 +248,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
       {/* Shown on every load (incl. switching city), not just the first one. */}
       {loading && (
         <div className="flex flex-col items-center justify-center gap-3 py-16">
-          <Loader2 size={32} className="animate-spin text-primary/30" />
+          <LoadingSpinner />
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50">Loading assets…</p>
         </div>
       )}

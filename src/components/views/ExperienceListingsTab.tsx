@@ -27,6 +27,7 @@ import {
   updateExperienceListing,
 } from '../../features/experienceListings/api';
 import type { ExperienceListing } from '../../features/experienceListings/types';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 // Experience Listings — home page sections of experiences, mirroring Asset
 // Listings (Assets Queue → Asset Listings). Backed by /experience-listings.
@@ -267,7 +268,7 @@ export const ExperienceListingsTab = () => {
 
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
-          <Loader2 size={40} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">
@@ -476,7 +477,7 @@ export const ExperienceListingsTab = () => {
 
               {isLoadingExperiences ? (
                 <div className="flex-1 flex items-center justify-center py-16">
-                  <Loader2 size={32} className="animate-spin text-primary/30" />
+                  <LoadingSpinner />
                 </div>
               ) : experiencesError ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">

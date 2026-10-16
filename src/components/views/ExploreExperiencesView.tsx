@@ -23,7 +23,6 @@ import {
   Leaf,
   Camera,
   Smartphone,
-  Loader2,
   TriangleAlert,
   ChevronLeft,
   Minus,
@@ -34,6 +33,7 @@ import { listAllExperiences, listExperienceCategories } from '../../features/exp
 import { apiExperienceToViewModel } from '../../features/experiences/mappers';
 import type { ApiExperienceCategory } from '../../features/experiences/types';
 import type { ExperienceRow } from '../../features/experiences/mappers';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 const PAGE_SIZE = 12;
 
@@ -197,7 +197,7 @@ export const ExploreExperiencesView = ({
       {/* Experiences Grid */}
       {isLoading ? (
         <div className="p-24 flex items-center justify-center">
-          <Loader2 size={32} className="animate-spin text-primary/30" />
+          <LoadingSpinner />
         </div>
       ) : loadError ? (
         <div className="p-16 bg-danger/5 rounded-[36px] border border-danger/20 text-center space-y-3">

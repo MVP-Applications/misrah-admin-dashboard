@@ -150,7 +150,7 @@ export const PaymentNodeView = ({ role, onBack, showToast }: PaymentNodeViewProp
         {/* Payout destination card */}
         {isLoading ? (
           <div className="bg-[#1A1B2E] rounded-[48px] p-10 min-h-[300px] flex items-center justify-center">
-            <Loader2 size={28} className="animate-spin text-accent" />
+            <Loader2 size={32} className="animate-spin text-accent" />
           </div>
         ) : loadError ? (
           <div className="rounded-[48px] p-10 min-h-[300px] bg-danger/5 border border-danger/20 flex flex-col items-center justify-center gap-3 text-center">

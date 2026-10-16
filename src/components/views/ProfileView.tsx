@@ -35,7 +35,6 @@ import {
   Fingerprint,
   KeyRound,
   Mail,
-  RefreshCw,
   AlertCircle
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
@@ -88,6 +87,7 @@ import { SupportChannelsView } from './Profile/SupportChannelsView';
 import { LegalFrameworkView } from './Profile/LegalFrameworkView';
 import { PaymentNodeView } from './Profile/PaymentNodeView';
 import { listSessions, logoutAllSessions, revokeSession, type AuthSession } from '../../features/auth/sessions';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 // Display helpers for an authenticated session row.
 const sessionDeviceLabel = (s: AuthSession) =>
@@ -991,8 +991,8 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
                {/* Sessions List */}
                {sessionsLoading && sessions.length === 0 ? (
-                 <div className="p-8 flex items-center justify-center gap-2 text-muted-text text-[10px] font-black uppercase tracking-widest">
-                   <RefreshCw size={14} className="animate-spin" /> Loading sessions…
+                 <div className="p-8 flex items-center justify-center">
+                   <LoadingSpinner />
                  </div>
                ) : sessionsError && sessions.length === 0 ? (
                  <div className="p-6 rounded-3xl border border-danger/20 bg-danger/5 flex items-center justify-between gap-4">
@@ -1058,7 +1058,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                            title={s.isCurrent ? 'Sign out of this device' : `Terminate ${label}`}
                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-text hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-wait"
                          >
-                           {revokingSessionId === s.id ? <RefreshCw size={14} className="animate-spin" /> : <X size={14} />}
+                           {revokingSessionId === s.id ? <ProfileLoader size={14} className="animate-spin" /> : <X size={14} />}
                          </button>
                        </div>
                      );
@@ -1236,7 +1236,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                   >
                     {isLoggingOut ? (
                       <>
-                        <RefreshCw size={13} className="animate-spin" />
+                        <ProfileLoader size={13} className="animate-spin" />
                         <span>Logging Out...</span>
                       </>
                     ) : (
@@ -1450,7 +1450,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                         disabled={isRequestingReset}
                         className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                       >
-                        {isRequestingReset ? <RefreshCw size={13} className="animate-spin" /> : <Mail size={13} />}
+                        {isRequestingReset ? <ProfileLoader size={13} className="animate-spin" /> : <Mail size={13} />}
                         <span>{isRequestingReset ? 'Sending...' : 'Send Verification Code'}</span>
                       </button>
                     ) : (
@@ -1459,7 +1459,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                         disabled={isUpdatingPassword}
                         className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                       >
-                        {isUpdatingPassword ? <RefreshCw size={13} className="animate-spin" /> : <Check size={13} />}
+                        {isUpdatingPassword ? <ProfileLoader size={13} className="animate-spin" /> : <Check size={13} />}
                         <span>{isUpdatingPassword ? 'Saving...' : 'Save Password'}</span>
                       </button>
                     )}
@@ -1495,9 +1495,8 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
         <div className="max-w-3xl space-y-6">
            {isLoadingNotificationSettings && !notificationSettings && (
-             <div className="bg-white rounded-[40px] border border-border-misrah p-10 flex items-center justify-center gap-3 text-muted-text">
-               <ProfileLoader size={18} className="animate-spin" />
-               <span className="text-[10px] font-black uppercase tracking-widest">Loading settings...</span>
+             <div className="bg-white rounded-[40px] border border-border-misrah p-10 flex items-center justify-center">
+               <LoadingSpinner />
              </div>
            )}
            {notificationSettingsError && !notificationSettings && (
@@ -1572,7 +1571,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
 
         {guides === null ? (
           <div className="p-24 flex items-center justify-center">
-            <ProfileLoader size={32} className="animate-spin text-primary/30" />
+            <LoadingSpinner />
           </div>
         ) : guidesError ? (
           <div className="p-12 rounded-[40px] bg-danger/5 border border-danger/20 text-center space-y-3">
