@@ -23,6 +23,7 @@ import {
   type LegalDocument,
   type LegalSection,
 } from '../../../features/legal/api';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Profile → Legal Framework. Reads the LEGAL_FRAMEWORK settings document for
 // everyone; admins can also edit the header (POST /settings) and add / edit /
@@ -195,7 +196,7 @@ export const LegalFrameworkView = ({ isAdmin, onBack, showToast }: LegalFramewor
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {header}
         <div className="bg-white rounded-[40px] border border-border-misrah p-24 shadow-sm max-w-4xl flex items-center justify-center">
-          <Loader2 size={32} className="animate-spin text-primary/30" />
+          <LoadingSpinner />
         </div>
       </div>
     );

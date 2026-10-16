@@ -14,6 +14,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 import {
   getHostSupportChannels,
   setHostSupportChannels,
@@ -171,9 +172,8 @@ export const SupportChannelsView = ({ isAdmin, onBack, showToast }: SupportChann
   );
 
   const loadingState = (
-    <div className="p-10 flex items-center justify-center gap-3 text-muted-text">
-      <Loader2 size={18} className="animate-spin" />
-      <span className="text-[10px] font-black uppercase tracking-widest">Loading channels...</span>
+    <div className="p-10 flex items-center justify-center">
+      <LoadingSpinner />
     </div>
   );
 
@@ -246,7 +246,7 @@ export const SupportChannelsView = ({ isAdmin, onBack, showToast }: SupportChann
             disabled={isLoading || isSaving}
             className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary hover:bg-surface disabled:opacity-50 shrink-0"
           >
-            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+            {isLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             Reload
           </button>
         </div>

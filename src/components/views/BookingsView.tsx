@@ -64,6 +64,7 @@ import { displayCurrency, formatMoney } from '../../utils/money';
 import type { EnumOption } from '../../api/types';
 import { GuestContactModals } from './GuestContactModals';
 import { ExperienceBookingManageView } from './ExperienceBookingManageView';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 interface BookingsViewProps {
   user: User;
@@ -658,7 +659,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
 
         {isExpDetailLoading ? (
           <div className="p-24 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto text-primary/30" />
+            <LoadingSpinner className="mx-auto" />
           </div>
         ) : expDetailError ? (
           <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">
@@ -992,7 +993,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
 
         {isDetailLoading ? (
           <div className="p-24 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto text-primary/30" />
+            <LoadingSpinner className="mx-auto" />
           </div>
         ) : detailError ? (
           <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">
@@ -1278,7 +1279,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
       <div className="bg-white rounded-2xl border border-border-misrah shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-24 text-center">
-            <Loader2 size={32} className="animate-spin mx-auto text-primary/30" />
+            <LoadingSpinner className="mx-auto" />
           </div>
         ) : loadError ? (
           <div className="p-16 text-center space-y-4">
@@ -1372,7 +1373,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
           <div className="bg-white rounded-2xl border border-border-misrah shadow-sm overflow-hidden">
             {isExpLoading ? (
               <div className="p-24 text-center">
-                <Loader2 size={32} className="animate-spin mx-auto text-primary/30" />
+                <LoadingSpinner className="mx-auto" />
               </div>
             ) : expLoadError ? (
               <div className="p-16 text-center space-y-4">

@@ -339,7 +339,7 @@ export const LoginView = () => {
                   className="w-full bg-accent text-primary py-4 px-6 rounded-2xl text-xs font-black uppercase tracking-[2px] shadow-xl shadow-accent/25 hover:scale-[1.01] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                 >
                   {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <Loader2 size={20} className="animate-spin" />
                   ) : (
                     <>
                       <span>Send Verification Code</span>
@@ -412,7 +412,7 @@ export const LoginView = () => {
                   className="w-full bg-accent text-primary py-4 px-6 rounded-2xl text-xs font-black uppercase tracking-[2px] shadow-xl shadow-accent/25 hover:scale-[1.01] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                 >
                   {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <Loader2 size={20} className="animate-spin" />
                   ) : (
                     <>
                       <span>Verify & Continue</span>
@@ -492,7 +492,7 @@ export const LoginView = () => {
                   className="w-full bg-accent text-primary py-4 px-6 rounded-2xl text-xs font-black uppercase tracking-[2px] shadow-xl shadow-accent/25 hover:scale-[1.01] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer mt-3"
                 >
                   {isSubmitting ? (
-                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <Loader2 size={20} className="animate-spin" />
                   ) : (
                     <>
                       <span>Update Password & Continue</span>

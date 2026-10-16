@@ -10,6 +10,7 @@ import {
 import { uploadFile } from '../../../features/properties/api';
 import { listAdminCreatedExperiences } from '../../../features/experiences/api';
 import type { ApiExperienceCategoryRecord } from '../../../features/experienceCategories/types';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Same slug convention as property categories' iconName (see CategoriesModule).
 // Used as the default icon name when none is typed.
@@ -225,7 +226,7 @@ export const ExperienceCategoriesTab = ({ createRequest, onCountChange }: Experi
 
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
-          <Loader2 size={40} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

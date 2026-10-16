@@ -16,6 +16,7 @@ import {
   sendTyping,
 } from '../../features/chat/socket';
 import type { ChatConversation, ChatFile, ChatMessage } from '../../features/chat/types';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 // Host Messages — REST for history (/chat/conversations, /chat/conversation/
 // {id}/messages, read, delete) + Socket.IO for realtime (newMessage, typing)
@@ -540,7 +541,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
         <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-2">
           {isLoadingConversations ? (
             <div className="flex justify-center py-16">
-              <Loader2 size={28} className="animate-spin text-primary/30" />
+              <LoadingSpinner />
             </div>
           ) : conversationsError ? (
             <div className="p-6 text-center space-y-3">
@@ -635,7 +636,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
 
               {isLoadingMessages ? (
                 <div className="flex justify-center py-16">
-                  <Loader2 size={28} className="animate-spin text-primary/30" />
+                  <LoadingSpinner />
                 </div>
               ) : messages.length === 0 && !messagesError ? (
                 <p className="text-center text-[10px] font-bold text-muted-text/60 uppercase tracking-widest py-16">

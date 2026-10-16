@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Calendar, MapPin, Plus, LayoutList, Home } from 'lucide-react';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { AddListingModal } from '../Properties/AddListingModal';
@@ -106,16 +107,20 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
 
       {activeTab === 'listings' && <AssetListingsTab />}
 
-      {activeTab === 'requests' && (filteredProperties.length === 0 ? (
+      {activeTab === 'requests' && (loading && filteredProperties.length === 0 ? (
+        <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
+          <LoadingSpinner className="mx-auto" />
+        </div>
+      ) : filteredProperties.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
           <div className="w-24 h-24 bg-surface rounded-[40px] flex items-center justify-center mx-auto mb-8 text-[#D4C3B5] ring-8 ring-surface/50">
             <Check size={40} />
           </div>
           <h3 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">
-            {loading ? 'Synchronizing…' : 'Queue Synchronized'}
+            Queue Synchronized
           </h3>
           <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-3">
-            {loading ? 'Loading moderation queue' : `${filter} moderation list is fully audited`}
+            {`${filter} moderation list is fully audited`}
           </p>
         </div>
       ) : (

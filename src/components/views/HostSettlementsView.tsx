@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Search, Loader2, TriangleAlert, Wallet, Landmark, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { Search, TriangleAlert, Wallet, Landmark, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { errorMessage } from '../../api/errors';
 import { usePreferredCurrency } from '../../hooks/usePreferredCurrency';
 import { listSettlements, type Settlement, type SettlementStatus } from '../../features/settlements/api';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 // Host Hub → Settlements: the host's own payouts (GET /host/settlements),
 // read-only — admins release or decline them.
@@ -112,7 +113,7 @@ export const HostSettlementsView = () => {
 
       {isLoading ? (
         <div className="bg-white rounded-[40px] border border-border-misrah p-24 text-center shadow-sm">
-          <Loader2 size={36} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[40px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

@@ -29,6 +29,7 @@ import {
   type SettlementStats,
   type SettlementStatus,
 } from '../../../features/settlements/api';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Admin → Host Settlements: payouts owed to hosts, released or declined.
 
@@ -320,7 +321,7 @@ export const SettlementsModule = () => {
       {/* List */}
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-24 text-center shadow-sm">
-          <Loader2 size={36} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

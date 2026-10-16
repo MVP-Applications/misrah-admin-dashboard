@@ -6,6 +6,7 @@ import { GuestAvatar } from '../../GuestAvatar';
 import { errorMessage } from '../../../api/errors';
 import { deleteConsumerUser, listUsers, patchConsumerUser } from '../../../features/adminUsers/api';
 import type { AdminUserRecord, UpdateConsumerUserRequest } from '../../../features/adminUsers/types';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 // Admin → Users: platform users (GET /admin/users?userType=consumer&canHost
 // &search&page&limit). Search by name / email; filter hosts vs. travellers.
@@ -234,7 +235,7 @@ export const UsersModule = () => {
       {/* List */}
       {isLoading ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-24 text-center shadow-sm">
-          <Loader2 size={36} className="animate-spin mx-auto text-primary/30" />
+          <LoadingSpinner className="mx-auto" />
         </div>
       ) : loadError ? (
         <div className="bg-danger/5 rounded-[48px] border border-danger/20 p-16 text-center shadow-sm space-y-4">

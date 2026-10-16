@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Search, UserPlus, ShieldCheck, Loader2, Check, Info, RefreshCw } from 'lucide-react';
-import { listUsers } from '../../../features/adminUsers/api';
+import { checkUserExists, listUsers } from '../../../features/adminUsers/api';
 import type { AdminUserRecord } from '../../../features/adminUsers/types';
 import type { HostAssignmentSelection } from '../../../features/properties/types';
 
@@ -33,6 +33,8 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [checkingOwner, setCheckingOwner] = useState(false);
+  const [newOwnerError, setNewOwnerError] = useState<string | null>(null);
   const [newOwner, setNewOwner] = useState(
     value?.mode === 'new'
       ? {
@@ -112,9 +114,30 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
     newOwner.residentialAddress.trim() &&
     !passwordError;
 
-  const registerNewOwner = () => {
-    if (!newOwnerValid) return;
-    onChange({ mode: 'new', ...newOwner, email: newOwner.email.trim(), password: newOwner.password.trim() || undefined });
+  // GET /admin/users/check-email first — if the email/phone already belongs
+  // to a user, block registering and show the backend's message instead.
+  const registerNewOwner = async () => {
+    if (!newOwnerValid || checkingOwner) return;
+    const email = newOwner.email.trim();
+    setCheckingOwner(true);
+    setNewOwnerError(null);
+    try {
+      const res = await checkUserExists({ email, phoneNumber: newOwner.phoneNumber.trim() });
+      if (res.exists) {
+        setNewOwnerError(res.message || 'A user with this email or phone number already exists.');
+        return;
+      }
+      onChange({ mode: 'new', ...newOwner, email, password: newOwner.password.trim() || undefined });
+    } catch (err) {
+      setNewOwnerError(err instanceof Error ? err.message : 'Could not verify whether this owner already exists.');
+    } finally {
+      setCheckingOwner(false);
+    }
+  };
+
+  const updateNewOwner = (field: keyof typeof emptyNewOwner, v: string) => {
+    setNewOwner((p) => ({ ...p, [field]: v }));
+    if (field === 'email' || field === 'phoneNumber') setNewOwnerError(null);
   };
 
   const selectAdmin = () => onChange({ mode: 'admin' });
@@ -231,7 +254,7 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
               required
               value={newOwner.phoneNumber}
               placeholder="+971 50 123 4567"
-              onChange={(v) => setNewOwner((p) => ({ ...p, phoneNumber: v }))}
+              onChange={(v) => updateNewOwner('phoneNumber', v)}
             />
             <Field
               label="Email Address"
@@ -240,7 +263,7 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
               value={newOwner.email}
               placeholder="tariq@example.com"
               error={emailError}
-              onChange={(v) => setNewOwner((p) => ({ ...p, email: v }))}
+              onChange={(v) => updateNewOwner('email', v)}
             />
           </div>
           <Field
@@ -261,12 +284,33 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
           />
           <button
             type="button"
-            disabled={!newOwnerValid}
+            disabled={!newOwnerValid || checkingOwner}
             onClick={registerNewOwner}
-            className="w-full py-4 rounded-2xl bg-primary text-white text-[10px] font-black uppercase tracking-[2px] flex items-center justify-center gap-2 hover:opacity-90 transition-all disabled:opacity-40"
+            // No opacity fade while checking — fading the button while its
+            // label swaps made Chrome briefly paint both labels on top of
+            // each other.
+            className={`w-full py-4 rounded-2xl bg-primary text-white text-[10px] font-black uppercase tracking-[2px] flex items-center justify-center gap-2
+              ${checkingOwner ? 'cursor-wait' : 'hover:opacity-90 transition-opacity disabled:opacity-40'}`}
           >
-            <Check size={14} /> Register & Link New Owner
+            {/* Keyed spans so React swaps whole elements instead of patching a
+                text node — a patched text node can be left stale (old label
+                next to the spinner) if anything else has touched it. */}
+            {checkingOwner ? (
+              <span key="checking" className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" /> Checking…
+              </span>
+            ) : (
+              <span key="idle" className="flex items-center gap-2">
+                <Check size={14} /> Register & Link New Owner
+              </span>
+            )}
           </button>
+          {newOwnerError && (
+            <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-danger/5 border border-danger/20 text-danger">
+              <Info size={14} className="shrink-0 mt-0.5" />
+              <p className="text-[10px] font-bold">{newOwnerError}</p>
+            </div>
+          )}
           {value?.mode === 'new' && (
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-success/5 border border-success/20 text-success text-[10px] font-black uppercase tracking-widest">
               <Check size={14} /> Linked: {value.name}

@@ -33,6 +33,7 @@ import { getAdminDashboard, getHostDashboardOverview } from '../../features/dash
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { AdminDashboardData } from '../../features/dashboard/types';
 import { formatMoney } from '../../utils/money';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -372,7 +373,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
               if (!dashboard && isDashboardLoading) {
                 return (
                   <div className="flex items-center justify-center py-10">
-                    <Loader2 size={24} className="animate-spin text-primary/30" />
+                    <LoadingSpinner />
                   </div>
                 );
               }

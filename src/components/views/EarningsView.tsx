@@ -36,6 +36,7 @@ import { downloadHostAuditReport, getHostEarnings } from '../../features/dashboa
 import { usePreferredCurrency } from '../../hooks/usePreferredCurrency';
 import { errorMessage } from '../../api/errors';
 import type { EarningsTimeframe, HostEarningsData } from '../../features/dashboard/types';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 const LEDGER_PAGE_SIZE = 7;
 
@@ -345,9 +346,15 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
               <div className="flex items-end gap-3 h-64 mb-16 px-2 shrink-0">
                 {isHost ? (
                   matrixRows.length === 0 ? (
-                    <p className="w-full self-center text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
-                      {isEarningsLoading ? 'Loading…' : 'No revenue data for this period'}
-                    </p>
+                    isEarningsLoading ? (
+                      <div className="w-full self-center flex justify-center">
+                        <LoadingSpinner />
+                      </div>
+                    ) : (
+                      <p className="w-full self-center text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
+                        No revenue data for this period
+                      </p>
+                    )
                   ) : matrixRows.map((row, i) => (
                     <div key={`${row.label}-${i}`} className="flex-1 flex flex-col items-center gap-4 group h-full min-w-0" title={`${row.label}: ${row.formattedAmount} ${row.currency} · ${row.bookingsCount} bookings · ${row.occupancyRate}% occupancy`}>
                       <div className="w-full relative bg-surface/50 rounded-2xl overflow-hidden h-full border border-border-misrah/10">
@@ -441,9 +448,15 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
              {isHost ? (
                <>
                  {(earnings?.ledger.items ?? []).length === 0 ? (
-                   <p className="p-10 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
-                     {isEarningsLoading ? 'Loading…' : 'No ledger entries for this period'}
-                   </p>
+                   isEarningsLoading ? (
+                     <div className="p-10 flex justify-center">
+                       <LoadingSpinner />
+                     </div>
+                   ) : (
+                     <p className="p-10 text-center text-[10px] font-bold text-muted-text/50 uppercase tracking-widest">
+                       No ledger entries for this period
+                     </p>
+                   )
                  ) : earnings!.ledger.items.map(item => {
                    const isPayout = item.type?.toUpperCase() === 'PAYOUT';
                    const status = item.status?.toUpperCase();

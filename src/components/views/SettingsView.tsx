@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowUpRight, Sparkles, Banknote, Mail, Phone, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 import type { User } from '../../types';
 import { getAppSettings, updateAppSettings, type AppSettingKey, type AppSettings } from '../../features/settings/api';
 
@@ -131,8 +132,8 @@ export const SettingsView = ({ user }: SettingsViewProps) => {
       </header>
 
       {isLoading && !settings ? (
-        <div className="bg-white rounded-2xl border border-border-misrah p-16 flex items-center justify-center gap-2 text-muted-text text-[10px] font-black uppercase tracking-widest">
-          <Loader2 size={16} className="animate-spin" /> Loading settings…
+        <div className="bg-white rounded-2xl border border-border-misrah p-16 flex items-center justify-center">
+          <LoadingSpinner />
         </div>
       ) : loadError && !settings ? (
         <div className="bg-danger/5 rounded-2xl border border-danger/20 p-10 text-center space-y-3">

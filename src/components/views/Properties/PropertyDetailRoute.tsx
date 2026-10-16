@@ -6,6 +6,7 @@ import { PropertyDetailView } from './PropertyDetailView';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { getAdminPropertyById, getPropertyById } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
+import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
 interface PropertyDetailRouteProps {
   user: User;
@@ -47,7 +48,7 @@ export const PropertyDetailRoute = ({ user }: PropertyDetailRouteProps) => {
   if (loading && !property) {
     return (
       <div className="bg-white rounded-[40px] border border-border-misrah p-16 text-center shadow-sm flex flex-col items-center gap-4">
-        <Loader2 size={36} className="animate-spin text-primary/30" />
+        <LoadingSpinner />
         <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">Loading asset…</p>
       </div>
     );

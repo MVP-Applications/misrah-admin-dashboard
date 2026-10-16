@@ -222,6 +222,8 @@ export const API_ENDPOINTS = {
     byId: (id: string) => `/admin/users/${id}`,
     // PATCH (update) · DELETE (remove) a consumer user.
     updateConsumer: (id: string) => `/admin/users/consumer/${id}`,
+    // GET ?email&phoneNumber — does a user with this email/phone already exist?
+    checkEmail: '/admin/users/check-email',
   },
   // Added to the backend ourselves (misra-api-nest/src/modules/review) — no
   // admin-facing listing/moderation endpoints existed before, only consumer

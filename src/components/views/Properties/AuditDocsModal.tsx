@@ -15,7 +15,8 @@ import {
   Check, 
   Clock,
   Sparkles,
-  Printer
+  Printer,
+  Loader2
 } from 'lucide-react';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
@@ -314,7 +315,7 @@ Certified by Regional Compliance Directorate, UAE & GCC
                 ? 'bg-primary/70 text-accent cursor-wait' 
                 : 'bg-primary text-accent hover:bg-primary/90 hover:scale-105 active:scale-95'}`}
           >
-            <RefreshCw size={14} className={isAuditing ? 'animate-spin' : ''} />
+            {isAuditing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             <span>{isAuditing ? 'Executing Live Audit...' : 'Run Instant Re-Audit'}</span>
           </button>
         </div>
@@ -324,7 +325,7 @@ Certified by Regional Compliance Directorate, UAE & GCC
           <div className="p-4 bg-accent/10 border-b border-accent/20 px-6 md:px-10 space-y-2 animate-in fade-in duration-300">
             <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider text-primary">
               <span className="flex items-center gap-2">
-                <Sparkles size={14} className="text-accent animate-spin" />
+                <Loader2 size={14} className="text-accent animate-spin" />
                 <span>{auditStepText}</span>
               </span>
               <span className="font-mono text-accent">{auditProgress}%</span>
