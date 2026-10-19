@@ -123,6 +123,48 @@ export type UpdatePropertyRequest = Partial<
   Omit<CreatePropertyRequest, 'userId' | 'email' | 'phoneNumber' | 'name' | 'nationalId' | 'residentialAddress' | 'password'>
 >;
 
+// Host Hub property drafts — /property/draft. A draft is any subset of the
+// create fields plus `step`, the creation-flow step the host saved from
+// (AddListingModal's step index). Response shapes weren't documented, so the
+// stored fields are typed loosely: populated refs (cityId, images) may come
+// back as ids or objects.
+//
+// Admin drafts (/admin/properties/draft) may also carry the ownership fields
+// from the "Who owns this property?" step — except `password`, which is
+// never stored in a draft.
+export type PropertyDraftRequest = Partial<Omit<CreatePropertyRequest, 'password'>> & { step: number };
+
+// Which set of draft routes to use: host (/property/draft) or admin
+// (/admin/properties/draft).
+export type PropertyDraftScope = 'host' | 'admin';
+
+// A stored file reference — a bare id, or the populated file document.
+export type DraftFileRef = string | { _id?: string; id?: string; fullUrl?: string; url?: string };
+
+export interface PropertyDraft extends Omit<PropertyDraftRequest, 'cityId' | 'images' | 'step' | 'userId' | 'documents'> {
+  _id: string;
+  step?: number;
+  userId?: string | { _id: string; name?: string };
+  owner?: { _id: string; name?: string };
+  cityId?: string | { _id: string; name?: string };
+  city?: { _id: string; name?: string };
+  images?: DraftFileRef[];
+  documents?: Array<{ type: string; fileId: DraftFileRef }>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ListPropertyDraftsParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+export interface ListPropertyDraftsResponse {
+  data: PropertyDraft[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
 export interface RejectPropertyRequest {
   reason?: string;
 }

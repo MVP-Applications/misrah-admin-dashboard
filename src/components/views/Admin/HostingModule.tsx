@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Calendar, MapPin, Plus, LayoutList, Home } from 'lucide-react';
+import { Check, Calendar, MapPin, Plus, LayoutList, Home, FileText } from 'lucide-react';
 import { LoadingSpinner } from '../../ui/LoadingSpinner';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
@@ -9,8 +9,9 @@ import { AddListingModal } from '../Properties/AddListingModal';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { listAdminProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
-import type { CreatePropertyRequest } from '../../../features/properties/types';
+import type { CreatePropertyRequest, PropertyDraft } from '../../../features/properties/types';
 import { AssetListingsTab } from './AssetListingsTab';
+import { PropertyDraftsTab } from '../Properties/PropertyDraftsTab';
 import { formatMoney } from '../../../utils/money';
 
 interface HostingModuleProps {
@@ -21,8 +22,13 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // 'requests' = hosting moderation queue, 'listings' = home page property listings.
-  const [activeTab, setActiveTab] = useState<'requests' | 'listings'>('requests');
+  // 'requests' = hosting moderation queue, 'listings' = home page property
+  // listings, 'drafts' = admin's saved creation drafts (/admin/properties/draft).
+  const [activeTab, setActiveTab] = useState<'requests' | 'listings' | 'drafts'>('requests');
+  const [resumeDraft, setResumeDraft] = useState<PropertyDraft | null>(null);
+  const [draftsRefreshKey, setDraftsRefreshKey] = useState(0);
+  const openCreate = () => { setResumeDraft(null); setIsModalOpen(true); };
+  const closeModal = () => { setIsModalOpen(false); setResumeDraft(null); };
   const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   // Client-side only — the admin properties endpoint has no isActive param,
@@ -49,7 +55,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
 
   const handleAddProperty = async (payload: CreatePropertyRequest) => {
     await addProperty(payload);
-    setIsModalOpen(false);
+    closeModal();
   };
 
   return (
@@ -57,10 +63,14 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">
-            {activeTab === 'requests' ? 'Hosting Requests' : 'Property Listings'}
+            {activeTab === 'requests' ? 'Hosting Requests' : activeTab === 'drafts' ? 'Drafts' : 'Property Listings'}
           </h1>
           <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">
-            {activeTab === 'requests' ? 'Global Moderation Queue & Compliance Protocol' : 'Home Page Sections & Curated Collections'}
+            {activeTab === 'requests'
+              ? 'Global Moderation Queue & Compliance Protocol'
+              : activeTab === 'drafts'
+                ? 'Unfinished properties saved during creation'
+                : 'Home Page Sections & Curated Collections'}
           </p>
         </div>
         {activeTab === 'requests' && (
@@ -87,17 +97,25 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
             <option value="Inactive">Inactive</option>
           </select>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={openCreate}
             className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
           >
             <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Add Hosting
           </button>
         </div>
         )}
+        {activeTab === 'drafts' && (
+          <button
+            onClick={openCreate}
+            className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
+          >
+            <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Add Hosting
+          </button>
+        )}
       </header>
 
       {/* Tab Switcher: Hosting Requests vs Property Listings */}
-      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
+      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-xl">
         <button
           type="button"
           onClick={() => setActiveTab('requests')}
@@ -118,9 +136,27 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
           <LayoutList size={14} />
           <span>Property Listings</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('drafts')}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'drafts' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+          }`}
+        >
+          <FileText size={14} />
+          <span>Drafts</span>
+        </button>
       </div>
 
       {activeTab === 'listings' && <AssetListingsTab />}
+
+      {activeTab === 'drafts' && (
+        <PropertyDraftsTab
+          scope="admin"
+          refreshKey={draftsRefreshKey}
+          onContinue={draft => { setResumeDraft(draft); setIsModalOpen(true); }}
+        />
+      )}
 
       {activeTab === 'requests' && (loading && filteredProperties.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
@@ -221,9 +257,11 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
         {isModalOpen && (
           <AddListingModal 
             isOpen={isModalOpen} 
-            onClose={() => setIsModalOpen(false)} 
+            onClose={closeModal}
             onAdd={handleAddProperty}
             user={user}
+            draft={resumeDraft}
+            onDraftsChanged={() => setDraftsRefreshKey(k => k + 1)}
           />
         )}
       </AnimatePresence>

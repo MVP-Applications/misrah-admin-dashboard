@@ -28,13 +28,14 @@ import {
   KeyRound,
   Loader2,
   Infinity as InfinityIcon,
+  Save,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday, startOfDay, addMonths, subMonths } from 'date-fns';
 import { User } from '../../../types';
 import { Badge } from '../../ui/Badge';
-import { listActiveCities, uploadFile } from '../../../features/properties/api';
+import { createPropertyDraft, deletePropertyDraft, listActiveCities, updatePropertyDraft, uploadFile } from '../../../features/properties/api';
 import { hostAssignmentToCreateFields } from '../../../features/properties/mappers';
-import type { CityListItem, CreatePropertyRequest, HostAssignmentSelection } from '../../../features/properties/types';
+import type { CityListItem, CreatePropertyRequest, DraftFileRef, HostAssignmentSelection, PropertyDraft, PropertyDraftRequest, PropertyDraftScope } from '../../../features/properties/types';
 import { HostAssignmentPicker } from './HostAssignmentPicker';
 import { LocationPicker, type LatLng } from './LocationPicker';
 
@@ -43,6 +44,133 @@ const CATEGORY_TO_PROPERTY_TYPE: Record<string, CreatePropertyRequest['propertyT
   Apartment: 'APARTMENT',
   Studio: 'STUDIO',
   Penthouse: 'PENTHOUSE',
+};
+
+const PROPERTY_TYPE_TO_CATEGORY: Record<string, string> = {
+  VILLA: 'Villa',
+  APARTMENT: 'Apartment',
+  STUDIO: 'Studio',
+  PENTHOUSE: 'Penthouse',
+};
+
+type VerificationField = 'emiratesId' | 'propertyDoc' | 'tradeLicense';
+
+const createEmptyForm = (user: User) => ({
+  name: '',
+  cityId: '',
+  cityName: '',
+  category: '',
+  address: '',
+  location: null as LatLng | null,
+  price: '',
+  priceWeekday: '',
+  priceWeekend: '',
+  beds: 1,
+  baths: 1,
+  bedrooms: 1,
+  adults: 2,
+  children: 0,
+  amenities: [] as string[],
+  selfCheckIn: false,
+  selfCheckInInstruction: '',
+  description: '',
+  image: '',
+  availability: 'Instant',
+  availabilityDate: new Date().toISOString(),
+  availabilityEndDate: '',
+  availabilityForever: false,
+  availabilityTime: '12:00',
+  verified: false,
+  verifications: {
+    emiratesId: null as string | null,
+    phone: user?.verificationData?.phone || '',
+    email: user?.email || '',
+    propertyDoc: null as string | null, // Title Deed, Ejari, etc
+    tradeLicense: null as string | null, // Company only
+  },
+});
+
+// A stored UTC day boundary (e.g. 2026-10-09T00:00:00.000Z) → that calendar
+// day at local midnight, the form's own date representation. Inverse of
+// toUtcDayBoundary.
+const fromUtcDay = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).toISOString();
+};
+
+// Drafts can return file refs populated ({ _id, fullUrl, ... }) rather than
+// as the bare ids the create/draft bodies require — always send the id.
+const fileRefId = (ref?: DraftFileRef | null): string | undefined =>
+  typeof ref === 'string' ? ref : ref?._id ?? ref?.id;
+
+// Re-fills the create form from a saved draft. Ref fields may come back
+// populated (objects) or as bare ids, so both are handled.
+const draftToForm = (draft: PropertyDraft, user: User) => {
+  const base = createEmptyForm(user);
+  const city = typeof draft.cityId === 'object' ? draft.cityId : draft.city;
+  const firstImage = draft.images?.[0];
+  const docName = (type: VerificationField) =>
+    draft.documents?.some(d => d.type === type && !!fileRefId(d.fileId)) ? 'Uploaded' : null;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  return {
+    ...base,
+    name: draft.title ?? '',
+    description: draft.description ?? '',
+    category: draft.propertyType ? PROPERTY_TYPE_TO_CATEGORY[draft.propertyType] ?? '' : '',
+    cityId: typeof draft.cityId === 'string' ? draft.cityId : city?._id ?? '',
+    cityName: city?.name ?? '',
+    address: draft.address ?? '',
+    location: typeof draft.latitude === 'number' && typeof draft.longitude === 'number'
+      ? { lat: draft.latitude, lng: draft.longitude }
+      : null,
+    price: draft.pricing?.basePrice ? String(draft.pricing.basePrice) : '',
+    priceWeekday: draft.pricing?.weekdayPrice ? String(draft.pricing.weekdayPrice) : '',
+    priceWeekend: draft.pricing?.weekendPrice ? String(draft.pricing.weekendPrice) : '',
+    beds: num(draft.beds, base.beds),
+    baths: num(draft.bathrooms, base.baths),
+    bedrooms: num(draft.bedrooms, base.bedrooms),
+    adults: num(draft.maxAdults, base.adults),
+    children: num(draft.maxChildren, base.children),
+    amenities: draft.amenities ?? [],
+    selfCheckIn: !!draft.selfCheckInAvailable,
+    selfCheckInInstruction: draft.selfCheckInInstruction ?? '',
+    image: firstImage && typeof firstImage === 'object' ? firstImage.fullUrl ?? firstImage.url ?? '' : '',
+    availabilityDate: fromUtcDay(draft.startDate) || base.availabilityDate,
+    availabilityEndDate: fromUtcDay(draft.endDate),
+    availabilityForever: !!draft.availableForever,
+    verifications: {
+      ...base.verifications,
+      emiratesId: docName('emiratesId'),
+      propertyDoc: docName('propertyDoc'),
+      tradeLicense: docName('tradeLicense'),
+    },
+  };
+};
+
+// Admin drafts: rebuild the "Who owns this property?" selection from the
+// stored ownership fields. A draft with neither a userId nor new-host details
+// was saved before an owner was picked (or as admin-managed) — left unset so
+// the admin confirms it again. The new-host password is never stored, so it
+// has to be re-entered if wanted.
+const draftToOwnerSelection = (draft: PropertyDraft): HostAssignmentSelection | undefined => {
+  const userId = typeof draft.userId === 'object' ? draft.userId?._id : draft.userId;
+  if (userId) {
+    const label = (typeof draft.userId === 'object' ? draft.userId?.name : undefined) ?? draft.owner?.name ?? 'Selected host';
+    return { mode: 'existing', userId, label };
+  }
+  if (draft.email || draft.phoneNumber || draft.name) {
+    return {
+      mode: 'new',
+      name: draft.name ?? '',
+      nationalId: draft.nationalId ?? '',
+      phoneNumber: draft.phoneNumber ?? '',
+      email: draft.email ?? '',
+      residentialAddress: draft.residentialAddress ?? '',
+    };
+  }
+  return undefined;
 };
 
 // A picked calendar day (stored as a local-time ISO string) → that same
@@ -61,16 +189,28 @@ interface AddListingModalProps {
   onClose: () => void;
   onAdd: (payload: CreatePropertyRequest) => Promise<void>;
   user: User;
+  // A saved draft to resume, and a callback fired whenever a draft is
+  // created, updated, or consumed by publishing. Hosts use /property/draft,
+  // admins /admin/properties/draft.
+  draft?: PropertyDraft | null;
+  onDraftsChanged?: () => void;
 }
 
-export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModalProps) => {
+export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsChanged }: AddListingModalProps) => {
   // Hosts list their own property — no "Who owns this property?" step.
   const isHost = user.role !== 'admin';
   const firstStep = isHost ? 1 : 0;
   // Displayed phase number for a step (hosts skip the ownership step).
   const phaseNo = (s: number) => String(isHost ? s : s + 1).padStart(2, '0');
-  const [step, setStep] = useState(firstStep);
-  const [ownerSelection, setOwnerSelection] = useState<HostAssignmentSelection | undefined>(undefined);
+  const draftScope: PropertyDraftScope = isHost ? 'host' : 'admin';
+  const initialStep = (d?: PropertyDraft | null) => (d ? Math.min(Math.max(d.step ?? firstStep, firstStep), 6) : firstStep);
+  // Seeded from the draft on mount too (not only in the reset effect below):
+  // HostAssignmentPicker reads its value once when it mounts, and the admin
+  // page mounts this modal already open.
+  const [step, setStep] = useState(() => initialStep(draft));
+  const [ownerSelection, setOwnerSelection] = useState<HostAssignmentSelection | undefined>(
+    () => (draft && !isHost ? draftToOwnerSelection(draft) : undefined),
+  );
   const [cities, setCities] = useState<CityListItem[]>([]);
   const [citiesLoading, setCitiesLoading] = useState(false);
   const [citiesError, setCitiesError] = useState<string | null>(null);
@@ -96,40 +236,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     propertyDoc?: File;
     tradeLicense?: File;
   }>({});
-  const [formData, setFormData] = useState({
-    name: '',
-    cityId: '',
-    cityName: '',
-    category: '',
-    address: '',
-    location: null as LatLng | null,
-    price: '',
-    priceWeekday: '',
-    priceWeekend: '',
-    beds: 1,
-    baths: 1,
-    bedrooms: 1,
-    adults: 2,
-    children: 0,
-    amenities: [] as string[],
-    selfCheckIn: false,
-    selfCheckInInstruction: '',
-    description: '',
-    image: '',
-    availability: 'Instant',
-    availabilityDate: new Date().toISOString(),
-    availabilityEndDate: '',
-    availabilityForever: false,
-    availabilityTime: '12:00',
-    verified: false,
-    verifications: {
-      emiratesId: null as string | null,
-      phone: user?.verificationData?.phone || '',
-      email: user?.email || '',
-      propertyDoc: null as string | null, // Title Deed, Ejari, etc
-      tradeLicense: null as string | null, // Company only
-    },
-  });
+  const [formData, setFormData] = useState(() => (draft ? draftToForm(draft, user) : createEmptyForm(user)));
+  // Drafts (hosts only). Files already uploaded for this draft are kept by id
+  // so saving again / publishing doesn't re-upload them.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [uploadedImageId, setUploadedImageId] = useState<string | null>(null);
+  const [uploadedDocs, setUploadedDocs] = useState<Partial<Record<VerificationField, string>>>({});
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   // Which end of the availability range the next calendar click sets.
@@ -137,50 +251,27 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
 
   useEffect(() => {
     if (isOpen) {
-      setStep(firstStep);
-      setOwnerSelection(undefined);
+      setStep(initialStep(draft));
+      setOwnerSelection(draft && !isHost ? draftToOwnerSelection(draft) : undefined);
       setSubmitError(null);
+      setDraftError(null);
       setImageFile(null);
       setVerificationFiles({});
-      setFormData({
-        name: '',
-        cityId: '',
-        cityName: '',
-        category: '',
-        address: '',
-        location: null as LatLng | null,
-        price: '',
-        priceWeekday: '',
-        priceWeekend: '',
-        beds: 1,
-        baths: 1,
-        bedrooms: 1,
-        adults: 2,
-        children: 0,
-        amenities: [],
-        selfCheckIn: false,
-        selfCheckInInstruction: '',
-        description: '',
-        image: '',
-        availability: 'Instant',
-        availabilityDate: new Date().toISOString(),
-        availabilityEndDate: '',
-        availabilityForever: false,
-        availabilityTime: '12:00',
-        verified: false,
-        verifications: {
-          emiratesId: null as string | null,
-          phone: user?.verificationData?.phone || '',
-          email: user?.email || '',
-          propertyDoc: null as string | null,
-          tradeLicense: null as string | null,
-        },
-      });
+      setFormData(draft ? draftToForm(draft, user) : createEmptyForm(user));
+      setDraftId(draft?._id ?? null);
+      setUploadedImageId(fileRefId(draft?.images?.[0]) ?? null);
+      setUploadedDocs(
+        Object.fromEntries(
+          (draft?.documents ?? [])
+            .map(d => [d.type, fileRefId(d.fileId)] as const)
+            .filter(([, id]) => !!id),
+        ) as Partial<Record<VerificationField, string>>,
+      );
       setCurrentMonth(new Date());
       setRangeField('start');
       loadCities();
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, draft]);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const propertyDocRef = useRef<HTMLInputElement>(null);
@@ -193,6 +284,92 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
   // either way, so there's no shortcut past the listing details.
   const handleNext = () => setStep(s => Math.min(s + 1, 6));
   const handleBack = () => setStep(s => Math.max(s - 1, firstStep));
+
+  // Uploads any newly picked photo / documents and returns the ids to send,
+  // reusing files that were already uploaded for this draft.
+  const uploadPendingFiles = async () => {
+    let imageId = uploadedImageId ?? undefined;
+    if (imageFile) {
+      imageId = (await uploadFile(imageFile)).id;
+      setUploadedImageId(imageId);
+      setImageFile(null);
+    }
+    const docs: Partial<Record<VerificationField, string>> = { ...uploadedDocs };
+    await Promise.all(
+      (Object.entries(verificationFiles) as Array<[VerificationField, File | undefined]>)
+        .filter((entry): entry is [VerificationField, File] => Boolean(entry[1]))
+        .map(async ([type, file]) => { docs[type] = (await uploadFile(file)).id; }),
+    );
+    setUploadedDocs(docs);
+    setVerificationFiles({});
+    const documentEntries = (Object.entries(docs) as Array<[VerificationField, string | undefined]>)
+      .filter((entry): entry is [VerificationField, string] => Boolean(entry[1]))
+      .map(([type, fileId]) => ({ type, fileId }));
+    return { imageId, documentEntries };
+  };
+
+  // Save as Draft — available from every step. Sends only what the host has
+  // filled in so far (no required-field checks), then closes the modal.
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    setDraftError(null);
+    try {
+      const { imageId, documentEntries } = await uploadPendingFiles();
+      const basePrice = Number(formData.price);
+      // Admin: keep the ownership choice, minus any new-host password.
+      const ownerFields = !isHost && ownerSelection ? { ...hostAssignmentToCreateFields(ownerSelection) } : {};
+      delete ownerFields.password;
+      const payload: PropertyDraftRequest = {
+        ...ownerFields,
+        step,
+        ...(formData.name.trim() ? { title: formData.name.trim() } : {}),
+        ...(formData.description.trim() ? { description: formData.description.trim() } : {}),
+        ...(CATEGORY_TO_PROPERTY_TYPE[formData.category] ? { propertyType: CATEGORY_TO_PROPERTY_TYPE[formData.category] } : {}),
+        maxAdults: formData.adults,
+        maxChildren: formData.children,
+        bedrooms: formData.bedrooms,
+        beds: formData.beds,
+        bathrooms: formData.baths,
+        pets: { allowed: false, maxPets: 0 },
+        amenities: formData.amenities,
+        selfCheckInAvailable: formData.selfCheckIn,
+        ...(formData.selfCheckIn && formData.selfCheckInInstruction.trim()
+          ? { selfCheckInInstruction: formData.selfCheckInInstruction.trim() }
+          : {}),
+        availableForever: formData.availabilityForever,
+        ...(formData.availabilityDate ? { startDate: toUtcDayBoundary(formData.availabilityDate, 'start') } : {}),
+        ...(!formData.availabilityForever && formData.availabilityEndDate
+          ? { endDate: toUtcDayBoundary(formData.availabilityEndDate, 'end') }
+          : {}),
+        documents: documentEntries,
+        images: imageId ? [imageId] : [],
+        ...(basePrice > 0
+          ? {
+              pricing: {
+                basePrice,
+                weekdayPrice: Number(formData.priceWeekday) > 0 ? Number(formData.priceWeekday) : basePrice,
+                weekendPrice: Number(formData.priceWeekend) > 0 ? Number(formData.priceWeekend) : basePrice,
+                currency: 'AED',
+              },
+            }
+          : {}),
+        ...(formData.cityId ? { cityId: formData.cityId } : {}),
+        ...(formData.address.trim() ? { address: formData.address.trim() } : {}),
+        ...(formData.location ? { latitude: formData.location.lat, longitude: formData.location.lng } : {}),
+      };
+      if (draftId) {
+        await updatePropertyDraft(draftId, payload, draftScope);
+      } else {
+        setDraftId((await createPropertyDraft(payload, draftScope))._id);
+      }
+      onDraftsChanged?.();
+      onClose();
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : 'Failed to save draft. Please try again.');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -217,12 +394,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const imageId = imageFile ? (await uploadFile(imageFile)).id : undefined;
-      const documentEntries = await Promise.all(
-        (Object.entries(verificationFiles) as Array<[string, File | undefined]>)
-          .filter((entry): entry is [string, File] => Boolean(entry[1]))
-          .map(async ([type, file]) => ({ type, fileId: (await uploadFile(file)).id })),
-      );
+      const { imageId, documentEntries } = await uploadPendingFiles();
 
       await onAdd({
         ...(!isHost && ownerSelection ? hostAssignmentToCreateFields(ownerSelection) : {}),
@@ -260,6 +432,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
         ...(formData.address.trim() ? { address: formData.address.trim() } : {}),
         ...(formData.location ? { latitude: formData.location.lat, longitude: formData.location.lng } : {}),
       });
+      // Published — the draft it came from is no longer needed. Best effort:
+      // the property already exists, so a failed delete isn't surfaced.
+      if (draftId) {
+        await deletePropertyDraft(draftId, draftScope).catch(err => console.error('[drafts] failed to delete published draft', err));
+        setDraftId(null);
+      }
+      onDraftsChanged?.();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to create listing. Please try again.');
     } finally {
@@ -267,8 +446,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     }
   };
 
-  const handleFileSelect = (field: 'emiratesId' | 'propertyDoc' | 'tradeLicense', file: File) => {
+  const handleFileSelect = (field: VerificationField, file: File) => {
     setVerificationFiles(prev => ({ ...prev, [field]: file }));
+    setUploadedDocs(prev => { const next = { ...prev }; delete next[field]; return next; });
     setFormData(prev => ({
       ...prev,
       verifications: {
@@ -282,6 +462,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
     const file = e.target.files?.[0];
     if (file) {
       setImageFile(file);
+      setUploadedImageId(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         setFormData(prev => ({ ...prev, image: event.target?.result as string }));
@@ -988,6 +1169,12 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
         </div>
 
         {/* Sticky Footer Navigation */}
+        {draftError && (
+          <div className="px-8 pt-4 bg-white flex items-center gap-2 text-danger">
+            <AlertCircle size={14} className="shrink-0" />
+            <p className="text-[10px] font-bold">{draftError}</p>
+          </div>
+        )}
         <div className="p-8 pt-4 pb-8 flex gap-4 w-full bg-white border-t border-border-misrah/40 items-center">
             {step > firstStep && (
                 <button
@@ -1000,7 +1187,16 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user }: AddListingModa
             )}
             <button
               type="button"
-              disabled={submitting || (!isHost && step === 0 && !ownerSelection)}
+              onClick={handleSaveDraft}
+              disabled={savingDraft || submitting}
+              className="flex-1 py-5 rounded-[28px] border border-accent/40 bg-accent/5 text-[10px] font-black uppercase tracking-[2px] text-primary hover:bg-accent/15 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {savingDraft ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {savingDraft ? 'Saving…' : 'Save as Draft'}
+            </button>
+            <button
+              type="button"
+              disabled={submitting || savingDraft || (!isHost && step === 0 && !ownerSelection)}
               onClick={() => {
                 if (step === 6) handleSubmit();
                 else handleNext();
