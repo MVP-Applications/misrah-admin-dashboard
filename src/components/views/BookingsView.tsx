@@ -33,6 +33,8 @@ import {
   Clock,
   DollarSign,
   BadgeCheck,
+  Pencil,
+  XCircle,
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { User, Booking } from '../../types';
@@ -469,7 +471,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
     return (
-      <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="w-full max-w-3xl mx-auto space-y-8 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -640,7 +642,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
     const cancelledStatusValue = experienceBookingStatusOptions.find(o => o.key === 'CANCELLED')?.value ?? 'cancelled';
 
     return (
-      <div className="space-y-8 w-full animate-in fade-in duration-300">
+      <div className="space-y-8 w-full max-w-4xl mx-auto pb-16 animate-in fade-in duration-300">
         <header className="flex items-center gap-4">
           <button
             onClick={() => setSelectedExperienceBookingId(null)}
@@ -717,6 +719,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
                 <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px]">Experience Details</h3>
+                {/* Manage button hidden for admin and host — kept for later re-enable.
                 {detail.status !== cancelledStatusValue && detail.status !== completedStatusValue && (
                   <button
                     type="button"
@@ -726,6 +729,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                     Manage
                   </button>
                 )}
+                */}
               </div>
 
               <div className="bg-[#F8F9FA] rounded-[40px] p-6 sm:p-8 space-y-6 border border-[#F2E8DF]">
@@ -873,12 +877,11 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               </div>
             )}
 
-            {/* Booking Workflow — PATCH .../complete and .../cancel, see
+            {/* Status + actions — PATCH .../complete and .../cancel, see
                 features/experienceBookings/api.ts. No confirm action here
                 since only complete/cancel endpoints were given. */}
             <div className="p-6 rounded-3xl bg-surface border border-border-misrah flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <h4 className="text-xs font-black uppercase tracking-wider text-primary">Booking Workflow</h4>
                 <p className="text-[11px] text-muted-text font-medium">
                   Current status: <strong className="text-primary uppercase">{detail.status}</strong>
                 </p>
@@ -979,16 +982,60 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
   }
 
   if (selectedBookingId) {
+    const canManage = !!bookingDetail && bookingDetail.status !== 'cancelled' && bookingDetail.status !== 'completed';
+    const canCancel = !!bookingDetail && bookingDetail.status !== 'cancelled';
+    const guestName = bookingDetail?.traveler?.name ?? bookingDetail?.contact?.name ?? 'Guest';
+
     return (
-      <div className="space-y-8 w-full">
-        <header className="flex items-center gap-4">
-          <button
-            onClick={closeDetail}
-            className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center hover:bg-surface transition-all text-primary"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <h1 className="text-xl font-black italic text-primary uppercase tracking-tight">Booking Details</h1>
+      <div className="space-y-6 w-full max-w-6xl mx-auto pb-16 animate-in fade-in duration-300">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <button
+              onClick={closeDetail}
+              className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center hover:bg-surface transition-all text-primary shrink-0"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-xl font-black italic text-primary uppercase tracking-tight">Booking Details</h1>
+              {bookingDetail && (
+                <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">
+                  Ref: {bookingDetail._id.slice(-8).toUpperCase()}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Primary actions live in the header so they're always visible
+              instead of buried at the bottom of a long page. */}
+          {/* Manage Booking hidden for admin and host — was (canManage || canCancel). */}
+          {bookingDetail && !isDetailLoading && !detailError && canCancel && (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Manage Booking button hidden for admin and host — kept for later re-enable.
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={openManage}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-[1.5px] hover:opacity-90 transition-all shadow-sm"
+                >
+                  <Pencil size={14} />
+                  Manage Booking
+                </button>
+              )}
+              */}
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={isCancelling}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-danger/30 text-danger hover:bg-danger/10 text-[10px] font-black uppercase tracking-[1.5px] transition-all disabled:opacity-50"
+                >
+                  {isCancelling ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
+                  Cancel Booking
+                </button>
+              )}
+            </div>
+          )}
         </header>
 
         {isDetailLoading ? (
@@ -1008,200 +1055,185 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
           </div>
         ) : bookingDetail && (
           <>
-            <div className="bg-[#0F1D33] rounded-[48px] p-8 shadow-2xl relative overflow-hidden">
-              <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/5 rounded-full blur-2xl" />
-
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="flex items-center gap-6 w-full mb-8">
-                  <div className="w-24 h-24 rounded-[32px] overflow-hidden border-2 border-white/10 shrink-0">
-                    <GuestAvatar url={toDetailAvatar(bookingDetail)} name={bookingDetail.traveler?.name} className="w-full h-full" fallbackClassName="bg-white/10 text-white/60" iconSize={40} />
-                  </div>
-                  <div className="space-y-1">
-                    <h2 className="text-3xl font-black italic text-white uppercase leading-[0.9] tracking-tighter">
-                      {(bookingDetail.traveler?.name ?? bookingDetail.contact?.name ?? 'Guest').split(' ').map((part, i) => (
-                        <span key={i} className="block">{part}</span>
-                      ))}
-                    </h2>
-                    <p className="text-[10px] font-black text-[#D4C3B5] uppercase tracking-[2px] opacity-80 pt-2">
-                      {bookingDetail.status === 'cancelled' ? 'Cancelled' : 'Verified Guest'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setIsMessageOpen(true)}
-                    className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
-                  >
-                    <MessageSquare size={18} className="text-[#D4C3B5]" />
-                    <span className="text-[10px] font-black uppercase tracking-[2px]">Message</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsCallOpen(true)}
-                    className="bg-white/10 hover:bg-white/20 text-white rounded-[24px] py-4 flex items-center justify-center gap-3 transition-all active:scale-95 border border-white/5 cursor-pointer shadow-sm"
-                  >
-                    <Phone size={18} className="text-[#D4C3B5]" />
-                    <span className="text-[10px] font-black uppercase tracking-[2px]">Call</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between px-2">
-                <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px]">Stay Details</h3>
-                {bookingDetail.status !== 'cancelled' && bookingDetail.status !== 'completed' && (
-                  <button
-                    onClick={openManage}
-                    className="text-[10px] font-black uppercase tracking-[1.5px] text-primary border-b-2 border-primary/20 hover:border-accent transition-colors"
-                  >
-                    Manage
-                  </button>
-                )}
-              </div>
-
-              <div className="bg-[#F8F9FA] rounded-[40px] p-6 space-y-8 border border-[#F2E8DF]">
-                <div className="flex items-center gap-5">
-                  <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
-                    <BadgeCheck size={24} />
-                  </div>
-                  <div className="space-y-1.5 min-w-0 flex-1">
-                    <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Status</p>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {(() => {
-                        const displayStatus = deriveDisplayStatus(bookingDetail.status, bookingDetail.checkInDate, bookingDetail.checkOutDate);
-                        return <Badge variant={STATUS_BADGE_VARIANT[displayStatus]}>{displayStatus}</Badge>;
-                      })()}
-                      {user.role === 'admin' && bookingStatusOptions.length > 0 && (
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={bookingDetail.status}
-                            onChange={e => handleStatusChange(e.target.value)}
-                            disabled={isUpdatingStatus}
-                            className="py-2 px-3 rounded-xl bg-white border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent shadow-2xs cursor-pointer disabled:opacity-50"
-                          >
-                            {!bookingStatusOptions.some(o => o.value === bookingDetail.status) && (
-                              <option value={bookingDetail.status}>{formatEnumLabel(bookingDetail.status)}</option>
-                            )}
-                            {bookingStatusOptions.map(opt => (
-                              <option key={opt.key} value={opt.value}>{formatEnumLabel(opt.key)}</option>
-                            ))}
-                          </select>
-                          {isUpdatingStatus && <Loader2 size={14} className="animate-spin text-primary/40" />}
-                        </div>
-                      )}
-                    </div>
-                    {statusError && (
-                      <p className="text-[10px] font-bold text-danger">{statusError}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-5">
-                  <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
-                    <CalendarIcon size={24} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Dates</p>
-                    <p className="text-lg font-black text-primary italic uppercase tracking-tight">{formatBookingDate(bookingDetail.checkInDate)} - {formatBookingDate(bookingDetail.checkOutDate)}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-5">
-                  <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
-                    <MapPin size={24} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Property</p>
-                    <p className="text-lg font-black text-primary italic uppercase tracking-tight leading-tight">{bookingDetail.propertySnapshot?.title ?? 'Property'}</p>
-                    {bookingDetail.propertySnapshot?.city?.name && (
-                      <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">{bookingDetail.propertySnapshot.city.name}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-5">
-                  <div className="w-14 h-14 bg-white rounded-[20px] flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF]">
-                    <UsersIcon size={24} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Occupants</p>
-                    <p className="text-lg font-black text-primary italic uppercase tracking-tight">{(bookingDetail.guests?.adults ?? 0) + (bookingDetail.guests?.children ?? 0)} People</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {bookingDetail.pricing && (() => {
-              const pricing = bookingDetail.pricing;
-              const nights = pricing.totalNights ?? bookingDetail.totalNights;
-              const discountAmount = pricing.discount?.amount ?? 0;
-              const refundAmount = bookingDetail.cancellation?.refundAmount;
-              return (
-                <div className="space-y-4">
-                  <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px] px-2">Booking Amount</h3>
-                  <div className="bg-white rounded-[40px] p-6 space-y-3 border border-[#F2E8DF] shadow-sm text-xs">
-                    <div className="flex items-center justify-between text-muted-text font-medium">
-                      <span>{formatMoney(pricing.nightlyPrice, pricing.currency)} × {nights} {nights === 1 ? 'Night' : 'Nights'}</span>
-                      <span>{formatMoney(pricing.subtotal, pricing.currency)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-muted-text font-medium">
-                      <span>Service Fee</span>
-                      <span>{formatMoney(pricing.serviceFee, pricing.currency)}</span>
-                    </div>
-                    {!!pricing.taxes && (
-                      <div className="flex items-center justify-between text-muted-text font-medium">
-                        <span>Taxes</span>
-                        <span>{formatMoney(pricing.taxes, pricing.currency)}</span>
-                      </div>
-                    )}
-                    {discountAmount > 0 && (
-                      <div className="flex items-center justify-between text-success font-medium">
-                        <span>Discount{pricing.discount?.code ? ` (${pricing.discount.code})` : ''}</span>
-                        <span>− {formatMoney(discountAmount, pricing.currency)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between pt-3 border-t border-[#F2E8DF] font-black text-primary text-sm">
-                      <span>Total</span>
-                      <span className="text-accent italic text-base">{formatMoney(pricing.totalPayable, pricing.currency)}</span>
-                    </div>
-                    {typeof refundAmount === 'number' && (
-                      <div className="flex items-center justify-between text-muted-text font-medium">
-                        <span>Refund{bookingDetail.cancellation?.refundStatus ? ` (${bookingDetail.cancellation.refundStatus})` : ''}</span>
-                        <span>{formatMoney(refundAmount, pricing.currency)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
             {cancelError && (
-              <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
+              <div className="bg-danger/5 border border-danger/20 rounded-2xl p-4 flex items-center gap-3 text-danger">
                 <TriangleAlert size={18} />
                 <p className="text-[10px] font-black uppercase tracking-widest">{cancelError}</p>
               </div>
             )}
 
-            {bookingDetail.status !== 'cancelled' && (
-              <button
-                onClick={handleCancel}
-                disabled={isCancelling}
-                className="w-full text-danger/40 hover:text-danger text-[10px] font-black uppercase tracking-[3px] py-4 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isCancelling && <Loader2 size={14} className="animate-spin" />}
-                Cancel Booking
-              </button>
-            )}
+            <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-6 items-start">
+              {/* Left: guest card + contact actions */}
+              <div className="bg-[#0F1D33] rounded-[32px] p-6 shadow-xl relative overflow-hidden lg:sticky lg:top-6">
+                <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/5 rounded-full blur-2xl" />
+
+                <div className="relative z-10 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/10 shrink-0">
+                      <GuestAvatar url={toDetailAvatar(bookingDetail)} name={bookingDetail.traveler?.name} className="w-full h-full" fallbackClassName="bg-white/10 text-white/60" iconSize={28} />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-xl font-black italic text-white uppercase leading-tight tracking-tight break-words">
+                        {guestName}
+                      </h2>
+                      <p className="text-[10px] font-black text-[#D4C3B5] uppercase tracking-[2px] opacity-80 pt-1">
+                        {bookingDetail.status === 'cancelled' ? 'Cancelled' : 'Verified Guest'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsMessageOpen(true)}
+                      className="bg-white/10 hover:bg-white/20 text-white rounded-2xl py-3 flex items-center justify-center gap-2 transition-all active:scale-95 border border-white/5 cursor-pointer"
+                    >
+                      <MessageSquare size={16} className="text-[#D4C3B5]" />
+                      <span className="text-[10px] font-black uppercase tracking-[2px]">Message</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsCallOpen(true)}
+                      className="bg-white/10 hover:bg-white/20 text-white rounded-2xl py-3 flex items-center justify-center gap-2 transition-all active:scale-95 border border-white/5 cursor-pointer"
+                    >
+                      <Phone size={16} className="text-[#D4C3B5]" />
+                      <span className="text-[10px] font-black uppercase tracking-[2px]">Call</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: status, stay details, amount */}
+              <div className="space-y-6 min-w-0">
+                <div className="bg-white rounded-[28px] p-5 border border-[#F2E8DF] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 bg-[#F8F9FA] rounded-2xl flex items-center justify-center text-primary border border-[#F2E8DF] shrink-0">
+                      <BadgeCheck size={20} />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Status</p>
+                      {(() => {
+                        const displayStatus = deriveDisplayStatus(bookingDetail.status, bookingDetail.checkInDate, bookingDetail.checkOutDate);
+                        return <Badge variant={STATUS_BADGE_VARIANT[displayStatus]}>{displayStatus}</Badge>;
+                      })()}
+                    </div>
+                  </div>
+                  {user.role === 'admin' && bookingStatusOptions.length > 0 && (
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px] block">Change Status</label>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={bookingDetail.status}
+                          onChange={e => handleStatusChange(e.target.value)}
+                          disabled={isUpdatingStatus}
+                          className="py-2 px-3 rounded-xl bg-white border border-border-misrah text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent shadow-2xs cursor-pointer disabled:opacity-50"
+                        >
+                          {!bookingStatusOptions.some(o => o.value === bookingDetail.status) && (
+                            <option value={bookingDetail.status}>{formatEnumLabel(bookingDetail.status)}</option>
+                          )}
+                          {bookingStatusOptions.map(opt => (
+                            <option key={opt.key} value={opt.value}>{formatEnumLabel(opt.key)}</option>
+                          ))}
+                        </select>
+                        {isUpdatingStatus && <Loader2 size={14} className="animate-spin text-primary/40" />}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {statusError && (
+                  <p className="text-[10px] font-bold text-danger px-2 -mt-4">{statusError}</p>
+                )}
+
+                <div className="space-y-3">
+                  <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px] px-2">Stay Details</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-[#F8F9FA] rounded-[24px] p-5 border border-[#F2E8DF] flex items-center gap-4 sm:col-span-2">
+                      <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF] shrink-0">
+                        <MapPin size={20} />
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Property</p>
+                        <p className="text-base font-black text-primary italic uppercase tracking-tight leading-tight">{bookingDetail.propertySnapshot?.title ?? 'Property'}</p>
+                        {bookingDetail.propertySnapshot?.city?.name && (
+                          <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">{bookingDetail.propertySnapshot.city.name}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-[#F8F9FA] rounded-[24px] p-5 border border-[#F2E8DF] flex items-center gap-4">
+                      <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF] shrink-0">
+                        <CalendarIcon size={20} />
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Dates</p>
+                        <p className="text-sm font-black text-primary italic uppercase tracking-tight">{formatBookingDate(bookingDetail.checkInDate)} - {formatBookingDate(bookingDetail.checkOutDate)}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#F8F9FA] rounded-[24px] p-5 border border-[#F2E8DF] flex items-center gap-4">
+                      <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center text-primary shadow-sm border border-[#F2E8DF] shrink-0">
+                        <UsersIcon size={20} />
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px]">Occupants</p>
+                        <p className="text-sm font-black text-primary italic uppercase tracking-tight">{(bookingDetail.guests?.adults ?? 0) + (bookingDetail.guests?.children ?? 0)} People</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {bookingDetail.pricing && (() => {
+                  const pricing = bookingDetail.pricing;
+                  const nights = pricing.totalNights ?? bookingDetail.totalNights;
+                  const discountAmount = pricing.discount?.amount ?? 0;
+                  const refundAmount = bookingDetail.cancellation?.refundAmount;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-[11px] font-black italic text-primary/40 uppercase tracking-[2.5px] px-2">Booking Amount</h3>
+                      <div className="bg-white rounded-[24px] p-5 space-y-3 border border-[#F2E8DF] shadow-sm text-xs">
+                        <div className="flex items-center justify-between text-muted-text font-medium">
+                          <span>{formatMoney(pricing.nightlyPrice, pricing.currency)} × {nights} {nights === 1 ? 'Night' : 'Nights'}</span>
+                          <span>{formatMoney(pricing.subtotal, pricing.currency)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-muted-text font-medium">
+                          <span>Service Fee</span>
+                          <span>{formatMoney(pricing.serviceFee, pricing.currency)}</span>
+                        </div>
+                        {!!pricing.taxes && (
+                          <div className="flex items-center justify-between text-muted-text font-medium">
+                            <span>Taxes</span>
+                            <span>{formatMoney(pricing.taxes, pricing.currency)}</span>
+                          </div>
+                        )}
+                        {discountAmount > 0 && (
+                          <div className="flex items-center justify-between text-success font-medium">
+                            <span>Discount{pricing.discount?.code ? ` (${pricing.discount.code})` : ''}</span>
+                            <span>− {formatMoney(discountAmount, pricing.currency)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-3 border-t border-[#F2E8DF] font-black text-primary text-sm">
+                          <span>Total</span>
+                          <span className="text-accent italic text-base">{formatMoney(pricing.totalPayable, pricing.currency)}</span>
+                        </div>
+                        {typeof refundAmount === 'number' && (
+                          <div className="flex items-center justify-between text-muted-text font-medium">
+                            <span>Refund{bookingDetail.cancellation?.refundStatus ? ` (${bookingDetail.cancellation.refundStatus})` : ''}</span>
+                            <span>{formatMoney(refundAmount, pricing.currency)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
           </>
         )}
 
         {bookingDetail && (
           <GuestContactModals
             contact={{
-              name: bookingDetail.traveler?.name ?? bookingDetail.contact?.name ?? 'Guest',
+              name: guestName,
               phone: bookingDetail.traveler?.phoneNumber ?? bookingDetail.contact?.phone,
               avatar: toDetailAvatar(bookingDetail),
               subtitle: `${bookingDetail.propertySnapshot.title} · Ref: ${bookingDetail._id.slice(-8).toUpperCase()}`,

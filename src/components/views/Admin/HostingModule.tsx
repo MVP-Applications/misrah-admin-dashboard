@@ -25,6 +25,12 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
   const [activeTab, setActiveTab] = useState<'requests' | 'listings'>('requests');
   const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  // Client-side only — the admin properties endpoint has no isActive param,
+  // so this narrows the already-fetched list for the current status tab.
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const visibleProperties = activeFilter === 'All'
+    ? filteredProperties
+    : filteredProperties.filter(p => (activeFilter === 'Active' ? p.active : !p.active));
 
   const refetch = useCallback(() => {
     setLoading(true);
@@ -71,6 +77,15 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
               </button>
             ))}
           </div>
+          <select
+            value={activeFilter}
+            onChange={e => setActiveFilter(e.target.value as 'All' | 'Active' | 'Inactive')}
+            className="h-8 px-4 rounded-2xl bg-white border border-border-misrah text-[9px] font-black uppercase tracking-widest text-primary outline-none focus:border-accent shadow-sm cursor-pointer"
+          >
+            <option value="All">All</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
           <button 
             onClick={() => setIsModalOpen(true)}
             className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
@@ -111,7 +126,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
           <LoadingSpinner className="mx-auto" />
         </div>
-      ) : filteredProperties.length === 0 ? (
+      ) : visibleProperties.length === 0 ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
           <div className="w-24 h-24 bg-surface rounded-[40px] flex items-center justify-center mx-auto mb-8 text-[#D4C3B5] ring-8 ring-surface/50">
             <Check size={40} />
@@ -120,13 +135,15 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
             Queue Synchronized
           </h3>
           <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-3">
-            {`${filter} moderation list is fully audited`}
+            {activeFilter === 'All'
+              ? `${filter} moderation list is fully audited`
+              : `No ${activeFilter.toLowerCase()} ${filter.toLowerCase()} properties`}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <AnimatePresence mode="popLayout">
-            {filteredProperties.map(property => (
+            {visibleProperties.map(property => (
               <motion.div 
                 layout
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -138,6 +155,12 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
               >
                 <div className="relative h-40 overflow-hidden bg-surface border-b border-border-misrah/20">
                   <img src={property.image} alt={property.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                  <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-sm border border-border-misrah/50 shadow-sm">
+                    <span className={`w-1.5 h-1.5 rounded-full ${property.active ? 'bg-success' : 'bg-muted-text/50'}`} />
+                    <span className={`text-[9px] font-black uppercase tracking-wider ${property.active ? 'text-success' : 'text-muted-text'}`}>
+                      {property.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                   <div className="absolute top-4 right-4">
                     <Badge variant={property.status === 'Approved' ? 'green' : property.status === 'Pending' ? 'gold' : 'red'}>
                       {property.status?.toUpperCase()}
@@ -159,7 +182,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
                     </div>
                     <div className="text-right">
                        <p className="text-[11px] font-black text-primary italic">{formatMoney(property.price, property.currency)}</p>
-                       <p className="text-[8px] font-black text-muted-text/40 uppercase tracking-[3px] mt-0.5">Yield</p>
+                       <p className="text-[8px] font-black text-muted-text/40 uppercase tracking-[3px] mt-0.5">Base Price</p>
                     </div>
                   </div>
                   
@@ -173,7 +196,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
 
                     <div className="flex gap-3 pt-2">
                       <button className="flex-1 py-3.5 bg-primary text-accent text-[9px] font-black uppercase tracking-[3px] rounded-2xl group-hover:shadow-lg group-hover:shadow-primary/20 transition-all border border-primary">
-                        Audit Node
+                        View Details
                       </button>
                       {filter === 'Pending' && (
                          <button 

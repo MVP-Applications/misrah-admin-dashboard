@@ -366,7 +366,7 @@ export const PropertyDetailView = ({
             {/* Core Specs */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 group hover:bg-white transition-all shadow-sm">
-                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">Investment Yield</p>
+                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">Base Price</p>
                 {isEditing ? (
                   <div className="flex items-baseline gap-2">
                     <input 
@@ -582,7 +582,7 @@ export const PropertyDetailView = ({
                       className="w-full py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:opacity-90 transition-all shadow-lg flex items-center justify-center gap-2.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                     >
                       <UserCheck size={14} className="text-accent" />
-                      <span>Verify Node Profile</span>
+                      <span>Verify Host Profile</span>
                     </button>
                     <button
                       type="button"
