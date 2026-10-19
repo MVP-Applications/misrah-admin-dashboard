@@ -10,6 +10,11 @@ import type {
   ListMyPropertiesParams,
   ListPropertiesParams,
   ListPropertiesResponse,
+  ListPropertyDraftsParams,
+  ListPropertyDraftsResponse,
+  PropertyDraft,
+  PropertyDraftRequest,
+  PropertyDraftScope,
   UpdatePropertyRequest,
   UploadedFileResult,
 } from './types';
@@ -44,6 +49,61 @@ export async function listMyProperties(params: ListMyPropertiesParams = {}): Pro
       totalPages: num(meta.totalPages, 1),
     },
   };
+}
+
+const draftEndpoint = (scope: PropertyDraftScope) =>
+  scope === 'admin' ? API_ENDPOINTS.properties.adminDraft : API_ENDPOINTS.properties.draft;
+const draftByIdEndpoint = (scope: PropertyDraftScope, id: string) =>
+  scope === 'admin' ? API_ENDPOINTS.properties.adminDraftById(id) : API_ENDPOINTS.properties.draftById(id);
+
+// POST /property/draft (host) or /admin/properties/draft (admin) — save the
+// in-progress create form as a draft (201). The created draft's _id is needed
+// for later PATCHes; accepts it either directly in data or nested one level
+// (data.data / data.draft).
+export async function createPropertyDraft(payload: PropertyDraftRequest, scope: PropertyDraftScope = 'host'): Promise<PropertyDraft> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<unknown>>(draftEndpoint(scope), payload);
+  const body = data.data as Record<string, unknown>;
+  const draft = (body && typeof body._id === 'string' ? body : (body?.data ?? body?.draft)) as PropertyDraft;
+  return assertResponseShape('create property draft', draft, ['_id']);
+}
+
+// GET /property/draft (host's own) or /admin/properties/draft (admin) —
+// page/limit/search. Pagination normalized into `meta` the same way as
+// listMyProperties.
+export async function listPropertyDrafts(
+  params: ListPropertyDraftsParams = {},
+  scope: PropertyDraftScope = 'host',
+): Promise<ListPropertyDraftsResponse> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<unknown>>(draftEndpoint(scope), {
+    params: { ...params, search: params.search?.trim() || undefined },
+  });
+  const body = data.data as Record<string, unknown> | unknown[];
+  if (Array.isArray(body)) {
+    return { data: body as PropertyDraft[], meta: { total: body.length, page: 1, limit: body.length, totalPages: 1 } };
+  }
+  const list = (assertResponseShape('list property drafts', body, ['data']) as { data: PropertyDraft[] }).data;
+  const meta = (body.meta ?? body) as Record<string, unknown>;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+  return {
+    data: list,
+    meta: {
+      total: num(meta.total ?? meta.totalCount, list.length),
+      page: num(meta.page ?? meta.currentPage, params.page ?? 1),
+      limit: num(meta.limit, params.limit ?? list.length),
+      totalPages: num(meta.totalPages, 1),
+    },
+  };
+}
+
+// PATCH .../draft/{id} — overwrite a draft with the form's current state.
+export async function updatePropertyDraft(id: string, payload: PropertyDraftRequest, scope: PropertyDraftScope = 'host'): Promise<void> {
+  await apiClient.patch(draftByIdEndpoint(scope, id), payload);
+}
+
+// DELETE .../draft/{id} — discard a draft (also called after the draft is
+// published as a real property).
+export async function deletePropertyDraft(id: string, scope: PropertyDraftScope = 'host'): Promise<void> {
+  await apiClient.delete(draftByIdEndpoint(scope, id));
 }
 
 // GET /property/{id} — Host Hub property detail. Response body assumed to

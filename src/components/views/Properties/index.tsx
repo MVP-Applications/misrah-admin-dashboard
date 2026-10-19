@@ -1,14 +1,15 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck } from 'lucide-react';
+import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck, Home, FileText } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
+import { PropertyDraftsTab } from './PropertyDraftsTab';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { listAdminProperties, listActiveCities, listMyProperties } from '../../../features/properties/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
-import type { CityListItem, CreatePropertyRequest } from '../../../features/properties/types';
+import type { CityListItem, CreatePropertyRequest, PropertyDraft } from '../../../features/properties/types';
 import { displayCurrency } from '../../../utils/money';
 import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
@@ -110,6 +111,13 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  // Host Hub only: Listings vs. saved creation drafts (/property/draft).
+  const isHost = user.role !== 'admin';
+  const [activeTab, setActiveTab] = useState<'listings' | 'drafts'>('listings');
+  const [resumeDraft, setResumeDraft] = useState<PropertyDraft | null>(null);
+  const [draftsRefreshKey, setDraftsRefreshKey] = useState(0);
+  const openCreate = () => { setResumeDraft(null); setIsModalOpen(true); };
+  const closeModal = () => { setIsModalOpen(false); setResumeDraft(null); };
 
   // Guards against an older (slower) city request overwriting a newer one.
   const latestRequestRef = useRef(0);
@@ -177,7 +185,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
 
   const handleAddProperty = async (payload: CreatePropertyRequest) => {
     await addProperty(payload);
-    setIsModalOpen(false);
+    closeModal();
   };
 
   return (
@@ -194,7 +202,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
           </p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreate}
           className="bg-primary text-accent px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:opacity-90 transition-all flex items-center gap-2 shadow-lg"
         >
           <Plus size={18} />
@@ -202,6 +210,36 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
         </button>
       </header>
 
+      {isHost && (
+        <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-sm">
+          {([
+            { key: 'listings', label: 'Listings', icon: Home },
+            { key: 'drafts', label: 'Drafts', icon: FileText },
+          ] as const).map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === tab.key ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
+              }`}
+            >
+              <tab.icon size={14} />
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isHost && activeTab === 'drafts' && (
+        <PropertyDraftsTab
+          scope="host"
+          refreshKey={draftsRefreshKey}
+          onContinue={draft => { setResumeDraft(draft); setIsModalOpen(true); }}
+        />
+      )}
+
+      {activeTab === 'listings' && (<>
       <div className="flex flex-col gap-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -369,7 +407,7 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
         </AnimatePresence>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreate}
           className="h-full min-h-[280px] bg-white/50 border-2 border-dashed border-border-misrah rounded-2xl flex flex-col items-center justify-center gap-3 text-muted-text hover:text-accent hover:border-accent transition-all group"
         >
           <div className="w-12 h-12 rounded-full bg-white border border-border-misrah flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -379,7 +417,16 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
         </button>
       </div>
 
-      <AddListingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={handleAddProperty} user={user} />
+      </>)}
+
+      <AddListingModal
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        onAdd={handleAddProperty}
+        user={user}
+        draft={resumeDraft}
+        onDraftsChanged={() => setDraftsRefreshKey(k => k + 1)}
+      />
 
       <RejectionModal
         isOpen={rejectionModal.isOpen}

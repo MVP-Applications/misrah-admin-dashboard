@@ -163,7 +163,15 @@ export const API_ENDPOINTS = {
     create: '/property',
     // Host Hub: GET one property by ID (PATCH/DELETE also exist in the spec).
     byId: (id: string) => `/property/${id}`,
+    // Host Hub drafts: POST (body { step, ...partial CreatePropertyDto }, 201)
+    // and GET (page/limit/search) on the base; PATCH/DELETE by id.
+    draft: '/property/draft',
+    draftById: (id: string) => `/property/draft/${id}`,
     adminById: (id: string) => `/admin/properties/${id}`,
+    // Admin drafts — same contract as the host /property/draft routes, but the
+    // body may also carry the ownership fields (userId or new-host details).
+    adminDraft: '/admin/properties/draft',
+    adminDraftById: (id: string) => `/admin/properties/draft/${id}`,
     adminApprove: (id: string) => `/admin/properties/${id}/approve`,
     adminReject: (id: string) => `/admin/properties/${id}/reject`,
     // Attach/replace the host on an existing property — same "hostId OR new
