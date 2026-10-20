@@ -34,6 +34,8 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInte
 import { User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { createPropertyDraft, deletePropertyDraft, listActiveCities, updatePropertyDraft, uploadFile } from '../../../features/properties/api';
+import { listCategories } from '../../../features/categories/api';
+import type { ApiCategory } from '../../../features/categories/types';
 import { hostAssignmentToCreateFields } from '../../../features/properties/mappers';
 import type { CityListItem, CreatePropertyRequest, DraftFileRef, HostAssignmentSelection, PropertyDraft, PropertyDraftRequest, PropertyDraftScope } from '../../../features/properties/types';
 import { HostAssignmentPicker } from './HostAssignmentPicker';
@@ -187,7 +189,10 @@ const toUtcDayBoundary = (iso: string, edge: 'start' | 'end'): string => {
 interface AddListingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (payload: CreatePropertyRequest) => Promise<void>;
+  // `categoryIds` (admin only): property categories to add the new property
+  // to once it's created — categories hold propertyIds, so this is a separate
+  // POST /property-categories/{id}/properties rather than a create field.
+  onAdd: (payload: CreatePropertyRequest, extras?: { categoryIds: string[] }) => Promise<void>;
   user: User;
   // A saved draft to resume, and a callback fired whenever a draft is
   // created, updated, or consumed by publishing. Hosts use /property/draft,
@@ -228,6 +233,27 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       })
       .finally(() => setCitiesLoading(false));
   };
+  // Admin only: GET /property-categories — active ones are offered on the
+  // Asset Taxonomy step.
+  const [propertyCategories, setPropertyCategories] = useState<ApiCategory[]>([]);
+  const [propertyCategoriesLoading, setPropertyCategoriesLoading] = useState(false);
+  const [propertyCategoriesError, setPropertyCategoriesError] = useState<string | null>(null);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const loadPropertyCategories = () => {
+    setPropertyCategoriesLoading(true);
+    setPropertyCategoriesError(null);
+    listCategories()
+      .then(list => setPropertyCategories(
+        list.filter(c => c.isActive && !c.deletedAt).sort((a, b) => a.displayOrder - b.displayOrder),
+      ))
+      .catch(err => {
+        setPropertyCategories([]);
+        setPropertyCategoriesError(err instanceof Error ? err.message : 'Failed to load categories.');
+      })
+      .finally(() => setPropertyCategoriesLoading(false));
+  };
+  const toggleCategory = (id: string) =>
+    setSelectedCategoryIds(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -269,7 +295,9 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       );
       setCurrentMonth(new Date());
       setRangeField('start');
+      setSelectedCategoryIds([]);
       loadCities();
+      if (!isHost) loadPropertyCategories();
     }
   }, [isOpen, user, draft]);
 
@@ -431,7 +459,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
         cityId: formData.cityId || undefined,
         ...(formData.address.trim() ? { address: formData.address.trim() } : {}),
         ...(formData.location ? { latitude: formData.location.lat, longitude: formData.location.lng } : {}),
-      });
+      }, !isHost ? { categoryIds: selectedCategoryIds } : undefined);
       // Published — the draft it came from is no longer needed. Best effort:
       // the property already exists, so a failed delete isn't surfaced.
       if (draftId) {
@@ -610,7 +638,8 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
                   {categories.map((cat) => (
                     <button
                       key={cat.id}
-                      onClick={() => { setFormData({ ...formData, category: cat.id }); handleNext(); }}
+                      // Hosts jump straight on; admins stay to pick categories below.
+                      onClick={() => { setFormData({ ...formData, category: cat.id }); if (isHost) handleNext(); }}
                       className={`p-5 rounded-2xl border text-left flex flex-col gap-3 transition-all
                         ${formData.category === cat.id ? 'border-accent bg-accent/5' : 'border-border-misrah hover:border-accent hover:border-surface'}`}
                     >
@@ -624,6 +653,48 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
                     </button>
                   ))}
                 </div>
+
+                {!isHost && (
+                  <div className="space-y-3 pt-2">
+                    <div>
+                      <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Categories</h4>
+                      <p className="text-[10px] text-muted-text font-medium mt-0.5">Optional — the property is added to every category you select.</p>
+                    </div>
+                    {propertyCategoriesLoading ? (
+                      <div className="flex items-center gap-2 py-3 text-muted-text text-[10px] font-black uppercase tracking-widest">
+                        <Loader2 size={14} className="animate-spin" /> Loading categories…
+                      </div>
+                    ) : propertyCategoriesError ? (
+                      <div className="p-4 rounded-2xl bg-danger/5 border border-danger/20 flex items-center justify-between gap-4">
+                        <p className="text-xs font-bold text-danger">{propertyCategoriesError}</p>
+                        <button type="button" onClick={loadPropertyCategories} className="px-4 py-2 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider shrink-0">
+                          Retry
+                        </button>
+                      </div>
+                    ) : propertyCategories.length === 0 ? (
+                      <p className="text-[10px] font-black text-muted-text/60 uppercase tracking-widest py-2">No active categories</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {propertyCategories.map(c => {
+                          const selected = selectedCategoryIds.includes(c._id);
+                          return (
+                            <button
+                              key={c._id}
+                              type="button"
+                              onClick={() => toggleCategory(c._id)}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all
+                                ${selected ? 'bg-accent/10 border-accent text-primary' : 'border-border-misrah text-muted-text hover:border-accent'}`}
+                            >
+                              {c.iconUrl && <img src={c.iconUrl} alt="" className="w-4 h-4 object-contain" />}
+                              {c.name?.en || c.name?.ar || 'Category'}
+                              {selected && <Check size={12} className="text-accent" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </motion.div>
             )}
 

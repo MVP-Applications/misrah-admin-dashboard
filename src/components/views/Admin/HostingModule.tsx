@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Calendar, MapPin, Plus, LayoutList, Home, FileText } from 'lucide-react';
+import { Check, Calendar, MapPin, Plus, LayoutList, Home, FileText, ImageOff } from 'lucide-react';
 import { LoadingSpinner } from '../../ui/LoadingSpinner';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
 import { AddListingModal } from '../Properties/AddListingModal';
 import { usePropertyActions } from '../../../hooks/usePropertyActions';
 import { listAdminProperties } from '../../../features/properties/api';
+import { addPropertiesToCategory } from '../../../features/categories/api';
 import { apiPropertyToViewModel } from '../../../features/properties/mappers';
 import type { CreatePropertyRequest, PropertyDraft } from '../../../features/properties/types';
 import { AssetListingsTab } from './AssetListingsTab';
@@ -53,9 +54,21 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
 
   const { addProperty, handleApprove } = usePropertyActions(refetch);
 
-  const handleAddProperty = async (payload: CreatePropertyRequest) => {
-    await addProperty(payload);
+  const handleAddProperty = async (payload: CreatePropertyRequest, extras?: { categoryIds: string[] }) => {
+    const created = await addProperty(payload);
     closeModal();
+    // The property exists at this point, so a failed category link is
+    // reported rather than thrown — throwing would invite a duplicate create.
+    const categoryIds = extras?.categoryIds ?? [];
+    if (created?._id && categoryIds.length > 0) {
+      const results = await Promise.allSettled(
+        categoryIds.map(id => addPropertiesToCategory(id, { propertyIds: [created._id] })),
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) {
+        window.alert(`Property created, but it couldn't be added to ${failed} of ${categoryIds.length} categories. Add it from the Categories page.`);
+      }
+    }
   };
 
   return (
@@ -190,7 +203,14 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
                 className="bg-white rounded-[40px] border border-border-misrah overflow-hidden shadow-sm hover:shadow-luxury transition-all duration-500 group cursor-pointer flex flex-col"
               >
                 <div className="relative h-40 overflow-hidden bg-surface border-b border-border-misrah/20">
-                  <img src={property.image} alt={property.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                  {property.image ? (
+                    <img src={property.image} alt={property.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-[#D4C3B5]">
+                      <ImageOff size={28} />
+                      <span className="text-[9px] font-black uppercase tracking-[2px]">No image</span>
+                    </div>
+                  )}
                   <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-sm border border-border-misrah/50 shadow-sm">
                     <span className={`w-1.5 h-1.5 rounded-full ${property.active ? 'bg-success' : 'bg-muted-text/50'}`} />
                     <span className={`text-[9px] font-black uppercase tracking-wider ${property.active ? 'text-success' : 'text-muted-text'}`}>

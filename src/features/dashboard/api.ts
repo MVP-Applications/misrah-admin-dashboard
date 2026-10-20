@@ -3,7 +3,7 @@ import { saveBlobResponse } from '../../api/download';
 import { assertResponseShape } from '../../api/assertShape';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
-import type { AdminDashboardData, AdminDashboardParams, HostEarningsData, HostEarningsParams } from './types';
+import type { AdminDashboardData, AdminDashboardParams, AdminEarningsData, AdminEarningsParams, HostEarningsData, HostEarningsParams } from './types';
 
 // Host Hub equivalent — same data shape, no `header` block.
 export async function getHostDashboardOverview(params: AdminDashboardParams = {}): Promise<AdminDashboardData> {
@@ -21,6 +21,13 @@ export async function getAdminDashboard(params: AdminDashboardParams = {}): Prom
 export async function getHostEarnings(params: HostEarningsParams = {}): Promise<HostEarningsData> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<HostEarningsData>>(API_ENDPOINTS.dashboard.hostEarnings, { params });
   return assertResponseShape('host earnings', data.data, ['kpis', 'revenueMatrix', 'operationalOccupancy', 'netYieldMomentum', 'ledger']);
+}
+
+// GET /admin/dashboard/earnings?currency&timeframe&year&ledgerPage&ledgerLimit
+// — admin Earnings page (KPIs, revenue matrix, ledger).
+export async function getAdminEarnings(params: AdminEarningsParams = {}): Promise<AdminEarningsData> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<AdminEarningsData>>(API_ENDPOINTS.dashboard.adminEarnings, { params });
+  return assertResponseShape('admin earnings', data.data, ['kpis', 'revenueMatrix', 'ledger']);
 }
 
 // GET /host/dashboard/earnings/audit-report/download?format&currency —

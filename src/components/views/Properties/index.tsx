@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck, Home, FileText } from 'lucide-react';
+import { Plus, Check, X, AlertCircle, Info, MapPin, ShieldCheck, Home, FileText, ImageOff } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
 import { AddListingModal } from './AddListingModal';
@@ -309,7 +309,13 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
                   <div className="space-y-6">
                     <div className="flex justify-between items-start">
                        <div className="w-20 h-20 rounded-[28px] overflow-hidden border-2 border-surface">
-                          <img src={property.image} className="w-full h-full object-cover" />
+                          {property.image ? (
+                            <img src={property.image} alt={property.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-surface flex items-center justify-center text-[#D4C3B5]">
+                              <ImageOff size={22} />
+                            </div>
+                          )}
                        </div>
                        <Badge variant="gold">REQUEST-A{property.id.substr(0, 4).toUpperCase()}</Badge>
                     </div>
@@ -368,7 +374,14 @@ export const PropertiesView = ({ user }: PropertiesViewProps) => {
                 className="bg-white rounded-[32px] border border-border-misrah overflow-hidden shadow-sm hover:shadow-luxury transition-all group cursor-pointer"
               >
                 <div className="relative h-48 overflow-hidden">
-                  <img src={property.image} alt={property.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                  {property.image ? (
+                    <img src={property.image} alt={property.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                  ) : (
+                    <div className="w-full h-full bg-surface flex flex-col items-center justify-center gap-2 text-[#D4C3B5]">
+                      <ImageOff size={28} />
+                      <span className="text-[9px] font-black uppercase tracking-[2px]">No image</span>
+                    </div>
+                  )}
                   <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
                     {property.status === 'Rejected' && (
                       <Badge variant="red">REJECTED</Badge>

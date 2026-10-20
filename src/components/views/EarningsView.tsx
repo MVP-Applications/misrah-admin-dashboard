@@ -32,10 +32,10 @@ import {
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
 import { User } from '../../types';
-import { downloadHostAuditReport, getHostEarnings } from '../../features/dashboard/api';
+import { downloadHostAuditReport, getAdminEarnings, getHostEarnings } from '../../features/dashboard/api';
 import { usePreferredCurrency } from '../../hooks/usePreferredCurrency';
 import { errorMessage } from '../../api/errors';
-import type { EarningsTimeframe, HostEarningsData } from '../../features/dashboard/types';
+import type { AdminEarningsData, EarningsTimeframe, HostEarningsData } from '../../features/dashboard/types';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 const LEDGER_PAGE_SIZE = 7;
@@ -44,25 +44,11 @@ interface EarningsViewProps {
   user: User;
 }
 
-interface TransactionRecord {
-  id: string;
-  ref: string;
-  status: 'Completed' | 'Processing' | 'Refunded';
-  amount: number;
-  date: string;
-  fullDate: string;
-  type: 'Payout' | 'Booking' | 'Refund';
-  bank?: string;
-  guest?: string;
-  asset?: string;
-  channel?: string;
-  hash: string;
-  adminOnly?: boolean;
-}
-
 export const EarningsView = ({ user }: EarningsViewProps) => {
-  // Host Hub: live data from GET /host/dashboard/earnings. Admin keeps the
-  // sample data below (no admin earnings endpoint yet).
+  // Live data for both roles: GET /host/dashboard/earnings (host) or
+  // GET /admin/dashboard/earnings (admin). Same matrix/ledger shapes; the
+  // admin KPIs swap Active Nodes for Total Refunded and have no occupancy /
+  // momentum block.
   const isHost = user.role === 'manager';
   const currency = usePreferredCurrency();
   const [isDownloadingAudit, setIsDownloadingAudit] = useState(false);
@@ -84,122 +70,33 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
   const [timeframe, setTimeframe] = useState<EarningsTimeframe>('M');
   const [earningsYear, setEarningsYear] = useState(now.getFullYear());
   const [ledgerPage, setLedgerPage] = useState(1);
-  const [earnings, setEarnings] = useState<HostEarningsData | null>(null);
+  const [earnings, setEarnings] = useState<HostEarningsData | AdminEarningsData | null>(null);
+  // Narrowed views of `earnings` for the role-specific sections.
+  const hostEarnings = earnings && 'operationalOccupancy' in earnings ? earnings : null;
+  const adminEarnings = earnings && 'totalRefunded' in earnings.kpis ? (earnings as AdminEarningsData) : null;
   const [isEarningsLoading, setIsEarningsLoading] = useState(false);
   const [earningsError, setEarningsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isHost) return;
     let cancelled = false;
     setIsEarningsLoading(true);
     setEarningsError(null);
-    getHostEarnings({ timeframe, year: earningsYear, ledgerPage, ledgerLimit: LEDGER_PAGE_SIZE })
+    const params = { timeframe, year: earningsYear, ledgerPage, ledgerLimit: LEDGER_PAGE_SIZE };
+    const request: Promise<HostEarningsData | AdminEarningsData> = isHost
+      ? getHostEarnings(params)
+      : getAdminEarnings({ ...params, currency });
+    request
       .then(data => { if (!cancelled) setEarnings(data); })
       .catch(err => { if (!cancelled) setEarningsError(err instanceof Error ? err.message : 'Failed to load earnings.'); })
       .finally(() => { if (!cancelled) setIsEarningsLoading(false); });
     return () => { cancelled = true; };
-  }, [isHost, timeframe, earningsYear, ledgerPage]);
+  }, [isHost, timeframe, earningsYear, ledgerPage, currency]);
 
   // Year change → back to the first ledger page.
   useEffect(() => { setLedgerPage(1); }, [earningsYear]);
 
   const matrixRows = earnings?.revenueMatrix.data ?? [];
   const matrixMax = matrixRows.reduce((max, r) => Math.max(max, r.amount), 0);
-
-  // Full History Protocol Modal State
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'All' | 'Payout' | 'Booking' | 'Refund'>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Completed' | 'Processing' | 'Refunded'>('All');
-  const [selectedTxForVoucher, setSelectedTxForVoucher] = useState<TransactionRecord | null>(null);
-  const [copiedRef, setCopiedRef] = useState<string | null>(null);
-  const [exportNotice, setExportNotice] = useState(false);
-
-  const allTransactions: TransactionRecord[] = useMemo(() => [
-    { id: 'tx1', ref: 'MIS-TX-98421', status: 'Completed', amount: 4500, date: 'JAN 15', fullDate: '15 Jan 2026, 14:32 GST', type: 'Payout', bank: 'ENBD (****4521)', channel: 'Direct Clearing / UAE Central Bank', hash: '0x8f29...b4c1' },
-    { id: 'tx2', ref: 'MIS-TX-98418', status: 'Processing', amount: 2150, date: 'JAN 14', fullDate: '14 Jan 2026, 19:15 GST', type: 'Booking', guest: 'Zayed Al Mansouri', asset: 'Palm Jumeirah Ultra Villa', channel: 'Apple Pay / Visa Platinum', hash: '0x3a19...d902' },
-    { id: 'tx3', ref: 'MIS-TX-98390', status: 'Completed', amount: 5200, date: 'JAN 12', fullDate: '12 Jan 2026, 11:04 GST', type: 'Payout', bank: 'ADCB (****7892)', channel: 'Automated Batch Settlement', hash: '0x17c0...fe24' },
-    { id: 'tx8', ref: 'MIS-TX-98355', status: 'Refunded', amount: 850, date: 'JAN 11', fullDate: '11 Jan 2026, 09:45 GST', type: 'Refund', guest: 'M. Al Maktoum', asset: 'Dubai Marina Luxury Yacht', channel: 'Force Majeure Weather Adjustment', hash: '0x6e2a...98a3', adminOnly: true },
-    { id: 'tx4', ref: 'MIS-TX-98312', status: 'Completed', amount: 1800, date: 'JAN 10', fullDate: '10 Jan 2026, 16:20 GST', type: 'Booking', guest: 'Sarah Jenkins', asset: 'Sunset Desert Dune Safari', channel: 'Mastercard World Elite', hash: '0x41f9...cb10' },
-    { id: 'tx5', ref: 'MIS-TX-98288', status: 'Completed', amount: 1800, date: 'JAN 08', fullDate: '08 Jan 2026, 13:50 GST', type: 'Booking', guest: 'Omar Khalid', asset: 'Downtown Sky Penthouse', channel: 'Misrah Instant Reserve', hash: '0x92db...517e' },
-    { id: 'tx7', ref: 'MIS-TX-98240', status: 'Refunded', amount: 1200, date: 'JAN 06', fullDate: '06 Jan 2026, 10:12 GST', type: 'Refund', guest: 'Abdulla S.', asset: 'Al Barari Royal Oasis', channel: 'Early Checkout Settlement', hash: '0x741a...a820', adminOnly: true },
-    { id: 'tx6', ref: 'MIS-TX-98205', status: 'Completed', amount: 3200, date: 'JAN 05', fullDate: '05 Jan 2026, 18:02 GST', type: 'Booking', guest: 'Laila R.', asset: 'Al Barari Royal Oasis', channel: 'Amex Centurion Direct', hash: '0xbb29...41cf' },
-    { id: 'tx9', ref: 'MIS-TX-98180', status: 'Completed', amount: 4100, date: 'DEC 30', fullDate: '30 Dec 2025, 21:10 GST', type: 'Booking', guest: 'Alexander Wright', asset: 'JBR Skyline Haven', channel: 'Visa Infinite', hash: '0x51c9...33aa' },
-    { id: 'tx10', ref: 'MIS-TX-98144', status: 'Completed', amount: 6800, date: 'DEC 28', fullDate: '28 Dec 2025, 12:40 GST', type: 'Payout', bank: 'FAB (****1190)', channel: 'Quarterly Disbursal Protocol', hash: '0x88ea...611b' },
-    { id: 'tx11', ref: 'MIS-TX-98092', status: 'Completed', amount: 5500, date: 'DEC 24', fullDate: '24 Dec 2025, 15:30 GST', type: 'Booking', guest: 'Fatima Al Nuaimi', asset: 'Palm Jumeirah Ultra Villa', channel: 'Direct Escrow Transfer', hash: '0x4f12...7e99' },
-    { id: 'tx12', ref: 'MIS-TX-98040', status: 'Completed', amount: 2600, date: 'DEC 20', fullDate: '20 Dec 2025, 17:15 GST', type: 'Booking', guest: 'Carlos Mendez', asset: 'Private Yacht Sunset Cruise', channel: 'Apple Pay Gateway', hash: '0x29cc...09a1' },
-    { id: 'tx13', ref: 'MIS-TX-97995', status: 'Refunded', amount: 650, date: 'DEC 18', fullDate: '18 Dec 2025, 14:05 GST', type: 'Refund', guest: 'Elena Rostova', asset: 'Al Marmoom Stargazing Camp', channel: 'Mutual Cancellation Protocol', hash: '0x77ab...21c4', adminOnly: true },
-    { id: 'tx14', ref: 'MIS-TX-97950', status: 'Completed', amount: 7400, date: 'DEC 15', fullDate: '15 Dec 2025, 11:22 GST', type: 'Payout', bank: 'ENBD (****4521)', channel: 'Scheduled Treasury Route', hash: '0x99dd...184f' },
-    { id: 'tx15', ref: 'MIS-TX-97880', status: 'Completed', amount: 3800, date: 'DEC 12', fullDate: '12 Dec 2025, 20:00 GST', type: 'Booking', guest: 'Tariq Al Hashemi', asset: 'Downtown Sky Penthouse', channel: 'GCC Net Debit', hash: '0x10ae...42fa' },
-  ], []);
-
-  const transactions = useMemo(() => {
-    return allTransactions.filter(tx => !tx.adminOnly || user.role === 'admin');
-  }, [allTransactions, user.role]);
-
-  // Filtered transactions for the Full History Protocol Modal
-  const filteredHistory = useMemo(() => {
-    return transactions.filter(tx => {
-      // Type filter
-      if (typeFilter !== 'All' && tx.type !== typeFilter) return false;
-      // Status filter
-      if (statusFilter !== 'All' && tx.status !== statusFilter) return false;
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchRef = tx.ref.toLowerCase().includes(q);
-        const matchGuest = tx.guest ? tx.guest.toLowerCase().includes(q) : false;
-        const matchBank = tx.bank ? tx.bank.toLowerCase().includes(q) : false;
-        const matchAsset = tx.asset ? tx.asset.toLowerCase().includes(q) : false;
-        const matchChannel = tx.channel ? tx.channel.toLowerCase().includes(q) : false;
-        return matchRef || matchGuest || matchBank || matchAsset || matchChannel;
-      }
-      return true;
-    });
-  }, [transactions, typeFilter, statusFilter, searchQuery]);
-
-  // Summary figures for filtered protocol
-  const totalInflow = useMemo(() => {
-    return filteredHistory.filter(t => t.type === 'Booking').reduce((acc, curr) => acc + curr.amount, 0);
-  }, [filteredHistory]);
-
-  const totalOutflow = useMemo(() => {
-    return filteredHistory.filter(t => t.type === 'Payout' || t.type === 'Refund').reduce((acc, curr) => acc + curr.amount, 0);
-  }, [filteredHistory]);
-
-  // CSV Export implementation
-  const handleExportCSV = () => {
-    const headers = ['Reference ID', 'Date & Time', 'Type', 'Beneficiary / Counterparty', 'Asset / Channel', 'Status', 'Amount (AED)', 'Hash'];
-    const rows = filteredHistory.map(tx => [
-      `"${tx.ref}"`,
-      `"${tx.fullDate}"`,
-      `"${tx.type}"`,
-      `"${tx.type === 'Payout' ? tx.bank || 'Bank' : tx.guest || 'Counterparty'}"`,
-      `"${tx.asset || tx.channel || 'Standard Protocol'}"`,
-      `"${tx.status}"`,
-      `"${tx.amount}"`,
-      `"${tx.hash}"`
-    ]);
-
-    const csvString = [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `misrah-treasury-protocol-${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    setExportNotice(true);
-    setTimeout(() => setExportNotice(false), 3000);
-  };
-
-  const handleCopyRef = (ref: string) => {
-    navigator.clipboard?.writeText(ref);
-    setCopiedRef(ref);
-    setTimeout(() => setCopiedRef(null), 2000);
-  };
 
   return (
     <div className="relative space-y-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -217,18 +114,16 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
           </p>
         </div>
         <div className="flex flex-wrap gap-4 items-center">
-          {isHost && (
-            <div className="flex items-center gap-2">
-              <select
-                value={earningsYear}
-                onChange={e => setEarningsYear(Number(e.target.value))}
-                className="py-3 px-4 bg-white border border-border-misrah rounded-2xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
-              >
-                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-              {isEarningsLoading && <Loader2 size={16} className="animate-spin text-accent" />}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <select
+              value={earningsYear}
+              onChange={e => setEarningsYear(Number(e.target.value))}
+              className="py-3 px-4 bg-white border border-border-misrah rounded-2xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {isEarningsLoading && <Loader2 size={16} className="animate-spin text-accent" />}
+          </div>
           {isHost && (
             <button
               type="button"
@@ -251,22 +146,7 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
           <button type="button" onClick={() => setAuditError(null)} className="text-[10px] font-black uppercase tracking-wider text-danger/70 hover:text-danger">Dismiss</button>
         </div>
       )}
-      {/* Export Confirmation Toast */}
-      <AnimatePresence>
-        {exportNotice && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-24 right-8 z-50 bg-primary text-accent px-6 py-3.5 rounded-2xl shadow-2xl border border-accent/20 flex items-center gap-3 text-xs font-black uppercase tracking-wider"
-          >
-            <CheckCircle2 size={16} className="text-accent" />
-            <span>Treasury Audit CSV Dispatched Successfully</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {isHost && earningsError && (
+      {earningsError && (
         <div className="bg-danger/5 border border-danger/20 rounded-3xl p-5 flex items-center gap-3 text-danger">
           <TriangleAlert size={18} />
           <p className="text-[10px] font-black uppercase tracking-widest">Earnings data unavailable: {earningsError}</p>
@@ -274,46 +154,47 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard
+          label={`Total Revenue (${earnings?.kpis.totalRevenue.currency ?? 'AED'})`}
+          value={earnings ? earnings.kpis.totalRevenue.formattedAmount : '—'}
+          change={earnings ? earnings.kpis.totalRevenue.comparisonLabel : '…'}
+          icon={Wallet}
+          dark
+        />
+        <StatCard
+          label="In Escrow"
+          value={earnings ? earnings.kpis.inEscrow.formattedAmount : '—'}
+          change={earnings ? earnings.kpis.inEscrow.statusLabel : '…'}
+          icon={History}
+        />
+        <StatCard
+          label="Avg. Nightly Rate"
+          value={earnings ? earnings.kpis.avgNightlyRate.formattedAmount : '—'}
+          change={earnings ? earnings.kpis.avgNightlyRate.seasonalityLabel : '…'}
+          icon={TrendingUp}
+        />
         {isHost ? (
-          <>
-            <StatCard
-              label={`Total Revenue (${earnings?.kpis.totalRevenue.currency ?? 'AED'})`}
-              value={earnings ? earnings.kpis.totalRevenue.formattedAmount : '—'}
-              change={earnings ? earnings.kpis.totalRevenue.comparisonLabel : '…'}
-              icon={Wallet}
-              dark
-            />
-            <StatCard
-              label="In Escrow"
-              value={earnings ? earnings.kpis.inEscrow.formattedAmount : '—'}
-              change={earnings ? earnings.kpis.inEscrow.statusLabel : '…'}
-              icon={History}
-            />
-            <StatCard
-              label="Avg. Nightly Rate"
-              value={earnings ? earnings.kpis.avgNightlyRate.formattedAmount : '—'}
-              change={earnings ? earnings.kpis.avgNightlyRate.seasonalityLabel : '…'}
-              icon={TrendingUp}
-            />
-            <StatCard
-              label="Active Nodes"
-              value={earnings ? earnings.kpis.activeNodes.count.toString() : '—'}
-              change={earnings ? earnings.kpis.activeNodes.statusLabel : '…'}
-              icon={CheckCircle2}
-            />
-          </>
+          <StatCard
+            label="Active Nodes"
+            value={hostEarnings ? hostEarnings.kpis.activeNodes.count.toString() : '—'}
+            change={hostEarnings ? hostEarnings.kpis.activeNodes.statusLabel : '…'}
+            icon={CheckCircle2}
+          />
         ) : (
-          <>
-            <StatCard label="Total Revenue (AED)" value="35,400" change="↑ +12.5% VS DEC" icon={Wallet} dark />
-            <StatCard label="In Escrow" value="12,150" change="SETTLEMENT FLOW" icon={History} />
-            <StatCard label="Avg. Nightly Rate" value="1,150" change="↓ -2.1% SEASONALITY" icon={TrendingUp} />
-            <StatCard label="Total Refunded" value="2,050" change="↑ +5.2% SYSTEM" icon={RotateCcw} />
-          </>
+          <StatCard
+            label={`Total Refunded (${adminEarnings?.kpis.totalRefunded.currency ?? 'AED'})`}
+            value={adminEarnings ? adminEarnings.kpis.totalRefunded.formattedAmount : '—'}
+            change={adminEarnings ? adminEarnings.kpis.totalRefunded.systemLabel : '…'}
+            icon={RotateCcw}
+          />
         )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
-        <div className="lg:col-span-3 bg-white rounded-[48px] border border-border-misrah overflow-hidden shadow-sm flex flex-col h-[750px] hover:shadow-luxury transition-all duration-500">
+        {/* No fixed heights: the panels share the grid row's height (set by the
+            ledger's page + pager). The chart keeps a fixed height at the top of
+            the matrix panel; host cards sit at the bottom. */}
+        <div className="lg:col-span-3 bg-white rounded-[48px] border border-border-misrah overflow-hidden shadow-sm flex flex-col hover:shadow-luxury transition-all duration-500">
            <div className="p-10 border-b border-border-misrah/50 flex items-center justify-between bg-surface/10 backdrop-blur-md shrink-0">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-accent shadow-lg shadow-primary/20">
@@ -326,12 +207,12 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
               </div>
               <div className="flex bg-surface p-1.5 rounded-2xl border border-border-misrah/50 shadow-inner group">
                  {(['D', 'W', 'M', 'Y'] as EarningsTimeframe[]).map(t => {
-                   const isSelected = isHost ? timeframe === t : t === 'M';
+                   const isSelected = timeframe === t;
                    return (
                      <button
                        key={t}
                        type="button"
-                       onClick={() => isHost && setTimeframe(t)}
+                       onClick={() => setTimeframe(t)}
                        title={{ D: 'Daily', W: 'Weekly', M: 'Monthly', Y: 'Yearly' }[t]}
                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-black transition-all ${isSelected ? 'bg-primary text-accent shadow-lg shadow-primary/20' : 'text-muted-text/40 hover:text-primary hover:bg-white'}`}
                      >
@@ -342,10 +223,9 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
               </div>
            </div>
            
-           <div className="flex-1 p-10 flex flex-col overflow-hidden">
-              <div className="flex items-end gap-3 h-64 mb-16 px-2 shrink-0">
-                {isHost ? (
-                  matrixRows.length === 0 ? (
+           <div className="flex-1 px-10 pt-8 pb-10 flex flex-col overflow-hidden">
+              <div className={`flex items-end gap-4 h-80 shrink-0 px-2 ${hostEarnings ? 'mb-12' : ''}`}>
+                {matrixRows.length === 0 ? (
                     isEarningsLoading ? (
                       <div className="w-full self-center flex justify-center">
                         <LoadingSpinner />
@@ -367,23 +247,12 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                       </div>
                       <span className="text-[9px] font-black text-muted-text/30 group-hover:text-primary transition-colors tracking-[1px] uppercase truncate max-w-full">{row.label}</span>
                     </div>
-                  ))
-                ) : [45, 62, 38, 85, 42, 59, 73, 91, 55, 68, 82, 95].map((val, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-4 group h-full">
-                    <div className="w-full relative bg-surface/50 rounded-2xl overflow-hidden h-full border border-border-misrah/10">
-                       <motion.div 
-                        initial={{ height: 0 }}
-                        animate={{ height: `${val}%` }}
-                        transition={{ duration: 1, delay: i * 0.05 }}
-                        className="absolute inset-x-0 bottom-0 bg-linear-to-t from-primary/30 via-primary/60 to-accent rounded-t-xl group-hover:from-primary group-hover:to-accent transition-all duration-700" 
-                       />
-                       <div className="absolute inset-x-0 top-0 h-1 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                    <span className="text-[9px] font-black text-muted-text/30 group-hover:text-primary transition-colors tracking-[1px] uppercase">{['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][i]}</span>
-                  </div>
-                ))}
+                  ))}
               </div>
 
+              {/* Host only — the admin earnings response has no occupancy /
+                  momentum block. */}
+              {hostEarnings && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-auto shrink-0">
                 <div className="p-8 rounded-[40px] bg-surface/30 border border-border-misrah/50 hover:bg-white hover:shadow-luxury transition-all duration-500 border-b-4 border-b-success/30 relative overflow-hidden group">
                   <div className="relative z-10 flex items-center justify-between mb-8">
@@ -393,13 +262,11 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                     </div>
                   </div>
                   <div className="relative z-10 text-5xl font-sans font-black italic text-primary">
-                    {isHost ? (earnings ? earnings.operationalOccupancy.formattedRate : '—') : '92.4%'}
+                    {hostEarnings.operationalOccupancy.formattedRate}
                   </div>
                   <div className="relative z-10 text-[9px] font-black text-success uppercase tracking-[3px] mt-4 px-4 py-2 bg-success/10 rounded-full w-fit flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                    {isHost
-                      ? (earnings ? `${earnings.operationalOccupancy.totalBookedNights} / ${earnings.operationalOccupancy.totalAvailableNights} nights booked` : '…')
-                      : 'Above Forecast'}
+                    {`${hostEarnings.operationalOccupancy.totalBookedNights} / ${hostEarnings.operationalOccupancy.totalAvailableNights} nights booked`}
                   </div>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-success/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 </div>
@@ -411,42 +278,29 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                     </div>
                   </div>
                   <div className="relative z-10 text-5xl font-sans font-black italic text-primary">
-                    {isHost
-                      ? (earnings ? earnings.netYieldMomentum.formattedMomentum : '—')
-                      : <>+8.4<span className="text-lg not-italic font-sans opacity-40 ml-1">%</span></>}
+                    {hostEarnings.netYieldMomentum.formattedMomentum}
                   </div>
                   <div className="relative z-10 text-[9px] font-black text-secondary uppercase tracking-[3px] mt-4 px-4 py-2 bg-secondary/10 rounded-full w-fit flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-                    {isHost
-                      ? (earnings ? (earnings.netYieldMomentum.isPositive ? 'Positive Momentum' : 'Negative Momentum') : '…')
-                      : 'Sector Leading'}
+                    {hostEarnings.netYieldMomentum.isPositive ? 'Positive Momentum' : 'Negative Momentum'}
                   </div>
                   <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 </div>
               </div>
+              )}
            </div>
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-[48px] border border-border-misrah overflow-hidden shadow-sm flex flex-col h-[750px] hover:shadow-luxury transition-all duration-500">
+        <div className="lg:col-span-2 bg-white rounded-[48px] border border-border-misrah overflow-hidden shadow-sm flex flex-col hover:shadow-luxury transition-all duration-500">
            <div className="p-10 border-b border-border-misrah/50 flex items-center justify-between bg-surface/10 backdrop-blur-md shrink-0">
               <div>
                 <h2 className="text-2xl font-sans font-black italic text-primary uppercase tracking-tight">Ledger</h2>
                 <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mt-1.5">Asset Protocol History</p>
               </div>
-              {!isHost && (
-              <button
-                onClick={() => setIsHistoryOpen(true)}
-                title="Filter & Audit Full Ledger"
-                className="w-12 h-12 rounded-2xl bg-white border border-border-misrah flex items-center justify-center text-primary hover:border-accent hover:shadow-lg transition-all shadow-sm group"
-              >
-                <Filter size={20} className="group-hover:text-accent transition-colors" />
-              </button>
-              )}
            </div>
 
-           <div className="divide-y divide-border-misrah/30 overflow-y-auto flex-1 scrollbar-hide">
-             {isHost ? (
-               <>
+           <div className="divide-y divide-border-misrah/30 flex-1">
+             <>
                  {(earnings?.ledger.items ?? []).length === 0 ? (
                    isEarningsLoading ? (
                      <div className="p-10 flex justify-center">
@@ -461,445 +315,57 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
                    const isPayout = item.type?.toUpperCase() === 'PAYOUT';
                    const status = item.status?.toUpperCase();
                    return (
-                     <div key={item.id} className="p-8 h-20 flex items-center justify-between hover:bg-surface/50 transition-all group border-l-4 border-l-transparent hover:border-l-accent animate-in fade-in duration-500">
-                       <div className="flex items-center gap-6 min-w-0">
-                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-500 shrink-0
-                           ${isPayout ? 'bg-primary border-primary text-accent shadow-lg shadow-primary/20' : 'bg-surface border-border-misrah text-accent shadow-inner group-hover:bg-white group-hover:border-accent'}`}>
-                           {isPayout ? <ArrowDownRight size={18} /> : <Banknote size={18} />}
-                         </div>
-                         <div className="min-w-0">
-                           <div className="flex items-center gap-3">
-                             <span className="text-[11px] font-black text-primary uppercase tracking-tight truncate">{item.title}</span>
-                             <Badge variant={status === 'COMPLETED' || status === 'CONFIRMED' ? 'green' : 'gold'} className="scale-75 origin-left">{item.status}</Badge>
-                           </div>
-                           <p className="text-[8px] font-black text-muted-text/50 uppercase tracking-[3px] truncate">{item.formattedDate} · {item.subtitle}</p>
-                         </div>
+                     <div key={item.id} className="px-6 py-4 min-h-20 flex items-center gap-3 hover:bg-surface/50 transition-all group border-l-4 border-l-transparent hover:border-l-accent animate-in fade-in duration-500">
+                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-500 shrink-0
+                         ${isPayout ? 'bg-primary border-primary text-accent shadow-lg shadow-primary/20' : 'bg-surface border-border-misrah text-accent shadow-inner group-hover:bg-white group-hover:border-accent'}`}>
+                         {isPayout ? <ArrowDownRight size={16} /> : <Banknote size={16} />}
                        </div>
-                       <div className={`text-xl font-sans font-black italic shrink-0 ${isPayout || item.amount < 0 ? 'text-primary' : 'text-accent'}`}>
+                       {/* Name gets the remaining width (wraps to 2 lines), then the
+                           status, then date · property — each on its own line. */}
+                       <div className="flex-1 min-w-0 space-y-1">
+                         <p className="text-[11px] font-black text-primary uppercase tracking-tight leading-snug line-clamp-2 break-words" title={item.title}>
+                           {item.title}
+                         </p>
+                         <div>
+                           <Badge variant={status === 'COMPLETED' || status === 'CONFIRMED' ? 'green' : 'gold'} className="scale-75 origin-left">{item.status}</Badge>
+                         </div>
+                         <p className="text-[8px] font-black text-muted-text/50 uppercase tracking-[2px] truncate" title={`${item.formattedDate} · ${item.subtitle}`}>
+                           {item.formattedDate} · {item.subtitle}
+                         </p>
+                       </div>
+                       <div className={`text-sm font-sans font-black italic shrink-0 text-right whitespace-nowrap ${isPayout || item.amount < 0 ? 'text-primary' : 'text-accent'}`}>
                          {item.formattedAmount}
                        </div>
                      </div>
                    );
                  })}
-                 {earnings && earnings.ledger.totalPages > 1 && (
-                   <div className="p-4 bg-surface/30 flex items-center justify-between gap-3">
-                     <button
-                       type="button"
-                       onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
-                       disabled={ledgerPage <= 1 || isEarningsLoading}
-                       className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
-                     >
-                       <ChevronLeft size={16} />
-                     </button>
-                     <span className="text-[10px] font-black text-primary uppercase tracking-[3px] text-center">
-                       {earnings.ledger.viewFullHistoryLabel} · Page {earnings.ledger.page} / {earnings.ledger.totalPages}
-                     </span>
-                     <button
-                       type="button"
-                       onClick={() => setLedgerPage(p => Math.min(earnings.ledger.totalPages, p + 1))}
-                       disabled={ledgerPage >= earnings.ledger.totalPages || isEarningsLoading}
-                       className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
-                     >
-                       <ChevronRight size={16} />
-                     </button>
-                   </div>
-                 )}
                </>
-             ) : (<>
-             {transactions.slice(0, 7).map(tx => (
-               <div key={tx.id} className="p-8 h-20 flex items-center justify-between hover:bg-surface/50 transition-all group cursor-pointer border-l-4 border-l-transparent hover:border-l-accent animate-in fade-in duration-500">
-                  <div className="flex items-center gap-6">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-500 
-                      ${tx.type === 'Payout' ? 'bg-primary border-primary text-accent shadow-lg shadow-primary/20' : 
-                        tx.type === 'Refund' ? 'bg-danger/10 border-danger/20 text-danger' :
-                        'bg-surface border-border-misrah text-accent shadow-inner group-hover:bg-white group-hover:border-accent'}`}>
-                      {tx.type === 'Payout' ? <ArrowDownRight size={18} /> : 
-                       tx.type === 'Refund' ? <RotateCcw size={18} /> :
-                       <Banknote size={18} />}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-[11px] font-black text-primary uppercase tracking-tight">{tx.type}</span>
-                        <Badge variant={
-                          tx.status === 'Completed' ? 'green' : 
-                          tx.status === 'Refunded' ? 'red' : 'gold'
-                        } className="scale-75 origin-left">{tx.status}</Badge>
-                      </div>
-                      <p className="text-[8px] font-black text-muted-text/50 uppercase tracking-[3px]">{tx.date} · {tx.type === 'Payout' ? tx.bank : tx.guest}</p>
-                    </div>
-                  </div>
-                  <div className={`text-xl font-sans font-black italic 
-                    ${tx.type === 'Payout' ? 'text-primary' : 
-                      tx.type === 'Refund' ? 'text-danger' : 
-                      'text-accent'}`}>
-                    {tx.type === 'Payout' || tx.type === 'Refund' ? '-' : '+'}{tx.amount.toLocaleString()} <span className="text-[9px] font-sans font-bold not-italic text-muted-text uppercase tracking-[2px] ml-1">AED</span>
-                  </div>
-               </div>
-             ))}
-             {/* WORKING "View Full History Protocol" Button */}
-             <div className="p-4 bg-surface/30">
-               <button 
-                 onClick={() => setIsHistoryOpen(true)}
-                 className="w-full py-5 rounded-2xl border-2 border-dashed border-border-misrah hover:border-accent bg-white hover:bg-accent/5 text-[11px] font-black text-center text-primary hover:text-accent uppercase tracking-[4px] transition-all flex items-center justify-center gap-3 shadow-xs group"
+           </div>
+           {earnings && earnings.ledger.totalPages > 1 && (
+             <div className="p-4 bg-surface/30 border-t border-border-misrah/30 shrink-0 flex items-center justify-between gap-3">
+               <button
+                 type="button"
+                 onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
+                 disabled={ledgerPage <= 1 || isEarningsLoading}
+                 className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
                >
-                 <span>View Full History Protocol ({transactions.length} Records)</span>
-                 <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                 <ChevronLeft size={16} />
+               </button>
+               <span className="text-[10px] font-black text-primary uppercase tracking-[3px] text-center">
+                 {earnings.ledger.viewFullHistoryLabel} · Page {earnings.ledger.page} / {earnings.ledger.totalPages}
+               </span>
+               <button
+                 type="button"
+                 onClick={() => setLedgerPage(p => Math.min(earnings.ledger.totalPages, p + 1))}
+                 disabled={ledgerPage >= earnings.ledger.totalPages || isEarningsLoading}
+                 className="w-10 h-10 rounded-xl bg-white border border-border-misrah flex items-center justify-center text-primary disabled:opacity-40"
+               >
+                 <ChevronRight size={16} />
                </button>
              </div>
-             </>)}
-           </div>
+           )}
         </div>
       </div>
-
-      {/* FULL HISTORY PROTOCOL MODAL */}
-      <AnimatePresence>
-        {isHistoryOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsHistoryOpen(false)}
-              className="absolute inset-0 bg-primary/40 backdrop-blur-xl"
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-5xl bg-white rounded-[40px] md:rounded-[56px] border border-border-misrah shadow-luxury overflow-hidden flex flex-col max-h-[90vh] z-10"
-            >
-              {/* Modal Header */}
-              <div className="p-6 md:p-10 border-b border-border-misrah/50 bg-surface/20 flex flex-col sm:flex-row sm:items-center justify-between gap-6 shrink-0">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center text-accent shadow-xl shadow-primary/20 shrink-0">
-                    <History size={26} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h2 className="text-2xl md:text-3xl font-sans font-black italic text-primary uppercase tracking-tight">
-                        Treasury History Protocol
-                      </h2>
-                      <Badge variant="gold" className="text-[8px] uppercase">
-                        {user.role === 'admin' ? 'Master Audit Node' : 'Verified Node'}
-                      </Badge>
-                    </div>
-                    <p className="text-[10px] font-black text-muted-text uppercase tracking-[3px]">
-                      Cryptographic Settlement Log · Cross-Asset Financial Ledger
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 self-end sm:self-center">
-                  <button
-                    onClick={handleExportCSV}
-                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-surface border border-border-misrah hover:border-accent text-primary text-[10px] font-black uppercase tracking-wider transition-all shadow-xs"
-                    title="Export filtered records to CSV"
-                  >
-                    <Download size={14} className="text-accent" />
-                    <span>Export CSV</span>
-                  </button>
-                  <button 
-                    onClick={() => setIsHistoryOpen(false)}
-                    className="w-11 h-11 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-muted-text hover:text-primary transition-all group"
-                  >
-                    <X size={18} className="group-hover:rotate-90 transition-transform" />
-                  </button>
-                </div>
-              </div>
-
-              {/* KPI Ribbon */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 md:px-10 border-b border-border-misrah/30 bg-surface/10 shrink-0">
-                <div className="p-4 rounded-2xl bg-white border border-border-misrah/40 shadow-2xs">
-                  <span className="text-[9px] font-black text-muted-text/60 uppercase tracking-widest block mb-1">Total Records</span>
-                  <div className="text-xl font-black text-primary italic">{filteredHistory.length} Transactions</div>
-                </div>
-                <div className="p-4 rounded-2xl bg-white border border-border-misrah/40 shadow-2xs">
-                  <span className="text-[9px] font-black text-success/80 uppercase tracking-widest block mb-1">Total Inflow (+)</span>
-                  <div className="text-xl font-black text-success italic">+{totalInflow.toLocaleString()} AED</div>
-                </div>
-                <div className="p-4 rounded-2xl bg-white border border-border-misrah/40 shadow-2xs">
-                  <span className="text-[9px] font-black text-danger/80 uppercase tracking-widest block mb-1">Total Outflow (-)</span>
-                  <div className="text-xl font-black text-danger italic">-{totalOutflow.toLocaleString()} AED</div>
-                </div>
-                <div className="p-4 rounded-2xl bg-primary text-accent border border-primary shadow-sm">
-                  <span className="text-[9px] font-black text-white/60 uppercase tracking-widest block mb-1">Net Balance</span>
-                  <div className="text-xl font-black text-accent italic">+{(totalInflow - totalOutflow).toLocaleString()} AED</div>
-                </div>
-              </div>
-
-              {/* Filter Controls Bar */}
-              <div className="p-6 md:px-10 border-b border-border-misrah/30 flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center bg-white shrink-0">
-                {/* Search */}
-                <div className="relative flex-1 max-w-md">
-                  <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
-                  <input
-                    type="text"
-                    placeholder="Search by Ref ID, guest, bank, or property..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 bg-surface border border-border-misrah rounded-2xl text-xs font-medium text-primary placeholder:text-muted-text/40 outline-none focus:border-accent transition-all"
-                  />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-text/40 hover:text-primary"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Type Filters */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-muted-text/50 mr-1 hidden sm:inline">Type:</span>
-                  {(['All', 'Booking', 'Payout', 'Refund'] as const).map(type => (
-                    <button
-                      key={type}
-                      onClick={() => setTypeFilter(type)}
-                      className={`px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                        typeFilter === type
-                          ? 'bg-primary text-accent shadow-xs'
-                          : 'bg-surface border border-border-misrah text-muted-text hover:text-primary'
-                      }`}
-                    >
-                      {type}
-                    </button>
-                  ))}
-
-                  <div className="h-4 w-[1px] bg-border-misrah mx-1 hidden sm:block"></div>
-
-                  {/* Status Filters */}
-                  <span className="text-[9px] font-black uppercase tracking-wider text-muted-text/50 mr-1 hidden sm:inline">Status:</span>
-                  {(['All', 'Completed', 'Processing', 'Refunded'] as const).map(st => (
-                    <button
-                      key={st}
-                      onClick={() => setStatusFilter(st)}
-                      className={`px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                        statusFilter === st
-                          ? 'bg-primary text-accent shadow-xs'
-                          : 'bg-surface border border-border-misrah text-muted-text hover:text-primary'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Transactions List */}
-              <div className="flex-1 overflow-y-auto divide-y divide-border-misrah/30 p-6 md:p-10 space-y-3">
-                {filteredHistory.length === 0 ? (
-                  <div className="py-20 text-center space-y-4">
-                    <div className="w-16 h-16 rounded-3xl bg-surface border border-border-misrah flex items-center justify-center mx-auto text-muted-text/40">
-                      <FileText size={28} />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-black uppercase text-primary">No Matching Ledger Protocols</h4>
-                      <p className="text-xs text-muted-text mt-1">Try resetting your search query or filter tags.</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setTypeFilter('All');
-                        setStatusFilter('All');
-                      }}
-                      className="px-6 py-2.5 bg-surface hover:bg-white border border-border-misrah rounded-xl text-xs font-black uppercase tracking-wider text-primary"
-                    >
-                      Clear All Filters
-                    </button>
-                  </div>
-                ) : (
-                  filteredHistory.map((tx) => (
-                    <div
-                      key={tx.id}
-                      className="p-5 rounded-3xl border border-border-misrah/50 hover:border-accent hover:shadow-md bg-white hover:bg-surface/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 group"
-                    >
-                      <div className="flex items-start md:items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border shrink-0 transition-all ${
-                          tx.type === 'Payout' ? 'bg-primary border-primary text-accent' : 
-                          tx.type === 'Refund' ? 'bg-danger/10 border-danger/20 text-danger' : 
-                          'bg-surface border-border-misrah text-accent'
-                        }`}>
-                          {tx.type === 'Payout' ? <ArrowDownRight size={20} /> : 
-                           tx.type === 'Refund' ? <RotateCcw size={20} /> : 
-                           <Banknote size={20} />}
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2.5">
-                            <span className="text-sm font-black text-primary uppercase tracking-tight">
-                              {tx.type}
-                            </span>
-                            <span 
-                              onClick={() => handleCopyRef(tx.ref)}
-                              className="text-[10px] font-mono font-bold text-muted-text/80 bg-surface px-2 py-0.5 rounded-md border border-border-misrah/50 flex items-center gap-1 cursor-pointer hover:border-accent"
-                              title="Click to copy Reference"
-                            >
-                              <span>{tx.ref}</span>
-                              {copiedRef === tx.ref ? <Check size={10} className="text-success" /> : <Copy size={10} className="opacity-40" />}
-                            </span>
-                            <Badge variant={
-                              tx.status === 'Completed' ? 'green' : 
-                              tx.status === 'Refunded' ? 'red' : 'gold'
-                            } className="text-[8px] uppercase">
-                              {tx.status}
-                            </Badge>
-                          </div>
-
-                          <div className="text-xs text-muted-text font-medium flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span>{tx.fullDate}</span>
-                            <span className="w-1 h-1 bg-muted-text/30 rounded-full"></span>
-                            <span className="font-bold text-primary">
-                              {tx.type === 'Payout' ? tx.bank : tx.guest}
-                            </span>
-                            {tx.asset && (
-                              <>
-                                <span className="w-1 h-1 bg-muted-text/30 rounded-full"></span>
-                                <span className="text-muted-text/80 italic">{tx.asset}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between md:justify-end gap-6 pt-2 md:pt-0 border-t md:border-t-0 border-border-misrah/30">
-                        <div className="text-right">
-                          <div className={`text-2xl font-sans font-black italic tracking-tight ${
-                            tx.type === 'Payout' ? 'text-primary' : 
-                            tx.type === 'Refund' ? 'text-danger' : 
-                            'text-accent'
-                          }`}>
-                            {tx.type === 'Payout' || tx.type === 'Refund' ? '-' : '+'}{tx.amount.toLocaleString()} 
-                            <span className="text-[10px] font-sans font-bold not-italic text-muted-text uppercase tracking-wider ml-1.5">AED</span>
-                          </div>
-                          <div className="text-[9px] font-mono text-muted-text/50">
-                            Hash: {tx.hash}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => setSelectedTxForVoucher(tx)}
-                          className="px-4 py-2 bg-surface hover:bg-primary hover:text-accent border border-border-misrah rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-                        >
-                          Voucher
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Modal Footer */}
-              <div className="p-6 md:px-10 border-t border-border-misrah/50 bg-surface/10 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0 text-xs font-medium text-muted-text">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck size={16} className="text-accent" />
-                  <span>Misrah Regional Central Treasury Node · SHA-256 Ledger Consensus</span>
-                </div>
-                <button
-                  onClick={() => setIsHistoryOpen(false)}
-                  className="px-8 py-3 bg-primary text-accent rounded-2xl text-[10px] font-black uppercase tracking-[2px] hover:scale-105 transition-transform"
-                >
-                  Return to Dashboard
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* TRANSACTION VOUCHER SLIP MODAL */}
-      <AnimatePresence>
-        {selectedTxForVoucher && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 sm:p-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedTxForVoucher(null)}
-              className="absolute inset-0 bg-primary/50 backdrop-blur-xl"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-[40px] border border-border-misrah shadow-2xl p-8 space-y-6 z-10"
-            >
-              <button 
-                onClick={() => setSelectedTxForVoucher(null)}
-                className="absolute top-6 right-6 w-10 h-10 rounded-xl bg-surface border border-border-misrah flex items-center justify-center text-muted-text hover:text-primary transition-all"
-              >
-                <X size={16} />
-              </button>
-
-              <div className="text-center space-y-2 pt-2">
-                <div className="w-16 h-16 rounded-2xl bg-accent text-primary flex items-center justify-center mx-auto shadow-lg shadow-accent/20">
-                  <ShieldCheck size={32} />
-                </div>
-                <h3 className="text-2xl font-black italic text-primary uppercase">Protocol Voucher</h3>
-                <p className="text-[9px] font-mono text-muted-text uppercase tracking-widest">
-                  {selectedTxForVoucher.ref}
-                </p>
-              </div>
-
-              <div className="bg-surface/50 p-5 rounded-2xl border border-border-misrah/60 space-y-3 text-xs">
-                <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                  <span className="text-muted-text">Execution Date:</span>
-                  <span className="font-bold text-primary">{selectedTxForVoucher.fullDate}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                  <span className="text-muted-text">Type:</span>
-                  <span className="font-bold text-primary uppercase">{selectedTxForVoucher.type}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                  <span className="text-muted-text">Counterparty:</span>
-                  <span className="font-bold text-primary">{selectedTxForVoucher.type === 'Payout' ? selectedTxForVoucher.bank : selectedTxForVoucher.guest}</span>
-                </div>
-                {selectedTxForVoucher.asset && (
-                  <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                    <span className="text-muted-text">Asset / Entity:</span>
-                    <span className="font-bold text-primary text-right">{selectedTxForVoucher.asset}</span>
-                  </div>
-                )}
-                <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                  <span className="text-muted-text">Status:</span>
-                  <Badge variant={selectedTxForVoucher.status === 'Completed' ? 'green' : selectedTxForVoucher.status === 'Refunded' ? 'red' : 'gold'}>
-                    {selectedTxForVoucher.status}
-                  </Badge>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border-misrah/30">
-                  <span className="text-muted-text">Settlement Channel:</span>
-                  <span className="font-bold text-primary text-right">{selectedTxForVoucher.channel || 'Direct Clearing'}</span>
-                </div>
-                <div className="flex justify-between pt-2 text-sm">
-                  <span className="font-black text-primary uppercase">Net Amount:</span>
-                  <span className="font-black italic text-accent text-lg">
-                    {selectedTxForVoucher.amount.toLocaleString()} AED
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    handleCopyRef(selectedTxForVoucher.ref);
-                  }}
-                  className="w-full py-3.5 rounded-xl bg-surface hover:bg-surface/80 border border-border-misrah text-primary text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Copy size={14} />
-                  <span>{copiedRef === selectedTxForVoucher.ref ? 'Copied to Clipboard!' : 'Copy Reference Code'}</span>
-                </button>
-                <button
-                  onClick={() => setSelectedTxForVoucher(null)}
-                  className="w-full py-3.5 rounded-xl bg-primary text-accent text-xs font-black uppercase tracking-wider hover:scale-[1.02] transition-transform"
-                >
-                  Dismiss Slip
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
     </div>
   );

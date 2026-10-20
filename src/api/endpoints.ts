@@ -81,6 +81,8 @@ export const API_ENDPOINTS = {
     admin: '/admin/dashboard',
     hostOverview: '/host/dashboard/overview',
     hostEarnings: '/host/dashboard/earnings',
+    // GET ?currency&timeframe&year&ledgerPage&ledgerLimit — platform-wide earnings.
+    adminEarnings: '/admin/dashboard/earnings',
     // GET ?format=xlsx|csv&currency&propertyId → file download.
     hostEarningsAuditReport: '/host/dashboard/earnings/audit-report/download',
   },

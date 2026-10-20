@@ -111,6 +111,17 @@ export interface Property {
   availabilityEnd?: string | null;
   // Currency `price` is expressed in (as returned by the API).
   currency?: string;
+  // Uploaded compliance documents (API `documents`). `url` is only set when
+  // the API returns the file populated with a link.
+  documents?: PropertyDocument[];
+}
+
+export interface PropertyDocument {
+  id: string;
+  type: string;
+  fileId: string;
+  uploadedAt?: string;
+  url?: string;
 }
 
 export interface Banner {

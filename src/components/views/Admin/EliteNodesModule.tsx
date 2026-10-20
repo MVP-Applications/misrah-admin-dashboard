@@ -12,6 +12,7 @@ interface EnrichedHost {
   _id: string;
   name: string;
   email?: string;
+  phoneNumber?: string;
   avatar: string | null;
   isSuperHost: boolean;
   isActive: boolean;
@@ -47,6 +48,7 @@ const buildEnrichedHosts = (
       _id: hostId,
       name: rich?.name ?? user?.name ?? 'Unknown Host',
       email: user?.email,
+      phoneNumber: user?.phoneNumber,
       avatar: rich?.profileImage ?? null,
       // isActive/isSuperHost always come from admin/users, never from the
       // public endpoint — it doesn't expose isActive at all, and would
@@ -242,7 +244,10 @@ export const EliteNodesModule = () => {
 
                       <div className="space-y-1">
                         <h3 className="text-xl font-sans font-black italic text-primary uppercase tracking-tight truncate max-w-full">{host.name}</h3>
-                        {host.email && <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-widest truncate max-w-full">{host.email}</p>}
+                        {/* Email, or the phone number for hosts registered without one. */}
+                        {(host.email || host.phoneNumber) && (
+                          <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-widest truncate max-w-full">{host.email || host.phoneNumber}</p>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-0 w-full rounded-3xl bg-surface/50 border border-border-misrah/50 overflow-hidden divide-x divide-border-misrah/50">

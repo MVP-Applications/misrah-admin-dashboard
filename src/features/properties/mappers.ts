@@ -1,7 +1,6 @@
 import type { Property } from '../../types';
 import type { ApiPropertyListItem, AssignHostRequest, CreatePropertyRequest, HostAssignmentSelection, UpdatePropertyRequest } from './types';
 
-const FALLBACK_IMAGE_URL = '/asets/AdobeStock_46380625.webp';
 
 const STATUS_TO_VIEW_MODEL: Record<ApiPropertyListItem['status'], NonNullable<Property['status']>> = {
   pending: 'Pending',
@@ -47,7 +46,9 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     currency: doc.pricing?.currency ? asText(doc.pricing.currency).toUpperCase() : undefined,
     beds: asNumber(doc.beds),
     baths: asNumber(doc.bathrooms),
-    image: doc.images?.[0]?.fullUrl ?? FALLBACK_IMAGE_URL,
+    // '' when the property has no images — views show a "No image"
+    // placeholder rather than a stock photo.
+    image: doc.images?.[0]?.fullUrl ?? '',
     active: doc.isActive ?? true,
     hostId: doc.owner?._id ?? doc.userId,
     hostName: doc.owner?.name !== undefined ? asText(doc.owner.name) : undefined,
@@ -60,6 +61,21 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     availableForever: raw.availableForever === undefined ? undefined : raw.availableForever !== false,
     availabilityStart: typeof raw.startDate === 'string' ? raw.startDate.slice(0, 10) : null,
     availabilityEnd: typeof raw.endDate === 'string' ? raw.endDate.slice(0, 10) : null,
+    // fileId is normally a bare id, but tolerate a populated file document.
+    documents: Array.isArray(raw.documents)
+      ? raw.documents
+          .filter((d: any) => d && d.type)
+          .map((d: any, i: number) => {
+            const file = d.fileId && typeof d.fileId === 'object' ? d.fileId : null;
+            return {
+              id: String(d._id ?? `${d.type}-${i}`),
+              type: String(d.type),
+              fileId: String(file ? file._id ?? '' : d.fileId ?? ''),
+              uploadedAt: typeof d.uploadedAt === 'string' ? d.uploadedAt : undefined,
+              url: file?.fullUrl ?? file?.url ?? d.fullUrl ?? d.url ?? undefined,
+            };
+          })
+      : [],
   };
 }
 
