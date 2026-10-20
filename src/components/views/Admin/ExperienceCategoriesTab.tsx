@@ -296,11 +296,7 @@ export const ExperienceCategoriesTab = ({ createRequest, onCountChange }: Experi
 
                   {/* Card Content */}
                   <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                    <p className="text-xs text-muted-text line-clamp-2 leading-relaxed">
-                      {cat.description || 'Curated luxury hospitality retreat experience.'}
-                    </p>
-
-                    <div className="pt-3 border-t border-border-misrah flex items-center justify-between">
+                    <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-accent bg-accent/10 px-2.5 py-1 rounded-lg">
                         {templateCounts[cat._id] ?? '—'} Template Activities
                       </span>
@@ -481,49 +477,6 @@ export const ExperienceCategoriesTab = ({ createRequest, onCountChange }: Experi
                     </div>
                   </div>
                 </div>
-
-                {/* Description — no description field on experience categories yet */}
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1">
-                    Description & Summary
-                  </label>
-                  <textarea
-                    rows={2}
-                    disabled
-                    placeholder="e.g. Exclusive desert riding trails, beach endurance gallops & beginner polo clinics..."
-                    className="w-full bg-surface border border-border-misrah rounded-xl px-4 py-2.5 text-xs font-medium text-primary outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <p className="text-[9px] font-bold text-muted-text/60 mt-1">Not yet supported by the API — not saved.</p>
-                </div>
-
-                {/* Optional Starter Activity for new category — not creatable from here yet */}
-                {!editingItem && (
-                  <div className="p-4 rounded-2xl bg-surface border border-border-misrah space-y-3 opacity-60">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-primary">
-                        Initial Template Activity (Optional)
-                      </span>
-                      <span className="text-[9px] text-muted-text font-bold">Catalog Preset</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        disabled
-                        placeholder="e.g. Sunset Desert Horse Trail"
-                        className="p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent disabled:cursor-not-allowed"
-                      />
-                      <input
-                        type="number"
-                        disabled
-                        placeholder="Price (AED)"
-                        className="p-2.5 bg-white border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <p className="text-[9px] font-bold text-muted-text">
-                      Not yet supported by the API — add template activities from Experiences after saving.
-                    </p>
-                  </div>
-                )}
 
                 {saveError && (
                   <p className="text-[10px] font-black text-danger uppercase tracking-widest text-center">{saveError}</p>

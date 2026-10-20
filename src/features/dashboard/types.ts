@@ -175,3 +175,32 @@ export interface HostEarningsData {
     items: HostEarningsLedgerItem[];
   };
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/dashboard/earnings?currency&timeframe&year&ledgerPage&ledgerLimit
+// — platform-wide version of the host earnings page. Same revenueMatrix and
+// ledger shapes; KPIs swap Active Nodes for Total Refunded, and there's no
+// operational occupancy / net yield momentum block.
+// ---------------------------------------------------------------------------
+
+export interface AdminEarningsParams {
+  currency?: string;
+  timeframe?: EarningsTimeframe;
+  year?: number;
+  ledgerPage?: number;
+  ledgerLimit?: number;
+}
+
+export interface AdminEarningsData {
+  kpis: {
+    totalRevenue: HostEarningsData['kpis']['totalRevenue'];
+    inEscrow: HostEarningsData['kpis']['inEscrow'];
+    avgNightlyRate: HostEarningsData['kpis']['avgNightlyRate'];
+    totalRefunded: MoneyKpi & { growthPercentage: number; isPositiveGrowth: boolean; systemLabel: string; description: string };
+  };
+  revenueMatrix: HostEarningsData['revenueMatrix'];
+  ledger: HostEarningsData['ledger'] & {
+    // Admin ledger items also carry the payment reference.
+    items: Array<HostEarningsLedgerItem & { referenceId?: string }>;
+  };
+}

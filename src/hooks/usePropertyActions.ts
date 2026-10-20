@@ -12,7 +12,7 @@ import {
   deleteMyProperty,
 } from '../features/properties/api';
 import { hostAssignmentToAssignHostRequest, viewModelPartialToUpdateRequest } from '../features/properties/mappers';
-import type { CreatePropertyRequest, HostAssignmentSelection } from '../features/properties/types';
+import type { ApiPropertyListItem, CreatePropertyRequest, HostAssignmentSelection } from '../features/properties/types';
 
 // API-backed now — every action hits the real /admin/properties endpoints
 // and then calls `refetch` so the caller's list/detail reloads from the
@@ -32,9 +32,17 @@ export const usePropertyActions = (refetch: () => void, options: { isHost?: bool
     propertyName: ''
   });
 
-  const addProperty = async (payload: CreatePropertyRequest) => {
-    await (options.isHost ? createMyProperty : createAdminProperty)(payload);
+  // Resolves to the created property for admins (POST /admin/properties
+  // returns it); the Host Hub create's response isn't relied on.
+  const addProperty = async (payload: CreatePropertyRequest): Promise<ApiPropertyListItem | undefined> => {
+    if (options.isHost) {
+      await createMyProperty(payload);
+      refetch();
+      return undefined;
+    }
+    const created = await createAdminProperty(payload);
     refetch();
+    return created;
   };
 
   const updateProperty = async (id: string, updates: Partial<Property>) => {

@@ -17,7 +17,10 @@ import {
   UserCheck,
   Radio,
   CalendarRange,
-  Infinity as InfinityIcon
+  Infinity as InfinityIcon,
+  Loader2,
+  Tags,
+  ImageOff
 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
@@ -27,12 +30,37 @@ import { AuditDocsModal } from './AuditDocsModal';
 import { DirectIntelUplinkModal } from './DirectIntelUplinkModal';
 import { NodeProfileVerificationModal } from './NodeProfileVerificationModal';
 import { displayCurrency } from '../../../utils/money';
+import { addPropertiesToCategory, listCategories, removePropertiesFromCategory } from '../../../features/categories/api';
+import type { ApiCategory } from '../../../features/categories/types';
+
+// Category.propertyIds may come back as ids or populated documents.
+const categoryHasProperty = (category: ApiCategory, propertyId: string) =>
+  (category.propertyIds ?? []).some(p => (typeof p === 'string' ? p : (p as { _id?: string })?._id) === propertyId);
 
 // "2026-10-09" → "9 Oct 2026" (formatted as the UTC calendar day).
 const formatAvailabilityDate = (day?: string | null): string | null => {
   if (!day) return null;
   const d = new Date(`${day}T00:00:00.000Z`);
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+};
+
+// Display names for the document `type` values the create flow and API use;
+// anything else is humanized from camelCase/snake_case.
+const DOCUMENT_LABELS: Record<string, string> = {
+  ownershipProof: 'Ownership Proof',
+  propertyDoc: 'Title Deed / Ejari',
+  emiratesId: 'Passport / Emirates ID',
+  tradeLicense: 'Trade License',
+};
+const documentLabel = (type: string): string =>
+  DOCUMENT_LABELS[type] ??
+  type.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, c => c.toUpperCase());
+
+// ISO timestamp → "20 Oct 2026".
+const formatDocumentDate = (iso?: string): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 interface PropertyDetailViewProps {
@@ -65,6 +93,55 @@ export const PropertyDetailView = ({
   const [showNodeVerificationModal, setShowNodeVerificationModal] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Admin only: which property categories this property belongs to. Categories
+  // hold the propertyIds, so membership is read from GET /property-categories
+  // and changed via POST / DELETE /property-categories/{id}/properties.
+  const isAdmin = user.role === 'admin';
+  const [allCategories, setAllCategories] = useState<ApiCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [savingCategories, setSavingCategories] = useState(false);
+  const memberCategoryIds = allCategories.filter(c => categoryHasProperty(c, property.id)).map(c => c._id);
+
+  const loadCategories = () => {
+    setCategoriesLoading(true);
+    setCategoriesError(null);
+    return listCategories()
+      .then(list => {
+        const sorted = list.filter(c => !c.deletedAt).sort((a, b) => a.displayOrder - b.displayOrder);
+        setAllCategories(sorted);
+        setSelectedCategoryIds(sorted.filter(c => categoryHasProperty(c, property.id)).map(c => c._id));
+      })
+      .catch(err => setCategoriesError(err instanceof Error ? err.message : 'Failed to load categories.'))
+      .finally(() => setCategoriesLoading(false));
+  };
+
+  useEffect(() => {
+    if (isAdmin) loadCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, property.id]);
+
+  const toggleCategory = (id: string) =>
+    setSelectedCategoryIds(prev => (prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]));
+
+  // Applies the edit form's category selection as add/remove calls.
+  const saveCategories = async () => {
+    const toAdd = selectedCategoryIds.filter(id => !memberCategoryIds.includes(id));
+    const toRemove = memberCategoryIds.filter(id => !selectedCategoryIds.includes(id));
+    if (toAdd.length === 0 && toRemove.length === 0) return;
+    setSavingCategories(true);
+    const payload = { propertyIds: [property.id] };
+    const results = await Promise.allSettled([
+      ...toAdd.map(id => addPropertiesToCategory(id, payload)),
+      ...toRemove.map(id => removePropertiesFromCategory(id, payload)),
+    ]);
+    const failed = results.filter(r => r.status === 'rejected').length;
+    await loadCategories();
+    if (failed > 0) setCategoriesError(`${failed} category change${failed === 1 ? '' : 's'} couldn't be saved. Please try again.`);
+    setSavingCategories(false);
+  };
+
   useEffect(() => {
     setFormData({ ...property });
   }, [property]);
@@ -88,6 +165,7 @@ export const PropertyDetailView = ({
     }
     setSaveError(null);
     onUpdate(property.id, { ...formData, availableForever: forever, availabilityEnd: forever ? null : formData.availabilityEnd });
+    if (isAdmin) saveCategories();
     setIsEditing(false);
   };
 
@@ -177,7 +255,7 @@ export const PropertyDetailView = ({
             {isEditing ? (
               <div className="flex gap-2">
                 <button 
-                  onClick={() => { setIsEditing(false); setFormData({ ...property }); setSaveError(null); }}
+                  onClick={() => { setIsEditing(false); setFormData({ ...property }); setSaveError(null); setSelectedCategoryIds(memberCategoryIds); }}
                   className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[2px] border border-border-misrah hover:bg-surface transition-all"
                 >
                   Cancel
@@ -259,7 +337,15 @@ export const PropertyDetailView = ({
       <div className="bg-white rounded-[40px] shadow-luxury border border-border-misrah overflow-hidden flex flex-col">
         {/* Hero Section: Wide, balanced image */}
         <div className="w-full h-80 relative overflow-hidden shrink-0 border-b border-border-misrah">
-          <img src={property.image} alt={property.name} className="w-full h-full object-cover" />
+          {property.image ? (
+            <img src={property.image} alt={property.name} className="w-full h-full object-cover" />
+          ) : (
+            // Dark so the white title/badges overlaid below stay readable.
+            <div className="w-full h-full bg-[#0F1D33] flex flex-col items-center justify-start pt-16 gap-2 text-white/30">
+              <ImageOff size={36} />
+              <span className="text-[10px] font-black uppercase tracking-[3px]">No image</span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-linear-to-t from-primary/80 via-transparent to-transparent" />
           
           <div className="absolute bottom-8 left-8 right-8 flex items-end justify-between text-white">
@@ -512,10 +598,75 @@ export const PropertyDetailView = ({
               )}
             </div>
 
+            {/* Property Categories (admin only) */}
+            {isAdmin && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Categories</h4>
+                  {(categoriesLoading || savingCategories) && <Loader2 size={14} className="animate-spin text-muted-text" />}
+                </div>
+                {categoriesError && (
+                  <div className="p-4 rounded-2xl bg-danger/5 border border-danger/20 flex items-center justify-between gap-4">
+                    <p className="text-xs font-bold text-danger">{categoriesError}</p>
+                    <button type="button" onClick={loadCategories} className="px-4 py-2 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider shrink-0">
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {isEditing ? (
+                  (() => {
+                    // Active categories, plus any inactive one it's already in
+                    // (so it can still be removed).
+                    const options = allCategories.filter(c => c.isActive || selectedCategoryIds.includes(c._id) || memberCategoryIds.includes(c._id));
+                    return options.length === 0 ? (
+                      !categoriesLoading && <p className="text-[10px] font-black text-muted-text/60 uppercase tracking-widest">No active categories</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {options.map(c => {
+                          const selected = selectedCategoryIds.includes(c._id);
+                          return (
+                            <button
+                              key={c._id}
+                              type="button"
+                              onClick={() => toggleCategory(c._id)}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all
+                                ${selected ? 'bg-accent/10 border-accent text-primary' : 'border-border-misrah text-muted-text hover:border-accent'}`}
+                            >
+                              {c.iconUrl && <img src={c.iconUrl} alt="" className="w-4 h-4 object-contain" />}
+                              {c.name?.en || c.name?.ar || 'Category'}
+                              {!c.isActive && <span className="text-[8px] text-muted-text/60">(inactive)</span>}
+                              {selected && <Check size={12} className="text-accent" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  !categoriesLoading && (
+                    memberCategoryIds.length === 0 ? (
+                      <p className="text-xs font-bold text-muted-text/60">Not in any category</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {allCategories.filter(c => memberCategoryIds.includes(c._id)).map(c => (
+                          <span key={c._id} className="flex items-center gap-2 px-4 py-2 rounded-full border border-border-misrah bg-surface text-[10px] font-black uppercase tracking-widest text-primary">
+                            {c.iconUrl ? <img src={c.iconUrl} alt="" className="w-4 h-4 object-contain" /> : <Tags size={12} className="text-accent" />}
+                            {c.name?.en || c.name?.ar || 'Category'}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  )
+                )}
+              </div>
+            )}
+
             {/* Compliance Documents */}
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Legal Compliance Archive</h4>
+                {/* Audit All Docs hidden — AuditDocsModal still shows static sample
+                    documents, not this property's real `documents`.
                 <button
                   type="button"
                   onClick={() => {
@@ -527,33 +678,57 @@ export const PropertyDetailView = ({
                   <ShieldCheck size={13} className="text-accent group-hover:scale-110 transition-transform" />
                   <span>Audit All Docs</span>
                 </button>
+                */}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                 {[
-                   { id: 'title-deed', label: 'Title Deed Registry', status: 'Legally Verified', icon: FileText },
-                   { id: 'municipal-license', label: 'Municipal License', status: 'Expires Q4 2026', icon: ShieldCheck },
-                   { id: 'tourism-permit', label: 'Tourism Operator Permit', status: 'Active Node', icon: CheckCircle2 },
-                   { id: 'asset-protection', label: 'Asset Protection Policy', status: 'Elite Tier', icon: ShieldCheck },
-                 ].map(doc => (
-                   <div
-                     key={doc.label}
-                     onClick={() => {
-                       setSelectedAuditDocId(doc.id);
-                       setShowAuditModal(true);
-                     }}
-                     className="p-6 rounded-[28px] bg-white border border-border-misrah flex items-center gap-5 group hover:border-accent hover:shadow-md transition-all cursor-pointer shadow-sm"
-                   >
-                      <div className="w-12 h-12 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-primary group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
-                        <doc.icon size={20} />
+              {(property.documents ?? []).length === 0 ? (
+                <div className="p-8 rounded-[28px] bg-surface border border-dashed border-border-misrah flex flex-col items-center gap-2 text-center">
+                  <FileText size={22} className="text-[#D4C3B5]" />
+                  <p className="text-[10px] font-black text-muted-text/60 uppercase tracking-widest">No documents uploaded</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {property.documents!.map(doc => {
+                    const uploaded = formatDocumentDate(doc.uploadedAt);
+                    const content = (
+                      <>
+                        <div className="w-12 h-12 rounded-2xl bg-surface border border-border-misrah flex items-center justify-center text-primary group-hover:bg-accent group-hover:text-white transition-all shadow-sm shrink-0">
+                          <FileText size={20} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-black text-primary uppercase tracking-tight group-hover:text-accent transition-colors truncate">{documentLabel(doc.type)}</div>
+                          <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">
+                            {uploaded ? `Uploaded ${uploaded}` : 'Uploaded'}
+                          </div>
+                        </div>
+                        {doc.url && (
+                          <ArrowUpRight size={16} className="ml-auto shrink-0 text-muted-text group-hover:text-accent group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                        )}
+                      </>
+                    );
+                    // Only openable when the API returns a link for the file —
+                    // a bare fileId has no URL to open.
+                    return doc.url ? (
+                      <a
+                        key={doc.id}
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-6 rounded-[28px] bg-white border border-border-misrah flex items-center gap-5 group hover:border-accent hover:shadow-md transition-all shadow-sm"
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <div
+                        key={doc.id}
+                        title={`File ID: ${doc.fileId}`}
+                        className="p-6 rounded-[28px] bg-white border border-border-misrah flex items-center gap-5 shadow-sm"
+                      >
+                        {content}
                       </div>
-                      <div>
-                        <div className="text-sm font-black text-primary uppercase tracking-tight group-hover:text-accent transition-colors">{doc.label}</div>
-                        <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-1">{doc.status}</div>
-                      </div>
-                      <ArrowUpRight size={16} className="ml-auto text-muted-text group-hover:text-accent group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
-                   </div>
-                 ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

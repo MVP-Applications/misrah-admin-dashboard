@@ -20,7 +20,8 @@ import {
   Zap,
   Loader2,
   TriangleAlert,
-  UserRound
+  UserRound,
+  ImageOff
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { StatCard } from '../ui/StatCard';
@@ -751,12 +752,18 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                         className="flex items-center justify-between p-3.5 rounded-2xl border border-border-misrah hover:border-accent bg-surface/40 hover:bg-white transition-all cursor-pointer group"
                       >
                         <div className="flex items-center gap-4 min-w-0">
-                          <img 
-                            src={prop.image} 
-                            alt={prop.name} 
-                            className="w-12 h-12 rounded-xl object-cover shrink-0" 
-                            referrerPolicy="no-referrer"
-                          />
+                          {prop.image ? (
+                            <img 
+                              src={prop.image} 
+                              alt={prop.name} 
+                              className="w-12 h-12 rounded-xl object-cover shrink-0" 
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-surface border border-border-misrah flex items-center justify-center text-[#D4C3B5] shrink-0">
+                              <ImageOff size={18} />
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <h4 className="text-xs font-black text-primary uppercase tracking-tight truncate group-hover:text-accent transition-colors">
                               {prop.name}
