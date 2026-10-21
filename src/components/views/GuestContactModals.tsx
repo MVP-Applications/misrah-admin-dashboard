@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { GuestAvatar } from '../GuestAvatar';
+import { GuestChatThread } from './GuestChatThread';
 import {
   X,
   Phone,
   PhoneCall,
   PhoneOff,
   CheckCircle2,
-  Send,
   Check,
   Copy,
   Mic,
@@ -18,11 +18,10 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-// Message + Call modals for a booking's guest, copied from
-// misrah-retreats-admin's BookingsView. There's no guest messaging or VoIP
-// API yet: messages stay in this modal (never delivered) and the "In-App
-// Voice Bridge" is a UI simulation. The Tel / WhatsApp options are real and
-// only enabled when the booking has a phone number — no fallback number.
+// Message + Call modals for a booking's guest. Message is the real chat
+// thread with the guest (GuestChatThread → features/chat). There's no VoIP
+// API: the "In-App Voice Bridge" is a UI simulation. The Tel / WhatsApp
+// options are real and only enabled when the booking has a phone number.
 
 export interface GuestContact {
   name: string;
@@ -30,21 +29,24 @@ export interface GuestContact {
   avatar: string;
   // e.g. "Palm Villa · Ref: 64F2…"
   subtitle: string;
+  // The guest's user id — the chat conversation is opened with them.
+  userId?: string;
+  // Booking's property id — the conversation is tied to it.
+  propertyId?: string;
 }
 
 interface GuestContactModalsProps {
   contact: GuestContact;
+  // Logged-in user's id — tells own chat messages apart from the guest's.
+  currentUserId: string;
   isMessageOpen: boolean;
   isCallOpen: boolean;
   onCloseMessage: () => void;
   onCloseCall: () => void;
 }
 
-export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onCloseMessage, onCloseCall }: GuestContactModalsProps) => {
+export const GuestContactModals = ({ contact, currentUserId, isMessageOpen, isCallOpen, onCloseMessage, onCloseCall }: GuestContactModalsProps) => {
   const navigate = useNavigate();
-  const [messageInput, setMessageInput] = useState('');
-  // Starts empty — no messaging API to load a real thread from.
-  const [messagesList, setMessagesList] = useState<Array<{ id: string; sender: 'guest' | 'host'; text: string; time: string }>>([]);
 
   const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'connected' | 'ended'>('idle');
   const [callDuration, setCallDuration] = useState(0);
@@ -103,20 +105,6 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
     }, 1000);
   };
 
-  const handleSendMessage = (textToSend?: string) => {
-    const text = (textToSend || messageInput).trim();
-    if (!text) return;
-    const newMsg = {
-      id: Date.now().toString(),
-      sender: 'host' as const,
-      text,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setMessagesList(prev => [...prev, newMsg]);
-    setMessageInput('');
-    showToast(`Messaging API not connected yet — not delivered to ${contact.name}`);
-  };
-
   return (
     <>
       <AnimatePresence>
@@ -164,7 +152,6 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                         fallbackClassName="bg-surface text-muted-text/60"
                         iconSize={22}
                       />
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -189,87 +176,8 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                   </button>
                 </div>
 
-                {/* Chat Messages */}
-                <div className="flex-1 overflow-y-auto space-y-3 p-4 bg-[#F8F9FA] rounded-2xl border border-border-misrah/70 min-h-[200px] max-h-[280px]">
-                  <div className="text-center my-1">
-                    <span className="text-[9px] font-black uppercase tracking-[1.5px] text-muted-text/70 bg-white px-3 py-1 rounded-full border border-border-misrah/50">
-                      End-to-End Encrypted Relay · Misrah Protocol
-                    </span>
-                  </div>
-
-                  {messagesList.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${msg.sender === 'host' ? 'items-end' : 'items-start'}`}
-                    >
-                      <div
-                        className={`max-w-[82%] px-4 py-3 rounded-2xl text-xs font-medium leading-relaxed ${
-                          msg.sender === 'host'
-                            ? 'bg-[#0F1D33] text-white rounded-tr-xs shadow-xs'
-                            : 'bg-white text-primary border border-border-misrah rounded-tl-xs shadow-xs'
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
-                      <span className="text-[10px] text-muted-text mt-1 px-1 font-bold">
-                        {msg.time} {msg.sender === 'host' && '✓✓'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Quick Presets */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-muted-text px-1">Quick Responses</p>
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage('🔑 Check-in PIN: 8492. Smart lock is ready for your entry.')}
-                      className="text-[11px] font-bold px-3 py-1.5 bg-surface hover:bg-accent/20 hover:text-primary text-muted-text rounded-xl border border-border-misrah whitespace-nowrap transition-colors cursor-pointer"
-                    >
-                      🔑 Smart Lock PIN
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage('📶 High-Speed Wi-Fi: MisrahGuest_VIP / Pass: LuxuryStay2026')}
-                      className="text-[11px] font-bold px-3 py-1.5 bg-surface hover:bg-accent/20 hover:text-primary text-muted-text rounded-xl border border-border-misrah whitespace-nowrap transition-colors cursor-pointer"
-                    >
-                      📶 Wi-Fi Details
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage('📍 Gate pass has been generated under your name with security.')}
-                      className="text-[11px] font-bold px-3 py-1.5 bg-surface hover:bg-accent/20 hover:text-primary text-muted-text rounded-xl border border-border-misrah whitespace-nowrap transition-colors cursor-pointer"
-                    >
-                      📍 Gate Pass Ready
-                    </button>
-                  </div>
-                </div>
-
-                {/* Message Input Box */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <input
-                    type="text"
-                    value={messageInput}
-                    onChange={(e) => setMessageInput(e.target.value)}
-                    placeholder={`Message ${contact.name.split(' ')[0]}...`}
-                    className="flex-1 px-4 py-3 bg-surface border border-border-misrah rounded-2xl text-xs font-bold text-primary placeholder:text-muted-text focus:outline-hidden focus:border-accent transition-colors"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!messageInput.trim()}
-                    className="h-11 px-5 bg-primary disabled:opacity-40 text-accent font-black text-xs uppercase tracking-wider rounded-2xl flex items-center gap-2 hover:brightness-110 active:scale-95 transition-all shadow-md cursor-pointer shrink-0"
-                  >
-                    <span>Send</span>
-                    <Send size={14} />
-                  </button>
-                </form>
+                {/* Real thread with the guest — mounted only while open. */}
+                <GuestChatThread guestUserId={contact.userId} guestName={contact.name} currentUserId={currentUserId} propertyId={contact.propertyId} />
 
                 {/* Footer link to full messages */}
                 <div className="pt-1 text-center">
@@ -325,7 +233,9 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                       onCloseCall();
                     }
                   }}
-                  className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  // z-20: the profile block below is `relative` and spans the top
+                  // of the card, so without it that block covers this button.
+                  className="absolute top-5 right-5 z-20 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <X size={18} />
                 </button>
@@ -384,7 +294,8 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
 
                     {/* Calling Options */}
                     <div className="space-y-2.5">
-                      {/* 1. Direct In-App VoIP Call */}
+                      {/* 1. Direct In-App VoIP Call — hidden: no VoIP API yet, it's
+                          only a simulation. Kept for when in-app calling exists.
                       <button
                         type="button"
                         onClick={() => setCallStatus('calling')}
@@ -396,6 +307,7 @@ export const GuestContactModals = ({ contact, isMessageOpen, isCallOpen, onClose
                       <p className="text-[9px] font-bold text-white/40 uppercase tracking-[1.5px] -mt-1">
                         In-app calling is a preview — no call is placed
                       </p>
+                      */}
 
                       {/* 2. Direct Cellular Phone Dial */}
                       <a

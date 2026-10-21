@@ -76,6 +76,7 @@ const PAGE_SIZE = 10;
 
 const STATUS_BADGE_VARIANT: Record<Booking['status'], string> = {
   Hosting: 'green',
+  Ongoing: 'green',
   'Arriving Soon': 'gold',
   Confirmed: 'blue',
   Pending: 'gold',
@@ -970,7 +971,10 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               phone: guestPhone,
               avatar: guestAvatar,
               subtitle: `${detail.experienceSnapshot.title} · Ref: ${detail._id.slice(-8).toUpperCase()}`,
+              userId: detail.traveler?._id,
+              propertyId: detail.propertyId,
             }}
+            currentUserId={user.id}
             isMessageOpen={isMessageOpen}
             isCallOpen={isCallOpen}
             onCloseMessage={() => setIsMessageOpen(false)}
@@ -1237,7 +1241,10 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               phone: bookingDetail.traveler?.phoneNumber ?? bookingDetail.contact?.phone,
               avatar: toDetailAvatar(bookingDetail),
               subtitle: `${bookingDetail.propertySnapshot.title} · Ref: ${bookingDetail._id.slice(-8).toUpperCase()}`,
+              userId: bookingDetail.traveler?._id,
+              propertyId: bookingDetail.propertyId,
             }}
+            currentUserId={user.id}
             isMessageOpen={isMessageOpen}
             isCallOpen={isCallOpen}
             onCloseMessage={() => setIsMessageOpen(false)}

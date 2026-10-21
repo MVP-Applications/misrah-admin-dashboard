@@ -1,7 +1,7 @@
 import { apiClient } from '../../api/client';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
-import type { ChatConversation, ChatMessage, ListConversationsParams, ListMessagesParams } from './types';
+import type { ChatConversation, ChatMessage, CreateConversationRequest, ListConversationsParams, ListMessagesParams } from './types';
 
 // REST side of chat. Sending messages has no REST route — it goes over the
 // socket (./socket.ts).
@@ -15,6 +15,19 @@ export async function listConversations(params: ListConversationsParams = {}): P
   const list = data.data?.conversations;
   if (!Array.isArray(list)) throw new Error('[chat] conversations response has an unexpected shape.');
   return list;
+}
+
+// POST /chat/conversation — find-or-create the conversation between the given
+// participants (optionally tied to a property). The mobile app reads the
+// result from data.data; a flat data is accepted too.
+export async function createConversation(payload: CreateConversationRequest): Promise<ChatConversation> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.chat.createConversation, payload);
+  const body = data.data as Record<string, unknown> | null;
+  const conversation = (body && typeof body._id === 'string' ? body : body?.data) as ChatConversation | undefined;
+  if (!conversation || typeof conversation._id !== 'string') {
+    throw new Error('[chat] create conversation response has an unexpected shape.');
+  }
+  return conversation;
 }
 
 // GET /chat/conversation/{id}/messages — captured: { data: { messages: [...] } }.

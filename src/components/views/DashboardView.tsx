@@ -993,7 +993,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-[11px] font-black text-primary mb-2 italic">{formatMoney(booking.total, booking.currency)}</p>
-                    <Badge variant={booking.status === 'Hosting' ? 'green' : booking.status === 'Arriving Soon' ? 'gold' : 'blue'}>
+                    <Badge variant={booking.status === 'Hosting' || booking.status === 'Ongoing' ? 'green' : booking.status === 'Arriving Soon' ? 'gold' : 'blue'}>
                       {booking.status}
                     </Badge>
                   </div>
