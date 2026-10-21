@@ -72,6 +72,10 @@ export const API_ENDPOINTS = {
   // Chat (REST side — sending is over the Socket.IO connection, features/chat/socket.ts).
   chat: {
     conversations: '/chat/conversations',
+    // POST { participantIds, propertyId } — returns the conversation between
+    // those participants, creating it if needed (as the mobile app's host
+    // booking pages use it before opening a chat).
+    createConversation: '/chat/conversation',
     messages: (conversationId: string) => `/chat/conversation/${conversationId}/messages`,
     markRead: (conversationId: string) => `/chat/conversation/${conversationId}/read`,
     message: (messageId: string) => `/chat/message/${messageId}`,

@@ -15,7 +15,8 @@ import {
   sendChatMessage,
   sendTyping,
 } from '../../features/chat/socket';
-import type { ChatConversation, ChatFile, ChatMessage } from '../../features/chat/types';
+import type { ChatConversation, ChatMessage } from '../../features/chat/types';
+import { fileCount, MAX_ATTACHMENT_MB, MAX_ATTACHMENTS, messageFiles } from '../../features/chat/files';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 // Host Messages — REST for history (/chat/conversations, /chat/conversation/
@@ -35,35 +36,6 @@ const TYPING_HEARTBEAT_MS = 1500;
 const DELIVERY_TIMEOUT_MS = 10000;
 
 const senderIdOf = (m: ChatMessage) => m.sender?._id ?? m.senderId ?? '';
-
-const MAX_ATTACHMENTS = 5;
-const MAX_ATTACHMENT_MB = 10;
-
-// Normalized attachments of a message (fileIds holds Doc objects on read).
-interface DisplayFile {
-  key: string;
-  url: string;
-  isImage: boolean;
-}
-
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|heic|bmp|svg)(\?|#|$)/i;
-
-const messageFiles = (m: ChatMessage): DisplayFile[] =>
-  (m.fileIds || [])
-    .map((f, idx): DisplayFile | null => {
-      if (!f || typeof f === 'string') return null; // bare id — no URL to show
-      const file = f as ChatFile;
-      if (!file.fullUrl) return null;
-      const mime = (file.type || file.mimetype || '').toLowerCase();
-      return {
-        key: file.fileId || `${m._id}-${idx}`,
-        url: file.fullUrl,
-        isImage: mime.startsWith('image') || IMAGE_EXT.test(file.fullUrl) || m.type === 'image',
-      };
-    })
-    .filter((f): f is DisplayFile => f !== null);
-
-const fileCount = (m: ChatMessage) => (m.fileIds || []).length;
 
 const safeDate = (value?: string | null) => {
   if (!value) return null;

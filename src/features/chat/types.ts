@@ -56,6 +56,11 @@ export interface ChatMessage {
   senderId?: string;
 }
 
+export interface CreateConversationRequest {
+  participantIds: string[];
+  propertyId?: string;
+}
+
 export interface ListConversationsParams {
   page?: number;
   limit?: number;

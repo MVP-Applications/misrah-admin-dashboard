@@ -181,7 +181,7 @@ export interface Booking {
   // Badge styling code doesn't need to change. 'Completed' comes from the
   // ported Experiences feature (misrah-retreats-admin), which distinguishes
   // finished experience bookings from finished property stays ('Past').
-  status: 'Hosting' | 'Arriving Soon' | 'Confirmed' | 'Pending' | 'Past' | 'Cancelled' | 'Completed';
+  status: 'Hosting' | 'Ongoing' | 'Arriving Soon' | 'Confirmed' | 'Pending' | 'Past' | 'Cancelled' | 'Completed';
   bookingType?: 'Property' | 'Experience' | 'Combined';
 
   // Experience-specific fields (ported alongside the Experiences feature)

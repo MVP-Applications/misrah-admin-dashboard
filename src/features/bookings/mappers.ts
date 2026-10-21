@@ -7,9 +7,14 @@ import type { BookingListItem } from './types';
 // inventing new logic: 'ongoing' there means confirmed + checkInDate <= today
 // <= checkOutDate, which is exactly what "Hosting" means in this UI.
 export function deriveDisplayStatus(status: string, checkInDate: string, checkOutDate: string): Booking['status'] {
-  if (status === 'cancelled') return 'Cancelled';
-  if (status === 'completed') return 'Past';
-  if (status === 'confirmed') {
+  // Case-insensitive — the API / status enum may send ONGOING or ongoing.
+  const s = String(status ?? '').toLowerCase();
+  if (s === 'cancelled') return 'Cancelled';
+  if (s === 'completed') return 'Past';
+  // Set explicitly by the backend / an admin status change — shown as-is
+  // rather than falling through to "Pending".
+  if (s === 'ongoing') return 'Ongoing';
+  if (s === 'confirmed') {
     const now = new Date();
     const checkIn = new Date(checkInDate);
     const checkOut = new Date(checkOutDate);
