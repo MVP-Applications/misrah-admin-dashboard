@@ -187,6 +187,8 @@ export interface AdminEarningsParams {
   currency?: string;
   timeframe?: EarningsTimeframe;
   year?: number;
+  // 1–12; the API defaults to the current month.
+  month?: number;
   ledgerPage?: number;
   ledgerLimit?: number;
 }

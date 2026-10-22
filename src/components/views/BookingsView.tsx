@@ -859,6 +859,60 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                       <span>Total</span>
                       <span className="text-accent italic">{detail.pricing.currency} {detail.pricing.totalPayable.toLocaleString()}</span>
                     </div>
+                    {(() => {
+                      // Reschedule payment — the extra charged (or refunded,
+                      // if negative) for the latest reschedule.
+                      const reschedule = detail.reschedule;
+                      const difference = Number(reschedule?.priceDifference ?? 0);
+                      if (!reschedule || (!difference && !reschedule.previousDate)) return null;
+                      const paymentStatus = reschedule.paymentStatus?.toUpperCase();
+                      const isPaid = !!paymentStatus && ['PAID', 'SUCCEEDED', 'COMPLETED', 'REFUNDED'].includes(paymentStatus);
+                      const previousSlot = reschedule.previousTimeSlot ?? reschedule.previousStartTime;
+                      return (
+                        <div className="pt-3 mt-1.5 border-t border-[#F2E8DF] space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-[2px] text-primary/50">
+                              Reschedule{detail.rescheduleCount && detail.rescheduleCount > 1 ? ` (${detail.rescheduleCount}×)` : ''}
+                            </span>
+                            {paymentStatus && (
+                              <Badge variant={isPaid ? 'green' : 'gold'}>{formatEnumLabel(paymentStatus)}</Badge>
+                            )}
+                          </div>
+                          {reschedule.previousDate && (
+                            <div className="flex items-center justify-between text-muted-text font-medium">
+                              <span>Previous Schedule</span>
+                              <span>{formatBookingDate(reschedule.previousDate)}{previousSlot ? ` · ${previousSlot}` : ''}</span>
+                            </div>
+                          )}
+                          {reschedule.previousGuestCount != null && reschedule.previousGuestCount !== detail.guestCount && (
+                            <div className="flex items-center justify-between text-muted-text font-medium">
+                              <span>Previous Party Size</span>
+                              <span>{reschedule.previousGuestCount} {reschedule.previousGuestCount === 1 ? 'Guest' : 'Guests'}</span>
+                            </div>
+                          )}
+                          {reschedule.requestedAt && (
+                            <div className="flex items-center justify-between text-muted-text font-medium">
+                              <span>Requested</span>
+                              <span>{formatBookingDate(reschedule.requestedAt)}</span>
+                            </div>
+                          )}
+                          {reschedule.reason && (
+                            <div className="flex items-start justify-between gap-4 text-muted-text font-medium">
+                              <span className="shrink-0">Reason</span>
+                              <span className="text-right italic break-words">"{reschedule.reason}"</span>
+                            </div>
+                          )}
+                          {difference !== 0 && (
+                            <div className="flex items-center justify-between font-black text-primary">
+                              <span>{difference > 0 ? 'Extra Charge' : 'Refund Due'}</span>
+                              <span className={difference > 0 ? 'text-accent' : 'text-success'}>
+                                {difference > 0 ? '+' : '−'} {detail.pricing.currency} {Math.abs(difference).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -1225,6 +1279,50 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
                             <span>{formatMoney(refundAmount, pricing.currency)}</span>
                           </div>
                         )}
+                        {(() => {
+                          // Reschedule payment — the extra charged (or refunded,
+                          // if negative) for the latest date change.
+                          const reschedule = bookingDetail.reschedule;
+                          const difference = Number(reschedule?.priceDifference ?? 0);
+                          if (!reschedule || (!difference && !reschedule.previousCheckIn)) return null;
+                          const paymentStatus = reschedule.paymentStatus?.toUpperCase();
+                          const isPaid = !!paymentStatus && ['PAID', 'SUCCEEDED', 'COMPLETED', 'REFUNDED'].includes(paymentStatus);
+                          return (
+                            <div className="pt-3 border-t border-[#F2E8DF] space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-[2px] text-primary/50">
+                                  Reschedule{bookingDetail.rescheduleCount && bookingDetail.rescheduleCount > 1 ? ` (${bookingDetail.rescheduleCount}×)` : ''}
+                                </span>
+                                {paymentStatus && (
+                                  <Badge variant={isPaid ? 'green' : 'gold'}>{formatEnumLabel(paymentStatus)}</Badge>
+                                )}
+                              </div>
+                              {reschedule.previousCheckIn && (
+                                <div className="flex items-center justify-between text-muted-text font-medium">
+                                  <span>Previous Dates</span>
+                                  <span>
+                                    {formatBookingDate(reschedule.previousCheckIn)}
+                                    {reschedule.previousCheckOut ? ` - ${formatBookingDate(reschedule.previousCheckOut)}` : ''}
+                                  </span>
+                                </div>
+                              )}
+                              {reschedule.requestedAt && (
+                                <div className="flex items-center justify-between text-muted-text font-medium">
+                                  <span>Requested</span>
+                                  <span>{formatBookingDate(reschedule.requestedAt)}</span>
+                                </div>
+                              )}
+                              {difference !== 0 && (
+                                <div className="flex items-center justify-between font-black text-primary">
+                                  <span>{difference > 0 ? 'Extra Charge' : 'Refund Due'}</span>
+                                  <span className={difference > 0 ? 'text-accent' : 'text-success'}>
+                                    {difference > 0 ? '+' : '−'} {formatMoney(Math.abs(difference), pricing.currency)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );

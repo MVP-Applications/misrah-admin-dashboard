@@ -30,7 +30,7 @@ export interface ExperienceBookingAddOn {
   titleAr?: string;
   description?: string;
   price: number;
-  pricingModel: 'fixed' | 'per_person' | 'hourly';
+  pricingModel: 'fixed' | 'per_person' | 'per_group' | 'hourly';
   quantity?: number;
   totalPrice?: number;
 }
@@ -102,6 +102,19 @@ export interface ExperienceBookingCurrentExperience {
   status?: string;
 }
 
+export interface ExperienceBookingReschedule {
+  requestedAt?: string;
+  previousDate?: string;
+  // Older payloads name it previousStartTime.
+  previousTimeSlot?: string;
+  previousStartTime?: string;
+  previousGuestCount?: number;
+  priceDifference?: number;
+  paymentStatus?: string;
+  status?: string;
+  reason?: string;
+}
+
 export interface ExperienceBookingListItem {
   _id: string;
   userId?: string;
@@ -119,6 +132,12 @@ export interface ExperienceBookingListItem {
   contact?: ExperienceBookingContact;
   status: string;
   payment?: ExperienceBookingPayment;
+  // Latest reschedule — the schedule before it, its reason, and what it cost
+  // (priceDifference, in the booking's currency; negative = refund) with its
+  // payment status. Same block the mobile app's experience booking reads.
+  reschedule?: ExperienceBookingReschedule | null;
+  isRescheduled?: boolean;
+  rescheduleCount?: number;
   specialRequests?: string;
   checkedOutAt?: string | null;
   deletedAt?: string | null;

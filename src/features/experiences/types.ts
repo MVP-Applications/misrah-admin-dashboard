@@ -39,7 +39,7 @@ export interface ListExperiencesParams {
 
 export type ExperienceApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-export type ExperiencePricingModel = 'fixed' | 'per_person' | 'hourly';
+export type ExperiencePricingModel = 'fixed' | 'per_person' | 'per_group' | 'hourly';
 
 export interface ApiExperienceAddOn {
   _id?: string;

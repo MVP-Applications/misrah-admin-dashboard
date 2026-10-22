@@ -27,12 +27,14 @@ import {
   ChevronLeft,
   Loader2,
   Ban,
-  LayoutList
+  LayoutList,
+  Upload,
+  ImageOff
 } from 'lucide-react';
 import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
 import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
-import { getSuggestedAddons, CATEGORY_DEFAULT_ADDONS } from '../../data/activityAddons';
-import { STANDARD_TIME_SLOT_PRESETS, getCategoryDefaultTimeSlots } from '../../data/activityTimeSlots';
+import { getSuggestedAddons } from '../../data/activityAddons';
+import { STANDARD_TIME_SLOT_PRESETS } from '../../data/activityTimeSlots';
 import { Badge } from '../ui/Badge';
 import { ExperienceListingsTab } from './ExperienceListingsTab';
 import {
@@ -62,7 +64,7 @@ import type {
   ExperiencePricingModel,
   UpdateExperienceRequest,
 } from '../../features/experiences/types';
-import { listAdminProperties, listMyProperties } from '../../features/properties/api';
+import { listAdminProperties, listMyProperties, uploadFile } from '../../features/properties/api';
 import type { ApiPropertyListItem } from '../../features/properties/types';
 
 const EXPERIENCES_PAGE_SIZE = 12;
@@ -75,12 +77,10 @@ function parseDurationHours(display: string): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
 }
 
-// The backend wants each slot as a single 12-hour AM/PM instant (e.g.
-// "04:30 PM") and rejects anything else — but this view's presets/custom
-// slots are all authored as 24-hour ranges (e.g. "17:00 - 19:30", inherited
-// from data/activityTimeSlots.ts) since that reads better for an admin
-// configuring a schedule. Convert at the submission boundary instead of
-// reworking that UI: take the range's start time and reformat it.
+// The backend wants each slot as a single 12-hour AM/PM time (e.g.
+// "04:30 PM") and rejects anything else. The form works in that format too;
+// this normalizes anything else it may meet — a time picker's 24-hour
+// "16:30", or a legacy range like "17:00 - 19:30" (its start time is kept).
 function to12HourTime(raw: string): string {
   const trimmed = raw.trim();
   const alreadyAmPm = trimmed.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])/);
@@ -94,6 +94,25 @@ function to12HourTime(raw: string): string {
   const period = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
   return `${String(hours).padStart(2, '0')}:${minutes} ${period}`;
+}
+
+const SLOT_PATTERN = /^(\d{2}):(\d{2}) (AM|PM)$/;
+
+// "07:00 AM" → minutes since midnight, for sorting slots chronologically.
+function slotMinutes(slot: string): number {
+  const m = slot.match(SLOT_PATTERN);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  return ((parseInt(m[1], 10) % 12) + (m[3] === 'PM' ? 12 : 0)) * 60 + parseInt(m[2], 10);
+}
+
+// Normalizes a new slot to "hh:mm AM/PM" and adds it in time order; returns
+// null if it isn't a valid time or is already in the list.
+function addSlot(slots: string[], raw: string): string[] | null {
+  const slot = to12HourTime(raw);
+  if (!SLOT_PATTERN.test(slot)) return null;
+  const normalized = slots.map(to12HourTime);
+  if (normalized.includes(slot)) return null;
+  return [...normalized, slot].sort((a, b) => slotMinutes(a) - slotMinutes(b));
 }
 
 // The edit form only manages a subset of the full experience record (no UI
@@ -236,6 +255,9 @@ export const ExperiencesView = ({
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmittingExperience, setIsSubmittingExperience] = useState(false);
+  // Cover photo upload (POST /files/upload) — its URL goes in coverPhoto.
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
   const [addExperienceError, setAddExperienceError] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<{ propertyId: string; activity: ActivityExperience } | null>(null);
   const [isLoadingEditDetail, setIsLoadingEditDetail] = useState(false);
@@ -359,12 +381,14 @@ export const ExperiencesView = ({
     duration: '2 Hours',
     minGuests: 1,
     maxGuests: 10,
-    imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
+    imageUrl: '',
     locationDetails: 'Property grounds & facilities',
-    included: 'Equipment, Welcome refreshments',
-    whatToBring: 'Comfortable clothing',
-    addons: getSuggestedAddons('culinary') as ActivityAddon[],
-    timeSlots: getCategoryDefaultTimeSlots('culinary') as string[]
+    included: '',
+    whatToBring: '',
+    // Nothing preselected — the host / admin picks slots and add-ons (quick-add
+    // presets / recommendations, or their own).
+    addons: [] as ActivityAddon[],
+    timeSlots: [] as string[]
   });
 
   // Time slot input states
@@ -616,15 +640,22 @@ export const ExperiencesView = ({
       alert('Please enter an experience title.');
       return;
     }
+    if (isUploadingCover) {
+      alert('Please wait for the cover photo to finish uploading.');
+      return;
+    }
 
-    // ACTIVITY_CATEGORIES lookup is content-only (cover photo / time-slot
-    // fallbacks) — customForm.categoryId now holds a real experience
+    // ACTIVITY_CATEGORIES lookup is content-only (the cover photo
+    // fallback) — customForm.categoryId now holds a real experience
     // category id, so this essentially always falls through to [0]; that's
     // fine, it's just seeding generic defaults, not the submitted categoryId.
     const cat = ACTIVITY_CATEGORIES.find(c => c.id === customForm.categoryId) || ACTIVITY_CATEGORIES[0];
-    const finalSlots = (customForm.timeSlots && customForm.timeSlots.length > 0)
-      ? customForm.timeSlots
-      : getCategoryDefaultTimeSlots(cat.id);
+    // No predefined fallback — at least one slot must be added.
+    const finalSlots = customForm.timeSlots || [];
+    if (finalSlots.length === 0) {
+      alert('Please add at least one time slot.');
+      return;
+    }
     const coverPhoto = customForm.imageUrl || cat.coverImage;
 
     setIsSubmittingExperience(true);
@@ -674,12 +705,12 @@ export const ExperiencesView = ({
         duration: '2 Hours',
         minGuests: 1,
         maxGuests: 10,
-        imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
+        imageUrl: '',
         locationDetails: 'Property grounds & facilities',
-        included: 'Equipment, Welcome refreshments',
-        whatToBring: 'Comfortable clothing',
-        addons: getSuggestedAddons('culinary'),
-        timeSlots: getCategoryDefaultTimeSlots('culinary')
+        included: '',
+        whatToBring: '',
+        addons: [],
+        timeSlots: []
       });
       setNewCustomSlot('');
       await fetchExperiences(page);
@@ -690,15 +721,35 @@ export const ExperiencesView = ({
     }
   };
 
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setCoverUploadError('Please choose an image file.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setCoverUploadError('Image must be 10MB or smaller.');
+      return;
+    }
+    setIsUploadingCover(true);
+    setCoverUploadError(null);
+    try {
+      const uploaded = await uploadFile(file);
+      setCustomForm(prev => ({ ...prev, imageUrl: uploaded.url }));
+    } catch (err) {
+      setCoverUploadError(err instanceof Error ? err.message : 'Failed to upload the cover photo.');
+    } finally {
+      setIsUploadingCover(false);
+    }
+  };
+
   // Time Slot helpers for Custom Form
   const handleAddTimeSlotToCustom = (slot: string) => {
-    const trimmed = slot.trim();
-    if (!trimmed) return;
-    if ((customForm.timeSlots || []).includes(trimmed)) return;
-    setCustomForm(prev => ({
-      ...prev,
-      timeSlots: [...(prev.timeSlots || []), trimmed]
-    }));
+    const next = addSlot(customForm.timeSlots || [], slot);
+    if (!next) return;
+    setCustomForm(prev => ({ ...prev, timeSlots: next }));
     setNewCustomSlot('');
   };
 
@@ -709,25 +760,16 @@ export const ExperiencesView = ({
     }));
   };
 
-  const handleResetTimeSlotsToCategoryDefault = () => {
-    setCustomForm(prev => ({
-      ...prev,
-      timeSlots: getCategoryDefaultTimeSlots(prev.categoryId)
-    }));
-  };
-
   // Time Slot helpers for Editing Activity
   const handleAddTimeSlotToEdit = (slot: string) => {
     if (!editingActivity) return;
-    const trimmed = slot.trim();
-    if (!trimmed) return;
-    const currentSlots = editingActivity.activity.timeSlots || [];
-    if (currentSlots.includes(trimmed)) return;
+    const next = addSlot(editingActivity.activity.timeSlots || [], slot);
+    if (!next) return;
     setEditingActivity({
       ...editingActivity,
       activity: {
         ...editingActivity.activity,
-        timeSlots: [...currentSlots, trimmed]
+        timeSlots: next
       }
     });
     setNewEditCustomSlot('');
@@ -783,13 +825,6 @@ export const ExperiencesView = ({
     setCustomForm(prev => ({
       ...prev,
       addons: [...(prev.addons || []), copy]
-    }));
-  };
-
-  const handleResetAddonsToCategoryDefault = () => {
-    setCustomForm(prev => ({
-      ...prev,
-      addons: getSuggestedAddons(prev.categoryId)
     }));
   };
 
@@ -1789,15 +1824,55 @@ export const ExperiencesView = ({
 
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-muted-text block mb-1">
-                      Cover Photo URL
+                      Cover Photo
                     </label>
-                    <input 
-                      type="url"
-                      placeholder="https://images.unsplash.com/..."
-                      value={customForm.imageUrl}
-                      onChange={e => setCustomForm({ ...customForm, imageUrl: e.target.value })}
-                      className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
-                    />
+                    {/* Uploaded via POST /files/upload; its URL is sent as coverPhoto. */}
+                    <label
+                      className={`relative block w-full h-40 rounded-2xl border-2 border-dashed overflow-hidden transition-all ${
+                        isUploadingCover ? 'cursor-wait' : 'cursor-pointer'
+                      } ${customForm.imageUrl ? 'border-border-misrah' : 'border-border-misrah hover:border-accent bg-surface'}`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleCoverUpload}
+                        disabled={isUploadingCover}
+                        className="hidden"
+                      />
+                      {customForm.imageUrl ? (
+                        <>
+                          <img src={customForm.imageUrl} alt="Cover" className="w-full h-full object-cover" />
+                          <span className="absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-[10px] font-black uppercase tracking-wider">
+                            Change Photo
+                          </span>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-text">
+                          <Upload size={22} className="text-accent" />
+                          <span className="text-[10px] font-black uppercase tracking-wider">Upload cover photo</span>
+                          <span className="text-[9px] font-bold text-muted-text/60">JPG, PNG or WebP · up to 10MB</span>
+                        </div>
+                      )}
+                      {isUploadingCover && (
+                        <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                          <Loader2 size={22} className="animate-spin text-primary" />
+                        </div>
+                      )}
+                    </label>
+                    <div className="flex items-center justify-between mt-1">
+                      {coverUploadError ? (
+                        <p className="text-[10px] font-bold text-danger">{coverUploadError}</p>
+                      ) : <span />}
+                      {customForm.imageUrl && !isUploadingCover && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomForm(prev => ({ ...prev, imageUrl: '' }))}
+                          className="text-[10px] font-black uppercase tracking-wider text-muted-text hover:text-danger flex items-center gap-1"
+                        >
+                          <ImageOff size={11} /> Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1851,14 +1926,6 @@ export const ExperiencesView = ({
                         <span className="text-[10px] font-black uppercase tracking-wider text-muted-text">
                           {(customForm.timeSlots || []).length} Active Slot{(customForm.timeSlots || []).length === 1 ? '' : 's'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={handleResetTimeSlotsToCategoryDefault}
-                          className="text-[10px] font-bold text-accent hover:underline flex items-center gap-1"
-                          title="Reset to category standard time slots"
-                        >
-                          ↺ Reset Defaults
-                        </button>
                       </div>
                     </div>
 
@@ -1869,7 +1936,7 @@ export const ExperiencesView = ({
                       </span>
                       <div className="flex flex-wrap gap-1.5">
                         {STANDARD_TIME_SLOT_PRESETS.map((preset) => {
-                          const isAlreadyAdded = (customForm.timeSlots || []).includes(preset.time);
+                          const isAlreadyAdded = (customForm.timeSlots || []).map(to12HourTime).includes(preset.time);
                           return (
                             <button
                               key={preset.time}
@@ -1912,7 +1979,7 @@ export const ExperiencesView = ({
                             >
                               <div className="flex items-center gap-2 truncate">
                                 <Clock size={13} className="text-accent shrink-0" />
-                                <span className="text-xs font-black text-primary truncate">{slot}</span>
+                                <span className="text-xs font-black text-primary truncate">{to12HourTime(slot)}</span>
                               </div>
                               <button
                                 type="button"
@@ -1930,9 +1997,10 @@ export const ExperiencesView = ({
 
                     {/* Add Custom Slot Input */}
                     <div className="pt-2 flex gap-2">
+                      {/* Single start time — the picker gives "HH:mm", saved as "hh:mm AM/PM". */}
                       <input
-                        type="text"
-                        placeholder="e.g. 15:00 - 17:30 or 08:00 AM - 10:00 AM"
+                        type="time"
+                        aria-label="Slot start time"
                         value={newCustomSlot}
                         onChange={e => setNewCustomSlot(e.target.value)}
                         onKeyDown={e => {
@@ -1946,7 +2014,7 @@ export const ExperiencesView = ({
                       <button
                         type="button"
                         onClick={() => handleAddTimeSlotToCustom(newCustomSlot)}
-                        disabled={!newCustomSlot.trim()}
+                        disabled={!newCustomSlot.trim() || !addSlot(customForm.timeSlots || [], newCustomSlot)}
                         className="px-4 py-2.5 rounded-xl bg-primary text-accent text-xs font-black uppercase tracking-wider hover:opacity-95 disabled:opacity-40 transition-all flex items-center gap-1.5 shadow-2xs"
                       >
                         <Plus size={13} />
@@ -1979,25 +2047,19 @@ export const ExperiencesView = ({
                         <span className="text-[10px] font-black uppercase tracking-wider text-muted-text">
                           {(customForm.addons || []).length} Active Add-on{(customForm.addons || []).length === 1 ? '' : 's'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={handleResetAddonsToCategoryDefault}
-                          className="text-[10px] font-bold text-accent hover:underline flex items-center gap-1"
-                          title="Load default recommendations for this category"
-                        >
-                          ↺ Reset Defaults
-                        </button>
                       </div>
                     </div>
 
                     {/* Quick Suggestions based on Category */}
-                    {CATEGORY_DEFAULT_ADDONS[customForm.categoryId] && (
+                    {/* Keyed by the old category slugs, which a real category id never
+                        matches — getSuggestedAddons falls back to the general list. */}
+                    {getSuggestedAddons(customForm.categoryId).length > 0 && (
                       <div className="space-y-1.5">
                         <span className="text-[10px] font-black uppercase tracking-wider text-muted-text block">
                           Quick Add Category Recommendations:
                         </span>
                         <div className="flex flex-wrap gap-1.5">
-                          {CATEGORY_DEFAULT_ADDONS[customForm.categoryId].map((sug) => {
+                          {getSuggestedAddons(customForm.categoryId).map((sug) => {
                             const isAlreadyAdded = (customForm.addons || []).some(
                               a => a.title.toLowerCase() === sug.title.toLowerCase()
                             );
@@ -2062,7 +2124,7 @@ export const ExperiencesView = ({
                                     +AED {addon.price}
                                   </span>
                                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-misrah font-bold text-muted-text">
-                                    {addon.priceType === 'per_person' ? 'Per Person' : addon.priceType === 'hourly' ? 'Per Hour' : 'Fixed Total'}
+                                    {addon.priceType === 'per_person' ? 'Per Person' : addon.priceType === 'per_group' ? 'Per Group' : addon.priceType === 'hourly' ? 'Per Hour' : 'Fixed Total'}
                                   </span>
                                 </div>
                               </div>
@@ -2167,6 +2229,7 @@ export const ExperiencesView = ({
                             >
                               <option value="fixed">Fixed Total / شامل المجموع</option>
                               <option value="per_person">Per Person / لكل شخص</option>
+                              <option value="per_group">Per Group / لكل مجموعة</option>
                               <option value="hourly">Hourly / بالساعة</option>
                             </select>
                           </div>
@@ -2620,7 +2683,7 @@ export const ExperiencesView = ({
                   {/* Preset quick-add buttons */}
                   <div className="flex flex-wrap gap-1">
                     {STANDARD_TIME_SLOT_PRESETS.map(preset => {
-                      const isAdded = (editingActivity.activity.timeSlots || []).includes(preset.time);
+                      const isAdded = (editingActivity.activity.timeSlots || []).map(to12HourTime).includes(preset.time);
                       return (
                         <button
                           key={preset.time}
@@ -2649,7 +2712,7 @@ export const ExperiencesView = ({
                           key={slot}
                           className="p-2 rounded-xl bg-white border border-border-misrah flex items-center justify-between gap-2 text-xs"
                         >
-                          <span className="font-bold text-primary text-[11px] truncate">{slot}</span>
+                          <span className="font-bold text-primary text-[11px] truncate">{to12HourTime(slot)}</span>
                           <button
                             type="button"
                             onClick={() => handleRemoveTimeSlotFromEdit(slot)}
@@ -2665,9 +2728,10 @@ export const ExperiencesView = ({
 
                   {/* Add Custom Slot */}
                   <div className="flex gap-2 pt-1">
+                    {/* Single start time — the picker gives "HH:mm", saved as "hh:mm AM/PM". */}
                     <input
-                      type="text"
-                      placeholder="e.g. 16:30 - 18:30"
+                      type="time"
+                      aria-label="Slot start time"
                       value={newEditCustomSlot}
                       onChange={e => setNewEditCustomSlot(e.target.value)}
                       onKeyDown={e => {
@@ -2681,7 +2745,7 @@ export const ExperiencesView = ({
                     <button
                       type="button"
                       onClick={() => handleAddTimeSlotToEdit(newEditCustomSlot)}
-                      disabled={!newEditCustomSlot.trim()}
+                      disabled={!newEditCustomSlot.trim() || !addSlot(editingActivity.activity.timeSlots || [], newEditCustomSlot)}
                       className="px-3 py-2 bg-primary text-accent rounded-xl text-xs font-black uppercase disabled:opacity-50"
                     >
                       Add Slot
@@ -2724,7 +2788,7 @@ export const ExperiencesView = ({
                             <div className="flex items-center gap-2 text-[10px] text-muted-text">
                               <span className="font-bold text-accent">+AED {addon.price}</span>
                               <span>•</span>
-                              <span>{addon.priceType === 'per_person' ? 'Per Person' : addon.priceType === 'hourly' ? 'Hourly' : 'Fixed'}</span>
+                              <span>{addon.priceType === 'per_person' ? 'Per Person' : addon.priceType === 'per_group' ? 'Per Group' : addon.priceType === 'hourly' ? 'Hourly' : 'Fixed'}</span>
                               {addon.description && <span>• {addon.description}</span>}
                             </div>
                           </div>
@@ -2774,6 +2838,7 @@ export const ExperiencesView = ({
                         >
                           <option value="fixed">Fixed Total</option>
                           <option value="per_person">Per Person</option>
+                          <option value="per_group">Per Group</option>
                           <option value="hourly">Hourly</option>
                         </select>
                         <input

@@ -11,7 +11,7 @@ export interface ActivityAddon {
   title: string;
   titleAr?: string;
   price: number;
-  priceType?: 'fixed' | 'per_person' | 'hourly';
+  priceType?: 'fixed' | 'per_person' | 'per_group' | 'hourly';
   description?: string;
 }
 

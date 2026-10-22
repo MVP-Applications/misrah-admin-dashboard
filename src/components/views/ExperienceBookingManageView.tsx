@@ -414,7 +414,7 @@ export const ExperienceBookingManageView = ({ detail, onBack, onSaved, isAdmin =
                     <div className="min-w-0">
                       <h4 className="text-sm font-black text-primary uppercase tracking-tight italic truncate">{addOn.title}</h4>
                       <p className="text-[9px] font-black text-primary/30 uppercase tracking-[1.5px] mt-0.5">
-                        {currency} {addOn.price} · {addOn.pricingModel === 'per_person' ? 'Per Person' : addOn.pricingModel === 'hourly' ? 'Hourly' : 'Fixed'}
+                        {currency} {addOn.price} · {addOn.pricingModel === 'per_person' ? 'Per Person' : addOn.pricingModel === 'per_group' ? 'Per Group' : addOn.pricingModel === 'hourly' ? 'Hourly' : 'Fixed'}
                       </p>
                       {!isOffered && (
                         <p className="text-[9px] font-black text-danger uppercase tracking-[1.5px] mt-0.5">
