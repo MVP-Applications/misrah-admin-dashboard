@@ -424,8 +424,9 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
 function toLegacyUser(admin: AdminUser, portalRole: UserRole): UserType {
   return {
     id: admin.id,
-    // The API returns no display name — derive one from the email local-part.
-    name: admin.email.split('@')[0],
+    // The user's `name` from the auth response; the email's local-part only
+    // when the payload has none.
+    name: admin.name?.trim() || admin.email.split('@')[0],
     email: admin.email,
     role: portalRole,
     avatar: '',

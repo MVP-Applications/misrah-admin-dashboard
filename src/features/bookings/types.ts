@@ -112,6 +112,17 @@ export interface BookingDetail {
   specialRequests?: string;
   isRescheduled?: boolean;
   rescheduleCount?: number;
+  // Latest date change — the dates before it and what it cost
+  // (priceDifference, in the booking's currency; negative = refund) with its
+  // payment status. Same block the mobile app's My Stays price summary reads.
+  reschedule?: {
+    requestedAt?: string;
+    previousCheckIn?: string;
+    previousCheckOut?: string;
+    priceDifference?: number;
+    paymentStatus?: string;
+    status?: string;
+  } | null;
   cancellation?: {
     cancelledAt?: string;
     reason?: string;

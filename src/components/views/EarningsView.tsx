@@ -69,6 +69,11 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
   const now = new Date();
   const [timeframe, setTimeframe] = useState<EarningsTimeframe>('M');
   const [earningsYear, setEarningsYear] = useState(now.getFullYear());
+  // 1–12, sent as `month` (analytics month; the API defaults to the current
+  // one). 0 = "All" — the whole year: `month` is left out of the request.
+  const [earningsMonth, setEarningsMonth] = useState(now.getMonth() + 1);
+  const isFutureMonth = (year: number, month: number) =>
+    year === now.getFullYear() && month > now.getMonth() + 1;
   const [ledgerPage, setLedgerPage] = useState(1);
   const [earnings, setEarnings] = useState<HostEarningsData | AdminEarningsData | null>(null);
   // Narrowed views of `earnings` for the role-specific sections.
@@ -81,7 +86,13 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
     let cancelled = false;
     setIsEarningsLoading(true);
     setEarningsError(null);
-    const params = { timeframe, year: earningsYear, ledgerPage, ledgerLimit: LEDGER_PAGE_SIZE };
+    const params = {
+      timeframe,
+      year: earningsYear,
+      ...(earningsMonth > 0 ? { month: earningsMonth } : {}),
+      ledgerPage,
+      ledgerLimit: LEDGER_PAGE_SIZE,
+    };
     const request: Promise<HostEarningsData | AdminEarningsData> = isHost
       ? getHostEarnings(params)
       : getAdminEarnings({ ...params, currency });
@@ -90,10 +101,10 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
       .catch(err => { if (!cancelled) setEarningsError(err instanceof Error ? err.message : 'Failed to load earnings.'); })
       .finally(() => { if (!cancelled) setIsEarningsLoading(false); });
     return () => { cancelled = true; };
-  }, [isHost, timeframe, earningsYear, ledgerPage, currency]);
+  }, [isHost, timeframe, earningsYear, earningsMonth, ledgerPage, currency]);
 
   // Year change → back to the first ledger page.
-  useEffect(() => { setLedgerPage(1); }, [earningsYear]);
+  useEffect(() => { setLedgerPage(1); }, [earningsYear, earningsMonth]);
 
   const matrixRows = earnings?.revenueMatrix.data ?? [];
   const matrixMax = matrixRows.reduce((max, r) => Math.max(max, r.amount), 0);
@@ -116,8 +127,27 @@ export const EarningsView = ({ user }: EarningsViewProps) => {
         <div className="flex flex-wrap gap-4 items-center">
           <div className="flex items-center gap-2">
             <select
+              value={earningsMonth}
+              onChange={e => setEarningsMonth(Number(e.target.value))}
+              aria-label="Month"
+              className="py-3 px-4 bg-white border border-border-misrah rounded-2xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={0}>All Months</option>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m} disabled={isFutureMonth(earningsYear, m)}>
+                  {new Date(2000, m - 1, 1).toLocaleString('en', { month: 'long' })}
+                </option>
+              ))}
+            </select>
+            <select
               value={earningsYear}
-              onChange={e => setEarningsYear(Number(e.target.value))}
+              aria-label="Year"
+              onChange={e => {
+                const year = Number(e.target.value);
+                setEarningsYear(year);
+                // Back to the current year → don't leave a future month selected.
+                if (isFutureMonth(year, earningsMonth)) setEarningsMonth(now.getMonth() + 1);
+              }}
               className="py-3 px-4 bg-white border border-border-misrah rounded-2xl text-[10px] font-black uppercase tracking-wider text-primary outline-none focus:border-accent cursor-pointer"
             >
               {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}

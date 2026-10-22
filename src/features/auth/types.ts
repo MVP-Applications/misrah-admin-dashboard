@@ -35,6 +35,9 @@ export interface LogoutRequest {
 export interface AdminUser {
   id: string;
   email: string;
+  // Display name from the login / autologin `user` object — optional so an
+  // older payload without it still logs in (the UI falls back to the email).
+  name?: string;
   userType: string;
   // Seen on a real payload but not required — optional so a missing/renamed
   // field here never breaks login. Not currently used anywhere in the UI.
