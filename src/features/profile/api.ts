@@ -86,6 +86,10 @@ export async function getMyProfile(): Promise<MyProfile> {
   };
 }
 
+// Fired (window event) when the user's profile photo changes, with the new
+// URL as `detail` — lets the sidebar's user card update without a reload.
+export const PROFILE_PHOTO_UPDATED_EVENT = 'misrah:profile-photo-updated';
+
 // PATCH /consumer/users/profile — response not relied on; caller refetches.
 export async function updateMyProfile(payload: UpdateMyProfileRequest): Promise<void> {
   await apiClient.patch(API_ENDPOINTS.profile.me, payload);

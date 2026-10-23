@@ -76,6 +76,9 @@ export const API_ENDPOINTS = {
     // those participants, creating it if needed (as the mobile app's host
     // booking pages use it before opening a chat).
     createConversation: '/chat/conversation',
+    // POST (no body) — the logged-in user's support conversation with the
+    // Misrah team, created if needed (mobile app's Concierge uses it).
+    supportStart: '/chat/support/start',
     messages: (conversationId: string) => `/chat/conversation/${conversationId}/messages`,
     markRead: (conversationId: string) => `/chat/conversation/${conversationId}/read`,
     message: (messageId: string) => `/chat/message/${messageId}`,

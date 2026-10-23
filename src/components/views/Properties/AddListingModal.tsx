@@ -37,6 +37,8 @@ import { createPropertyDraft, deletePropertyDraft, listActiveCities, updatePrope
 import { listCategories } from '../../../features/categories/api';
 import type { ApiCategory } from '../../../features/categories/types';
 import { hostAssignmentToCreateFields } from '../../../features/properties/mappers';
+import { getAdminUserById } from '../../../features/adminUsers/api';
+import { clearDraftOwner, loadDraftOwner, saveDraftOwner } from '../../../features/properties/draftOwner';
 import type { CityListItem, CreatePropertyRequest, DraftFileRef, HostAssignmentSelection, PropertyDraft, PropertyDraftRequest, PropertyDraftScope } from '../../../features/properties/types';
 import { HostAssignmentPicker } from './HostAssignmentPicker';
 import { LocationPicker, type LatLng } from './LocationPicker';
@@ -120,7 +122,8 @@ const draftToForm = (draft: PropertyDraft, user: User) => {
     ...base,
     name: draft.title ?? '',
     description: draft.description ?? '',
-    category: draft.propertyType ? PROPERTY_TYPE_TO_CATEGORY[draft.propertyType] ?? '' : '',
+    // Case-insensitive — tolerate villa / VILLA.
+    category: draft.propertyType ? PROPERTY_TYPE_TO_CATEGORY[String(draft.propertyType).toUpperCase()] ?? '' : '',
     cityId: typeof draft.cityId === 'string' ? draft.cityId : city?._id ?? '',
     cityName: city?.name ?? '',
     address: draft.address ?? '',
@@ -156,10 +159,18 @@ const draftToForm = (draft: PropertyDraft, user: User) => {
 // was saved before an owner was picked (or as admin-managed) — left unset so
 // the admin confirms it again. The new-host password is never stored, so it
 // has to be re-entered if wanted.
-const draftToOwnerSelection = (draft: PropertyDraft): HostAssignmentSelection | undefined => {
-  const userId = typeof draft.userId === 'object' ? draft.userId?._id : draft.userId;
-  if (userId) {
-    const label = (typeof draft.userId === 'object' ? draft.userId?.name : undefined) ?? draft.owner?.name ?? 'Selected host';
+const draftToOwnerSelection = (draft: PropertyDraft, currentUserId: string): HostAssignmentSelection | undefined => {
+  const raw = draft as unknown as Record<string, any>;
+  // The owner may come back as userId, hostId or ownerId (id or populated),
+  // or as an owner / host object. A userId equal to the admin themself is the
+  // draft's creator, not the property owner — ignored.
+  const ref = [raw.userId, raw.hostId, raw.ownerId, raw.owner, raw.host].find(v => {
+    const id = typeof v === 'string' ? v : v?._id;
+    return id && id !== currentUserId;
+  });
+  if (ref) {
+    const userId = typeof ref === 'string' ? ref : ref._id;
+    const label = (typeof ref === 'object' ? ref.name : undefined) ?? raw.owner?.name ?? raw.host?.name ?? loadDraftOwnerLabel(draft._id, userId) ?? 'Selected host';
     return { mode: 'existing', userId, label };
   }
   if (draft.email || draft.phoneNumber || draft.name) {
@@ -172,7 +183,15 @@ const draftToOwnerSelection = (draft: PropertyDraft): HostAssignmentSelection | 
       residentialAddress: draft.residentialAddress ?? '',
     };
   }
-  return undefined;
+  // Nothing in the response (incl. admin-managed, which sends no fields) —
+  // fall back to the copy kept in this browser when the draft was saved.
+  return loadDraftOwner(draft._id);
+};
+
+// The saved host's display name for an 'existing' owner, if this browser kept it.
+const loadDraftOwnerLabel = (draftId: string, userId: string): string | undefined => {
+  const saved = loadDraftOwner(draftId);
+  return saved?.mode === 'existing' && saved.userId === userId ? saved.label : undefined;
 };
 
 // A picked calendar day (stored as a local-time ISO string) → that same
@@ -214,8 +233,21 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   // page mounts this modal already open.
   const [step, setStep] = useState(() => initialStep(draft));
   const [ownerSelection, setOwnerSelection] = useState<HostAssignmentSelection | undefined>(
-    () => (draft && !isHost ? draftToOwnerSelection(draft) : undefined),
+    () => (draft && !isHost ? draftToOwnerSelection(draft, user.id) : undefined),
   );
+  // Admin: the chosen owner's contact for the last step's phone / email
+  // (not the admin's own). An existing host restored from a draft may lack
+  // it — then it's fetched (GET /admin/users/{id}).
+  const [fetchedOwnerContact, setFetchedOwnerContact] = useState<{ userId: string; email?: string; phoneNumber?: string } | null>(null);
+  useEffect(() => {
+    if (isHost || ownerSelection?.mode !== 'existing') return;
+    if (ownerSelection.email || ownerSelection.phoneNumber) return;
+    if (fetchedOwnerContact?.userId === ownerSelection.userId) return;
+    const userId = ownerSelection.userId;
+    getAdminUserById(userId)
+      .then(u => setFetchedOwnerContact({ userId, email: u.email, phoneNumber: u.phoneNumber }))
+      .catch(() => setFetchedOwnerContact({ userId }));
+  }, [isHost, ownerSelection, fetchedOwnerContact]);
   const [cities, setCities] = useState<CityListItem[]>([]);
   const [citiesLoading, setCitiesLoading] = useState(false);
   const [citiesError, setCitiesError] = useState<string | null>(null);
@@ -278,7 +310,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   useEffect(() => {
     if (isOpen) {
       setStep(initialStep(draft));
-      setOwnerSelection(draft && !isHost ? draftToOwnerSelection(draft) : undefined);
+      setOwnerSelection(draft && !isHost ? draftToOwnerSelection(draft, user.id) : undefined);
       setSubmitError(null);
       setDraftError(null);
       setImageFile(null);
@@ -295,7 +327,12 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       );
       setCurrentMonth(new Date());
       setRangeField('start');
-      setSelectedCategoryIds([]);
+      // Admin drafts keep the picked property categories (ids or populated).
+      setSelectedCategoryIds(
+        (draft?.categoryIds ?? [])
+          .map(c => (typeof c === 'string' ? c : c?._id))
+          .filter((id): id is string => !!id),
+      );
       loadCities();
       if (!isHost) loadPropertyCategories();
     }
@@ -306,11 +343,23 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   const idRef = useRef<HTMLInputElement>(null);
   const licenseRef = useRef<HTMLInputElement>(null);
 
+  // Phone / email shown on the last step: the host's own, or (admin) the
+  // chosen owner's.
+  const ownerContact = (() => {
+    if (isHost) return { phone: formData.verifications.phone, email: formData.verifications.email };
+    if (ownerSelection?.mode === 'new') return { phone: ownerSelection.phoneNumber, email: ownerSelection.email };
+    if (ownerSelection?.mode === 'existing') {
+      const fetched = fetchedOwnerContact?.userId === ownerSelection.userId ? fetchedOwnerContact : null;
+      return { phone: ownerSelection.phoneNumber || fetched?.phoneNumber, email: ownerSelection.email || fetched?.email };
+    }
+    return { phone: undefined, email: undefined };
+  })();
+
   if (!isOpen) return null;
 
   // Every step is shown in order — host verification is the last step
   // either way, so there's no shortcut past the listing details.
-  const handleNext = () => setStep(s => Math.min(s + 1, 6));
+  const handleNext = () => { setSubmitError(null); setStep(s => Math.min(s + 1, 6)); };
   const handleBack = () => setStep(s => Math.max(s - 1, firstStep));
 
   // Uploads any newly picked photo / documents and returns the ids to send,
@@ -350,6 +399,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       const payload: PropertyDraftRequest = {
         ...ownerFields,
         step,
+        ...(!isHost ? { categoryIds: selectedCategoryIds } : {}),
         ...(formData.name.trim() ? { title: formData.name.trim() } : {}),
         ...(formData.description.trim() ? { description: formData.description.trim() } : {}),
         ...(CATEGORY_TO_PROPERTY_TYPE[formData.category] ? { propertyType: CATEGORY_TO_PROPERTY_TYPE[formData.category] } : {}),
@@ -387,8 +437,11 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       };
       if (draftId) {
         await updatePropertyDraft(draftId, payload, draftScope);
+        if (!isHost) saveDraftOwner(draftId, ownerSelection);
       } else {
-        setDraftId((await createPropertyDraft(payload, draftScope))._id);
+        const created = await createPropertyDraft(payload, draftScope);
+        setDraftId(created._id);
+        if (!isHost) saveDraftOwner(created._id, ownerSelection);
       }
       onDraftsChanged?.();
       onClose();
@@ -401,7 +454,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!isHost && !ownerSelection) return;
+    // Admin: an owner must be chosen. A resumed draft saved before one was
+    // picked has none — say so and go to that step instead of doing nothing.
+    if (!isHost && !ownerSelection) {
+      setSubmitError(`Choose who owns this property (Phase ${phaseNo(0)} · Ownership Node).`);
+      setStep(0);
+      return;
+    }
     // AdminCreatePropertyDto requires title, description and pricing.basePrice;
     // point the admin at the phase that's missing it.
     const basePrice = Number(formData.price);
@@ -464,6 +523,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       // the property already exists, so a failed delete isn't surfaced.
       if (draftId) {
         await deletePropertyDraft(draftId, draftScope).catch(err => console.error('[drafts] failed to delete published draft', err));
+        clearDraftOwner(draftId);
         setDraftId(null);
       }
       onDraftsChanged?.();
@@ -615,6 +675,17 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
 
         <div className="flex-1 flex flex-col bg-[#FCFAF8]/30 justify-between">
           <div className="flex-1 p-12 overflow-y-auto scrollbar-hide max-h-[75vh]">
+            {/* Step indicator — every step, numbered like the sidebar phases
+                (hosts have no ownership step, so they count 1–6; admins 1–7). */}
+            <div className="flex justify-center mb-8">
+              <div className="bg-[#FCFAF8] border border-[#F2E8DF] px-6 py-2 rounded-full flex items-center gap-3">
+                <span className="text-[10px] font-black italic text-[#1A2B47] uppercase tracking-[1px]">Setup</span>
+                <div className="w-[1px] h-3 bg-[#D4C3B5]" />
+                <span className="text-[10px] font-bold text-[#D4C3B5] uppercase tracking-[1px]">
+                  Step {Number(phaseNo(step))} of {isHost ? 6 : 7}
+                </span>
+              </div>
+            </div>
             <AnimatePresence mode="wait">
             {/* Step 0: Ownership */}
             {step === 0 && (
@@ -759,14 +830,6 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
             {/* Step 3: Availability Calendar */}
             {step === 3 && (
               <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                <div className="flex flex-col items-center gap-4 mb-8">
-                  <div className="bg-[#FCFAF8] border border-[#F2E8DF] px-6 py-2 rounded-full flex items-center gap-3">
-                    <span className="text-[10px] font-black italic text-[#1A2B47] uppercase tracking-[1px]">Setup</span>
-                    <div className="w-[1px] h-3 bg-[#D4C3B5]" />
-                    <span className="text-[10px] font-bold text-[#D4C3B5] uppercase tracking-[1px]">Step 4</span>
-                  </div>
-                </div>
-
                 {(() => {
                   const startDate = formData.availabilityDate ? new Date(formData.availabilityDate) : null;
                   const endDate = formData.availabilityEndDate ? new Date(formData.availabilityEndDate) : null;
@@ -1167,12 +1230,16 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
 
                       <div className="flex gap-3">
                          <div className="flex-1 p-4 bg-surface rounded-2xl border border-border-misrah flex flex-col gap-1">
-                            <span className="text-[9px] font-black uppercase tracking-[1px] text-muted-text">Verified Phone</span>
-                            <span className="text-[11px] font-bold text-primary">{formData.verifications.phone || '+971 -- --- ----'}</span>
+                            <span className="text-[9px] font-black uppercase tracking-[1px] text-muted-text">{isHost ? 'Verified Phone' : 'Host Phone'}</span>
+                            <span className="text-[11px] font-bold text-primary break-all">
+                              {ownerContact.phone || (!isHost && ownerSelection?.mode === 'admin' ? 'Managed by Admin' : '—')}
+                            </span>
                          </div>
                          <div className="flex-1 p-4 bg-surface rounded-2xl border border-border-misrah flex flex-col gap-1">
-                            <span className="text-[9px] font-black uppercase tracking-[1px] text-muted-text">Verified Email</span>
-                            <span className="text-[11px] font-bold text-primary">{formData.verifications.email}</span>
+                            <span className="text-[9px] font-black uppercase tracking-[1px] text-muted-text">{isHost ? 'Verified Email' : 'Host Email'}</span>
+                            <span className="text-[11px] font-bold text-primary break-all">
+                              {ownerContact.email || (!isHost && ownerSelection?.mode === 'admin' ? 'Managed by Admin' : '—')}
+                            </span>
                           </div>
                       </div>
                     </div>
@@ -1219,15 +1286,6 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
                     </div>
                   )}
 
-                  {submitError && (
-                    <div className="p-6 bg-danger/5 border border-danger/20 rounded-[32px] flex items-start gap-4">
-                      <AlertCircle size={20} className="text-danger shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-[10px] font-black text-danger uppercase tracking-[2px]">Sync Failed</p>
-                        <p className="text-xs font-bold text-danger mt-1">{submitError}</p>
-                      </div>
-                    </div>
-                  )}
 
                   <div className="bg-primary/5 p-6 rounded-[32px] border border-primary/10">
                     <p className="text-[10px] font-black text-primary/40 uppercase tracking-[1.5px] leading-relaxed">
@@ -1240,10 +1298,15 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
         </div>
 
         {/* Sticky Footer Navigation */}
-        {draftError && (
-          <div className="px-8 pt-4 bg-white flex items-center gap-2 text-danger">
-            <AlertCircle size={14} className="shrink-0" />
-            <p className="text-[10px] font-bold">{draftError}</p>
+        {/* Errors sit by the buttons so they're seen on any step — a submit
+            error used to be at the bottom of the scrolling step content. */}
+        {(submitError || draftError) && (
+          <div className="px-8 pt-4 bg-white flex items-start gap-2 text-danger">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <p className="text-[11px] font-bold">
+              {submitError && <span className="font-black uppercase tracking-wider mr-1.5">Sync failed:</span>}
+              {submitError ?? draftError}
+            </p>
           </div>
         )}
         <div className="p-8 pt-4 pb-8 flex gap-4 w-full bg-white border-t border-border-misrah/40 items-center">

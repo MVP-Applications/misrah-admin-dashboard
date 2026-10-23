@@ -95,7 +95,7 @@ export const HostAssignmentPicker = ({ value, onChange, allowUnassigned, initial
   };
 
   const selectExisting = (u: AdminUserRecord) => {
-    onChange({ mode: 'existing', userId: u._id, label: u.name || u.email || u._id });
+    onChange({ mode: 'existing', userId: u._id, label: u.name || u.email || u._id, email: u.email, phoneNumber: u.phoneNumber });
   };
 
   // password is optional — the backend (AdminCreatePropertyDto/AssignHostDto)

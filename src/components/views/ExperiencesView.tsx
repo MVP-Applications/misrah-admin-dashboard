@@ -144,7 +144,11 @@ function activityToUpdateRequest(activity: ActivityExperience): UpdateExperience
   };
 }
 
-const APPROVAL_TABS: { key: ExperienceApprovalStatus; label: string }[] = [
+// 'ALL' leaves the approval `status` filter out of the request.
+type ApprovalTab = ExperienceApprovalStatus | 'ALL';
+
+const APPROVAL_TABS: { key: ApprovalTab; label: string }[] = [
+  { key: 'ALL', label: 'All' },
   { key: 'PENDING', label: 'Pending' },
   { key: 'APPROVED', label: 'Approved' },
   { key: 'REJECTED', label: 'Rejected' },
@@ -171,7 +175,7 @@ export const ExperiencesView = ({
   // 'all' | 'active' | 'inactive' — sent as GET /admin/experiences?isActive=.
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'inactive'>('all');
   // Admin approval tabs — sent as GET /admin/experiences?status=.
-  const [approvalTab, setApprovalTab] = useState<ExperienceApprovalStatus>('PENDING');
+  const [approvalTab, setApprovalTab] = useState<ApprovalTab>('ALL');
   // Host Hub writes go to PATCH / DELETE /experience/{id}; admin to /admin/experiences/{id}.
   const updateExperienceRequest = user.role === 'manager' ? updateMyExperience : updateAdminExperience;
   const deleteExperienceRequest = user.role === 'manager' ? deleteMyExperience : deleteAdminExperience;
@@ -222,7 +226,7 @@ export const ExperiencesView = ({
             search: debouncedSearch || undefined,
             categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
             propertyId: selectedPropertyFilter !== 'all' ? selectedPropertyFilter : undefined,
-            status: approvalTab,
+            status: approvalTab === 'ALL' ? undefined : approvalTab,
             isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
           })
         : listAdminExperiences({
@@ -230,7 +234,7 @@ export const ExperiencesView = ({
             limit: EXPERIENCES_PAGE_SIZE,
             search: debouncedSearch || undefined,
             categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
-            status: approvalTab,
+            status: approvalTab === 'ALL' ? undefined : approvalTab,
             isActive: selectedStatus === 'all' ? undefined : selectedStatus === 'active',
           });
       request
@@ -2510,10 +2514,9 @@ export const ExperiencesView = ({
                     })}
                     className="w-full p-3 bg-surface border border-border-misrah rounded-xl text-xs font-bold text-primary outline-none focus:border-accent"
                   >
+                    {/* The API only stores isActive — Active ↔ true, Paused ↔ false. */}
                     <option value="Active">Active</option>
                     <option value="Paused">Paused</option>
-                    <option value="Draft">Draft</option>
-                    <option value="SoldOut">Sold Out</option>
                   </select>
                 </div>
 

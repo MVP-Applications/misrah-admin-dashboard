@@ -132,7 +132,12 @@ export type UpdatePropertyRequest = Partial<
 // Admin drafts (/admin/properties/draft) may also carry the ownership fields
 // from the "Who owns this property?" step — except `password`, which is
 // never stored in a draft.
-export type PropertyDraftRequest = Partial<Omit<CreatePropertyRequest, 'password'>> & { step: number };
+export type PropertyDraftRequest = Partial<Omit<CreatePropertyRequest, 'password'>> & {
+  step: number;
+  // Admin drafts: property categories picked on the Asset Taxonomy step
+  // (applied via POST /property-categories/{id}/properties on publish).
+  categoryIds?: string[];
+};
 
 // Which set of draft routes to use: host (/property/draft) or admin
 // (/admin/properties/draft).
@@ -141,7 +146,8 @@ export type PropertyDraftScope = 'host' | 'admin';
 // A stored file reference — a bare id, or the populated file document.
 export type DraftFileRef = string | { _id?: string; id?: string; fullUrl?: string; url?: string };
 
-export interface PropertyDraft extends Omit<PropertyDraftRequest, 'cityId' | 'images' | 'step' | 'userId' | 'documents'> {
+export interface PropertyDraft extends Omit<PropertyDraftRequest, 'cityId' | 'images' | 'step' | 'userId' | 'documents' | 'categoryIds'> {
+  categoryIds?: Array<string | { _id?: string }>;
   _id: string;
   step?: number;
   userId?: string | { _id: string; name?: string };
@@ -187,7 +193,8 @@ export interface AssignHostRequest {
 // provided, must be >= 6 chars (backend's MinLength) — HostAssignmentPicker
 // enforces that client-side and only includes the field at all when non-empty.
 export type HostAssignmentSelection =
-  | { mode: 'existing'; userId: string; label: string }
+  // email / phoneNumber: the picked user's contact, for display only.
+  | { mode: 'existing'; userId: string; label: string; email?: string; phoneNumber?: string }
   | {
       mode: 'new';
       name: string;

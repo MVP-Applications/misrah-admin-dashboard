@@ -30,6 +30,18 @@ export async function createConversation(payload: CreateConversationRequest): Pr
   return conversation;
 }
 
+// POST /chat/support/start — the user's support conversation (find-or-create).
+// The mobile app reads its id from data.data._id; a flat data is accepted too.
+export async function startSupportConversation(): Promise<ChatConversation> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<unknown>>(API_ENDPOINTS.chat.supportStart);
+  const body = data.data as Record<string, unknown> | null;
+  const conversation = (body && typeof body._id === 'string' ? body : body?.data) as ChatConversation | undefined;
+  if (!conversation || typeof conversation._id !== 'string') {
+    throw new Error('[chat] support start response has an unexpected shape.');
+  }
+  return conversation;
+}
+
 // GET /chat/conversation/{id}/messages — captured: { data: { messages: [...] } }.
 // Returned oldest → newest for display, regardless of the API's page order.
 export async function listMessages(conversationId: string, params: ListMessagesParams = {}): Promise<ChatMessage[]> {

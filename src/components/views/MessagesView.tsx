@@ -5,7 +5,8 @@ import { uploadFile } from '../../features/properties/api';
 import { User } from '../../types';
 import { deleteMessage, listConversations, listMessages, markConversationRead } from '../../features/chat/api';
 import {
-  disconnectChatSocket,
+  releaseChatSocket,
+  retainChatSocket,
   joinConversation,
   leaveConversation,
   onConnectionChange,
@@ -22,6 +23,10 @@ import { LoadingSpinner } from '../ui/LoadingSpinner';
 // Host Messages — REST for history (/chat/conversations, /chat/conversation/
 // {id}/messages, read, delete) + Socket.IO for realtime (newMessage, typing)
 // and sending (sendMessage). See features/chat/.
+//
+// Admins get the same page as a support inbox: GET /chat/conversations with
+// isSupport=true lists the Misrah Concierge chats hosts / travelers started,
+// and the admin replies in them.
 
 interface MessagesViewProps {
   user: User;
@@ -70,6 +75,7 @@ const Avatar = ({ url, name, size = 'w-12 h-12' }: { url?: string | null; name: 
 };
 
 export const MessagesView = ({ user }: MessagesViewProps) => {
+  const isSupportInbox = user.role === 'admin';
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
@@ -114,6 +120,13 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
     });
   };
 
+  // Images load after the list renders and push it taller — keep the latest
+  // message in view if the user is already at (or near) the bottom.
+  const keepBottomOnImageLoad = () => {
+    const el = scrollRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 400) scrollToBottom();
+  };
+
   // ----- Conversations -----
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
@@ -123,14 +136,19 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
   const fetchConversations = useCallback(async () => {
     setConversationsError(null);
     try {
-      const list = await listConversations({ page: 1, limit: 50, search: debouncedSearch || undefined });
+      const list = await listConversations({
+        page: 1,
+        limit: 50,
+        search: debouncedSearch || undefined,
+        ...(isSupportInbox ? { isSupport: true } : {}),
+      });
       setConversations(list);
     } catch (err) {
       setConversationsError(err instanceof Error ? err.message : 'Failed to load conversations.');
     } finally {
       setIsLoadingConversations(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, isSupportInbox]);
 
   useEffect(() => {
     setIsLoadingConversations(true);
@@ -139,6 +157,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
 
   // ----- Socket lifecycle -----
   useEffect(() => {
+    retainChatSocket();
     const offConnection = onConnectionChange(connected => {
       setIsConnected(connected);
       if (connected) setSocketError(null);
@@ -149,7 +168,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
       offError();
       Object.values(deliveryTimersRef.current).forEach(clearTimeout);
       if (activeIdRef.current) leaveConversation(activeIdRef.current);
-      disconnectChatSocket();
+      releaseChatSocket();
     };
   }, []);
 
@@ -232,6 +251,12 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
     });
     return off;
   }, [user.id]);
+
+  // Opening a chat: the list only renders once loading ends (a spinner is
+  // shown until then), so jump to the newest message at that point.
+  useEffect(() => {
+    if (activeId && !isLoadingMessages) scrollToBottom();
+  }, [activeId, isLoadingMessages]);
 
   // ----- Open a conversation -----
   const stopTyping = (convoId: string | null) => {
@@ -479,7 +504,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
     }
   };
 
-  const otherName = (c: ChatConversation | null) => c?.participant?.name || 'Guest';
+  const otherName = (c: ChatConversation | null) => c?.participant?.name || (isSupportInbox ? 'User' : 'Guest');
 
   return (
     <div className="h-[calc(100vh-160px)] flex gap-6">
@@ -487,7 +512,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
       <div className="w-1/3 min-w-[280px] flex flex-col bg-white rounded-[40px] border border-border-misrah overflow-hidden shadow-sm">
         <div className="p-8 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-black italic text-primary uppercase leading-none">Inquiries</h2>
+            <h2 className="text-2xl font-black italic text-primary uppercase leading-none">{isSupportInbox ? 'Support Inbox' : 'Inquiries'}</h2>
             <span
               className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
                 isConnected ? 'bg-success/10 text-success' : 'bg-amber-500/10 text-amber-600'
@@ -553,18 +578,22 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
                       <span className="text-[13px] font-black uppercase tracking-tight truncate">{otherName(c)}</span>
                       <span className={`text-[9px] font-bold shrink-0 ${isActive ? 'text-accent' : 'text-muted-text'}`}>{listTime(c)}</span>
                     </div>
-                    <p className={`text-[11px] font-medium mt-0.5 truncate pr-6 ${isActive ? 'text-white/60' : 'text-muted-text group-hover:text-primary'}`}>
-                      {preview}
-                    </p>
+                    {/* Preview + unread count on one line — the badge sits under
+                        the date instead of overlapping it. */}
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <p className={`text-[11px] font-medium truncate ${isActive ? 'text-white/60' : 'text-muted-text group-hover:text-primary'}`}>
+                        {preview}
+                      </p>
+                      {c.unreadCount > 0 && !isActive && (
+                        <span className="min-w-5 h-5 px-1 shrink-0 bg-accent text-primary rounded-full flex items-center justify-center text-[9px] font-black italic shadow-lg shadow-accent/20">
+                          {c.unreadCount > 99 ? '99+' : c.unreadCount}
+                        </span>
+                      )}
+                    </div>
                     {c.property?.title && (
                       <div className="mt-2 text-[8px] font-black uppercase tracking-[1px] opacity-40 truncate">{c.property.title}</div>
                     )}
                   </div>
-                  {c.unreadCount > 0 && !isActive && (
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 min-w-5 h-5 px-1 bg-accent text-primary rounded-full flex items-center justify-center text-[9px] font-black italic shadow-lg shadow-accent/20">
-                      {c.unreadCount > 99 ? '99+' : c.unreadCount}
-                    </div>
-                  )}
                 </button>
               );
             })
@@ -584,7 +613,10 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
                   <span className="text-[9px] font-black text-muted-text uppercase tracking-widest">
                     {isOtherTyping
                       ? 'Typing…'
-                      : [activeConversation.participant?.userType === 'consumer' ? 'Guest' : activeConversation.participant?.userType, activeConversation.property?.title]
+                      : [
+                          isSupportInbox ? 'Concierge' : activeConversation.participant?.userType === 'consumer' ? 'Guest' : activeConversation.participant?.userType,
+                          activeConversation.property?.title,
+                        ]
                           .filter(Boolean)
                           .join(' · ')}
                   </span>
@@ -648,6 +680,7 @@ export const MessagesView = ({ user }: MessagesViewProps) => {
                                         src={f.url}
                                         alt="Attachment"
                                         loading="lazy"
+                                        onLoad={keepBottomOnImageLoad}
                                         className="max-h-64 w-full rounded-2xl object-cover bg-black/5"
                                       />
                                     </a>

@@ -11,6 +11,13 @@ import type {
   UpdateConsumerUserRequest,
 } from './types';
 
+// GET /admin/users/{id} — one user's account record (status, host flags,
+// host-since / joined dates). Used by the property page's host profile.
+export async function getAdminUserById(id: string): Promise<AdminUserRecord> {
+  const { data } = await apiClient.get<ApiSuccessEnvelope<AdminUserRecord>>(API_ENDPOINTS.adminUsers.byId(id));
+  return assertResponseShape('admin user', data.data, ['_id']);
+}
+
 export async function listUsers(params: ListUsersParams = {}): Promise<ListUsersResponse> {
   const { data } = await apiClient.get<ApiSuccessEnvelope<ListUsersResponse>>(API_ENDPOINTS.adminUsers.all, {
     params,

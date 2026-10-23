@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, FileText, Loader2, MapPin, Pencil, Search, Trash2, TriangleAlert, User as UserIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { deletePropertyDraft, listPropertyDrafts } from '../../../features/properties/api';
+import { clearDraftOwner, loadDraftOwner } from '../../../features/properties/draftOwner';
 import type { PropertyDraft, PropertyDraftScope } from '../../../features/properties/types';
 import { LoadingSpinner } from '../../ui/LoadingSpinner';
 
@@ -28,8 +29,17 @@ const draftCity = (draft: PropertyDraft): string | null =>
   (typeof draft.cityId === 'object' ? draft.cityId?.name : draft.city?.name) ?? null;
 
 // Admin drafts: who the property is being listed for, if picked yet.
-const draftOwner = (draft: PropertyDraft): string | null =>
-  (typeof draft.userId === 'object' ? draft.userId?.name : undefined) ?? draft.owner?.name ?? draft.name ?? draft.email ?? null;
+// Falls back to the owner choice this browser kept for the draft (see
+// features/properties/draftOwner.ts) when the response has none.
+const draftOwner = (draft: PropertyDraft): string | null => {
+  const fromApi = (typeof draft.userId === 'object' ? draft.userId?.name : undefined) ?? draft.owner?.name ?? draft.name ?? draft.email;
+  if (fromApi) return fromApi;
+  const saved = loadDraftOwner(draft._id);
+  if (saved?.mode === 'existing') return saved.label;
+  if (saved?.mode === 'new') return saved.name || saved.email || null;
+  if (saved?.mode === 'admin') return 'Managed by Admin';
+  return null;
+};
 
 interface PropertyDraftsTabProps {
   scope: PropertyDraftScope;
@@ -82,6 +92,7 @@ export const PropertyDraftsTab = ({ scope, onContinue, refreshKey }: PropertyDra
     setDeletingId(draft._id);
     try {
       await deletePropertyDraft(draft._id, scope);
+      clearDraftOwner(draft._id);
       // Step back a page if this emptied the current one.
       if (drafts.length === 1 && page > 1) setPage(p => p - 1);
       else fetchDrafts();

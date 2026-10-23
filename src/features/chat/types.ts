@@ -65,6 +65,8 @@ export interface ListConversationsParams {
   page?: number;
   limit?: number;
   search?: string;
+  // true → support (Concierge) conversations only — the admin support inbox.
+  isSupport?: boolean;
 }
 
 export interface ListMessagesParams {
