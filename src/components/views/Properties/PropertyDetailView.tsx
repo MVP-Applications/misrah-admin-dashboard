@@ -15,19 +15,22 @@ import {
   AlertCircle,
   RefreshCw,
   UserCheck,
-  Radio,
   CalendarRange,
   Infinity as InfinityIcon,
   Loader2,
   Tags,
-  ImageOff
+  ImageOff,
+  Upload,
+  Star
 } from 'lucide-react';
 import { Badge } from '../../ui/Badge';
 import { Property, User } from '../../../types';
-import type { HostAssignmentSelection } from '../../../features/properties/types';
+import type { CityListItem, HostAssignmentSelection } from '../../../features/properties/types';
+import { listActiveCities, uploadFile } from '../../../features/properties/api';
+import { LocationPicker } from './LocationPicker';
+import { documentLabel, formatDocumentDate } from '../../../features/properties/documents';
 import { ReassignHostModal } from './ReassignHostModal';
 import { AuditDocsModal } from './AuditDocsModal';
-import { DirectIntelUplinkModal } from './DirectIntelUplinkModal';
 import { NodeProfileVerificationModal } from './NodeProfileVerificationModal';
 import { displayCurrency } from '../../../utils/money';
 import { addPropertiesToCategory, listCategories, removePropertiesFromCategory } from '../../../features/categories/api';
@@ -44,29 +47,35 @@ const formatAvailabilityDate = (day?: string | null): string | null => {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 };
 
-// Display names for the document `type` values the create flow and API use;
-// anything else is humanized from camelCase/snake_case.
-const DOCUMENT_LABELS: Record<string, string> = {
-  ownershipProof: 'Ownership Proof',
-  propertyDoc: 'Title Deed / Ejari',
-  emiratesId: 'Passport / Emirates ID',
-  tradeLicense: 'Trade License',
-};
-const documentLabel = (type: string): string =>
-  DOCUMENT_LABELS[type] ??
-  type.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, c => c.toUpperCase());
+// Same options as AddListingModal — propertyType enum + amenity ids.
+const PROPERTY_TYPES = [
+  { value: 'VILLA', label: 'Villa' },
+  { value: 'APARTMENT', label: 'Apartment' },
+  { value: 'STUDIO', label: 'Studio' },
+  { value: 'PENTHOUSE', label: 'Penthouse' },
+];
+const AMENITY_OPTIONS = [
+  { id: 'wifi', label: 'WiFi' },
+  { id: 'tv', label: 'TV' },
+  { id: 'kitchen', label: 'Kitchen' },
+  { id: 'ac', label: 'AC' },
+  { id: 'parking', label: 'Parking' },
+  { id: 'pool', label: 'Pool' },
+];
+const amenityLabel = (id: string) =>
+  AMENITY_OPTIONS.find(a => a.id === id)?.label ?? id.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const propertyTypeLabel = (value?: string) =>
+  PROPERTY_TYPES.find(t => t.value === value)?.label ?? (value ? value.charAt(0) + value.slice(1).toLowerCase() : '—');
 
-// ISO timestamp → "20 Oct 2026".
-const formatDocumentDate = (iso?: string): string | null => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-};
+const MAX_PHOTO_MB = 10;
+
+// Document types offered on upload (create flow's types + ownershipProof).
+const DOCUMENT_TYPE_OPTIONS = ['ownershipProof', 'propertyDoc', 'emiratesId', 'tradeLicense'];
 
 interface PropertyDetailViewProps {
   property: Property;
   onClose: () => void;
-  onUpdate: (id: string, updates: Partial<Property>) => void;
+  onUpdate: (id: string, updates: Partial<Property>) => void | Promise<void>;
   onDelete: (id: string) => void;
   onAssignHost: (id: string, selection: Exclude<HostAssignmentSelection, { mode: 'admin' }>) => Promise<void>;
   user: User;
@@ -88,10 +97,17 @@ export const PropertyDetailView = ({
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [selectedAuditDocId, setSelectedAuditDocId] = useState<string | null>(null);
-  const [showIntelUplinkModal, setShowIntelUplinkModal] = useState(false);
-  const [uplinkInitialTab, setUplinkInitialTab] = useState<'uplink' | 'telemetry'>('uplink');
   const [showNodeVerificationModal, setShowNodeVerificationModal] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  // Edit form: real city list (GET /city/active/list) and photo uploads.
+  const [cities, setCities] = useState<CityListItem[]>([]);
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [newDocType, setNewDocType] = useState<string>(DOCUMENT_TYPE_OPTIONS[0]);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   // Admin only: which property categories this property belongs to. Categories
   // hold the propertyIds, so membership is read from GET /property-categories
@@ -146,9 +162,80 @@ export const PropertyDetailView = ({
     setFormData({ ...property });
   }, [property]);
 
+  useEffect(() => {
+    if (!isEditing || cities.length > 0) return;
+    setCitiesLoading(true);
+    listActiveCities()
+      .then(setCities)
+      .catch(err => console.error('[property] failed to load cities', err))
+      .finally(() => setCitiesLoading(false));
+  }, [isEditing, cities.length]);
+
+  // Upload one or more photos (POST /files/upload) and append them.
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []) as File[];
+    e.target.value = '';
+    if (files.length === 0) return;
+    const invalid = files.find(f => !f.type.startsWith('image/') || f.size > MAX_PHOTO_MB * 1024 * 1024);
+    if (invalid) {
+      setPhotoError(`${invalid.name}: choose an image up to ${MAX_PHOTO_MB}MB.`);
+      return;
+    }
+    setIsUploadingPhoto(true);
+    setPhotoError(null);
+    try {
+      const uploaded = await Promise.all(files.map(f => uploadFile(f)));
+      setFormData(p => ({ ...p, gallery: [...(p.gallery ?? []), ...uploaded.map(u => ({ id: u.id, url: u.url }))] }));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'Failed to upload the photo.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  // Upload a compliance document (POST /files/upload) of the chosen type.
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_PHOTO_MB * 1024 * 1024) {
+      setDocError(`${file.name} is over ${MAX_PHOTO_MB}MB.`);
+      return;
+    }
+    setIsUploadingDoc(true);
+    setDocError(null);
+    try {
+      const uploaded = await uploadFile(file);
+      setFormData(p => ({
+        ...p,
+        documents: [
+          ...(p.documents ?? []),
+          { id: `new-${uploaded.id}`, type: newDocType, fileId: uploaded.id, url: uploaded.url, uploadedAt: new Date().toISOString() },
+        ],
+      }));
+    } catch (err) {
+      setDocError(err instanceof Error ? err.message : 'Failed to upload the document.');
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  const removeDocument = (id: string) =>
+    setFormData(p => ({ ...p, documents: (p.documents ?? []).filter(d => d.id !== id) }));
+
+  const removePhoto = (id: string) =>
+    setFormData(p => ({ ...p, gallery: (p.gallery ?? []).filter(ph => ph.id !== id) }));
+
+  const makeCover = (id: string) =>
+    setFormData(p => {
+      const gallery = p.gallery ?? [];
+      const photo = gallery.find(ph => ph.id === id);
+      return photo ? { ...p, gallery: [photo, ...gallery.filter(ph => ph.id !== id)] } : p;
+    });
+
   if (!property) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Availability: a start date is needed, plus an end date unless forever.
     const forever = formData.availableForever !== false;
     if (!formData.availabilityStart) {
@@ -163,10 +250,37 @@ export const PropertyDetailView = ({
       setSaveError('The end date must be on or after the start date.');
       return;
     }
+    if (!formData.name?.trim()) {
+      setSaveError('Property title is required.');
+      return;
+    }
+    if (!(Number(formData.price) > 0)) {
+      setSaveError('Base price must be greater than 0.');
+      return;
+    }
+    if (isUploadingPhoto || isUploadingDoc) {
+      setSaveError('Please wait for the upload to finish.');
+      return;
+    }
     setSaveError(null);
-    onUpdate(property.id, { ...formData, availableForever: forever, availabilityEnd: forever ? null : formData.availabilityEnd });
-    if (isAdmin) saveCategories();
-    setIsEditing(false);
+    setIsSaving(true);
+    try {
+      const updates: Partial<Property> = { ...formData, availableForever: forever, availabilityEnd: forever ? null : formData.availabilityEnd };
+      // Only send photos when they were changed here — so a property whose
+      // images came back without URLs (empty gallery) never gets them wiped.
+      const photoIds = (list?: Property['gallery']) => (list ?? []).map(ph => ph.id).join(',');
+      if (photoIds(formData.gallery) === photoIds(property.gallery)) delete updates.gallery;
+      const docKeys = (list?: Property['documents']) => (list ?? []).map(d => `${d.type}:${d.fileId}`).join(',');
+      if (docKeys(formData.documents) === docKeys(property.documents)) delete updates.documents;
+      await onUpdate(property.id, updates);
+      if (isAdmin) saveCategories();
+      setIsEditing(false);
+    } catch (err) {
+      // Stay in edit mode so nothing typed is lost.
+      setSaveError(err instanceof Error ? err.message : 'Failed to save changes.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDelete = () => {
@@ -255,17 +369,19 @@ export const PropertyDetailView = ({
             {isEditing ? (
               <div className="flex gap-2">
                 <button 
-                  onClick={() => { setIsEditing(false); setFormData({ ...property }); setSaveError(null); setSelectedCategoryIds(memberCategoryIds); }}
+                  onClick={() => { setIsEditing(false); setFormData({ ...property }); setSaveError(null); setPhotoError(null); setDocError(null); setSelectedCategoryIds(memberCategoryIds); }}
+                  disabled={isSaving}
                   className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[2px] border border-border-misrah hover:bg-surface transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleSave}
-                  className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-white hover:opacity-90 transition-all shadow-lg flex items-center gap-2"
+                  disabled={isSaving || isUploadingPhoto || isUploadingDoc}
+                  className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[2px] bg-primary text-white hover:opacity-90 transition-all shadow-lg flex items-center gap-2 disabled:opacity-60"
                 >
-                  <Save size={14} />
-                  Save Changes
+                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {isSaving ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>
             ) : (
@@ -366,27 +482,31 @@ export const PropertyDetailView = ({
                     className="bg-white/10 backdrop-blur-md border border-white/30 text-white text-3xl font-black italic w-full rounded-xl px-4 py-2 outline-hidden focus:border-white mb-2"
                     placeholder="Property Name"
                   />
-                  <div className="flex gap-2">
-                    <select 
-                      value={formData.city}
-                      onChange={e => setFormData(p => ({ ...p, city: e.target.value }))}
-                      className="flex-1 bg-white/10 backdrop-blur-md border border-white/30 text-white text-xs font-bold uppercase tracking-widest rounded-xl px-4 py-2 outline-hidden"
-                    >
-                      {['Dubai', 'Abu Dhabi', 'RAK', 'Sharjah'].map(c => <option key={c} value={c} className="text-primary">{c}</option>)}
-                    </select>
-                    <select 
-                      value={formData.type}
-                      onChange={e => setFormData(p => ({ ...p, type: e.target.value }))}
-                      className="flex-1 bg-white/10 backdrop-blur-md border border-white/30 text-white text-xs font-bold uppercase tracking-widest rounded-xl px-4 py-2 outline-hidden"
-                    >
-                      {['City', 'Beach', 'Desert', 'Mountain'].map(t => <option key={t} value={t} className="text-primary">{t}</option>)}
-                    </select>
-                  </div>
+                  {/* Real city list (GET /city/active/list) — saved as cityId. */}
+                  <select
+                    value={formData.cityId ?? ''}
+                    disabled={citiesLoading}
+                    onChange={e => {
+                      const city = cities.find(c => c._id === e.target.value);
+                      setFormData(p => ({ ...p, cityId: e.target.value, city: city?.name ?? p.city }));
+                    }}
+                    className="w-full max-w-xs bg-white/10 backdrop-blur-md border border-white/30 text-white text-xs font-bold uppercase tracking-widest rounded-xl px-4 py-2 outline-hidden disabled:opacity-60"
+                  >
+                    {citiesLoading && <option value={formData.cityId ?? ''} className="text-primary">Loading cities…</option>}
+                    {!citiesLoading && !formData.cityId && <option value="" className="text-primary">Select city</option>}
+                    {/* Keep the current city selectable even if it's no longer active. */}
+                    {!citiesLoading && formData.cityId && !cities.some(c => c._id === formData.cityId) && (
+                      <option value={formData.cityId} className="text-primary">{property.city}</option>
+                    )}
+                    {cities.map(c => (
+                      <option key={c._id} value={c._id} className="text-primary">{c.name}{c.country ? `, ${c.country}` : ''}</option>
+                    ))}
+                  </select>
                 </div>
               ) : (
                 <div>
                   <h2 className="text-4xl font-black italic leading-tight uppercase tracking-tighter">{property.name}</h2>
-                  <p className="text-accent text-sm font-bold tracking-[3px] uppercase mt-1">{property.city} · {property.type}</p>
+                  <p className="text-accent text-sm font-bold tracking-[3px] uppercase mt-1">{property.city} · {propertyTypeLabel(property.propertyType ?? property.type)}</p>
                 </div>
               )}
             </div>
@@ -401,7 +521,7 @@ export const PropertyDetailView = ({
         {/* Content Section: 2 Column Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-x divide-border-misrah">
           {/* Main Details (2/3) */}
-          <div className="lg:col-span-2 p-8 lg:p-12 space-y-12">
+          <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} p-8 lg:p-12 space-y-12`}>
             
             {/* Rejection/Status Feedback */}
             {(isRejecting || (property.status === 'Rejected' && property.rejectionReason)) && (
@@ -449,54 +569,219 @@ export const PropertyDetailView = ({
               </div>
             )}
 
-            {/* Core Specs */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 group hover:bg-white transition-all shadow-sm">
-                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">Base Price</p>
-                {isEditing ? (
-                  <div className="flex items-baseline gap-2">
-                    <input 
-                      type="number"
-                      value={formData.price}
-                      onChange={e => setFormData(p => ({ ...p, price: Number(e.target.value) }))}
-                      className="bg-white border border-border-misrah text-2xl font-black italic text-primary w-full rounded-xl px-4 py-2"
-                    />
-                    <span className="text-xs font-bold text-muted-text">{displayCurrency(property.currency)}</span>
+            {isEditing && saveError && (
+              <div className="p-4 rounded-2xl bg-danger/5 border border-danger/20 flex items-center gap-3 text-danger">
+                <AlertCircle size={16} className="shrink-0" />
+                <p className="text-xs font-bold">{saveError}</p>
+              </div>
+            )}
+
+            {/* Photos — edit: upload / remove / set cover (saved as `images`). */}
+            {isEditing && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Photos</h4>
+                  <span className="text-[10px] font-bold text-muted-text/60">First photo is the cover</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {(formData.gallery ?? []).map((photo, idx) => (
+                    <div key={photo.id} className="relative aspect-[4/3] rounded-2xl overflow-hidden border border-border-misrah group/photo">
+                      <img src={photo.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                      {idx === 0 ? (
+                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-primary text-accent text-[8px] font-black uppercase tracking-wider">Cover</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => makeCover(photo.id)}
+                          title="Make cover photo"
+                          className="absolute top-2 left-2 w-7 h-7 rounded-full bg-white/90 text-primary flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity"
+                        >
+                          <Star size={13} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(photo.id)}
+                        title="Remove photo"
+                        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 text-danger flex items-center justify-center"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                  <label className={`aspect-[4/3] rounded-2xl border-2 border-dashed border-border-misrah flex flex-col items-center justify-center gap-1.5 text-muted-text transition-all ${isUploadingPhoto ? 'cursor-wait' : 'cursor-pointer hover:border-accent hover:text-accent'}`}>
+                    <input type="file" accept="image/*" multiple className="hidden" disabled={isUploadingPhoto} onChange={handlePhotoUpload} />
+                    {isUploadingPhoto ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
+                    <span className="text-[9px] font-black uppercase tracking-wider">{isUploadingPhoto ? 'Uploading…' : 'Add Photos'}</span>
+                  </label>
+                </div>
+                {photoError && <p className="text-[11px] font-bold text-danger">{photoError}</p>}
+              </div>
+            )}
+
+            {/* Listing details */}
+            {(() => {
+              const numberField = (key: keyof Property, min = 0) => (
+                <input
+                  type="number"
+                  min={min}
+                  value={(formData[key] as number | undefined) ?? ''}
+                  onChange={e => setFormData(p => ({ ...p, [key]: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                  className="bg-white border border-border-misrah text-lg font-black italic text-primary w-full rounded-xl px-3 py-2 outline-none focus:border-accent"
+                />
+              );
+              const tile = (label: string, view: React.ReactNode, edit: React.ReactNode) => (
+                <div className="bg-surface rounded-3xl p-6 border border-border-misrah/50 hover:bg-white transition-all shadow-sm">
+                  <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">{label}</p>
+                  {isEditing ? edit : <div className="text-2xl font-black italic text-primary">{view}</div>}
+                </div>
+              );
+              const money = (value?: number) => (
+                <span className="flex items-baseline gap-2">
+                  {value !== undefined ? value.toLocaleString() : '—'}
+                  <span className="text-[11px] font-bold not-italic text-accent uppercase tracking-widest">{displayCurrency(property.currency)} / NT</span>
+                </span>
+              );
+              return (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {tile('Base Price', money(property.price), (
+                      <div className="flex items-baseline gap-2">
+                        {numberField('price', 1)}
+                        <span className="text-xs font-bold text-muted-text">{displayCurrency(property.currency)}</span>
+                      </div>
+                    ))}
+                    {tile('Weekday Price', money(property.weekdayPrice ?? property.price), numberField('weekdayPrice'))}
+                    {tile('Weekend Price', money(property.weekendPrice ?? property.price), numberField('weekendPrice'))}
                   </div>
-                ) : (
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black italic text-primary">{property.price.toLocaleString()}</span>
-                    <span className="text-[11px] font-bold text-accent uppercase tracking-widest">{displayCurrency(property.currency)} / NT</span>
+
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    {tile('Bedrooms', property.bedrooms ?? '—', numberField('bedrooms'))}
+                    {tile('Beds', property.beds, numberField('beds'))}
+                    {tile('Bathrooms', property.baths, numberField('baths'))}
+                    {tile('Max Adults', property.maxAdults ?? '—', numberField('maxAdults', 1))}
+                    {tile('Max Children', property.maxChildren ?? '—', numberField('maxChildren'))}
                   </div>
-                )}
-              </div>
-              <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 group hover:bg-white transition-all shadow-sm">
-                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">Bedrooms</p>
-                {isEditing ? (
-                  <input 
-                    type="number"
-                    value={formData.beds}
-                    onChange={e => setFormData(p => ({ ...p, beds: Number(e.target.value) }))}
-                    className="bg-white border border-border-misrah text-2xl font-black italic text-primary w-full rounded-xl px-4 py-2"
-                  />
-                ) : (
-                  <div className="text-3xl font-black italic text-primary">{property.beds}</div>
-                )}
-              </div>
-              <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 group hover:bg-white transition-all shadow-sm">
-                <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px] mb-3">Bathrooms</p>
-                {isEditing ? (
-                  <input 
-                    type="number"
-                    value={formData.baths}
-                    onChange={e => setFormData(p => ({ ...p, baths: Number(e.target.value) }))}
-                    className="bg-white border border-border-misrah text-2xl font-black italic text-primary w-full rounded-xl px-4 py-2"
-                  />
-                ) : (
-                  <div className="text-3xl font-black italic text-primary">{property.baths}</div>
-                )}
-              </div>
-            </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {tile('Property Type', propertyTypeLabel(property.propertyType), (
+                      <select
+                        value={formData.propertyType ?? ''}
+                        onChange={e => setFormData(p => ({ ...p, propertyType: e.target.value }))}
+                        className="bg-white border border-border-misrah text-lg font-black italic text-primary w-full rounded-xl px-3 py-2 outline-none focus:border-accent"
+                      >
+                        {!formData.propertyType && <option value="">Select type</option>}
+                        {PROPERTY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    ))}
+                    {!isEditing && (
+                      <div className="md:col-span-2">
+                        {tile('Address', <span className="text-base not-italic font-bold">{property.address || '—'}</span>, null)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Location — same map pin picker as property create; the
+                      pin's reverse-geocoded address is saved as `address`. */}
+                  {isEditing && (
+                    <div className="bg-surface rounded-3xl p-6 border border-border-misrah/50 shadow-sm space-y-3">
+                      <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px]">Location & Address</p>
+                      <LocationPicker
+                        value={formData.latitude !== undefined && formData.longitude !== undefined
+                          ? { lat: formData.latitude, lng: formData.longitude }
+                          : null}
+                        onChange={loc => setFormData(p => ({ ...p, latitude: loc?.lat, longitude: loc?.lng }))}
+                        cityQuery={(() => {
+                          const city = cities.find(c => c._id === formData.cityId);
+                          return city ? [city.name, city.country].filter(Boolean).join(', ') : formData.city || undefined;
+                        })()}
+                        onAddressResolved={address => setFormData(p => ({ ...p, address }))}
+                      />
+                      <p className="text-xs font-bold text-primary">
+                        <span className="text-[9px] font-black uppercase tracking-[2px] text-muted-text mr-2">Address</span>
+                        {formData.address || 'Drop a pin on the map'}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Amenities */}
+                  <div className="bg-surface rounded-3xl p-6 border border-border-misrah/50 shadow-sm space-y-3">
+                    <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px]">Amenities</p>
+                    {isEditing ? (
+                      <div className="flex flex-wrap gap-2">
+                        {[...AMENITY_OPTIONS.map(a => a.id), ...(formData.amenities ?? []).filter(id => !AMENITY_OPTIONS.some(a => a.id === id))].map(id => {
+                          const selected = (formData.amenities ?? []).includes(id);
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => setFormData(p => ({
+                                ...p,
+                                amenities: selected ? (p.amenities ?? []).filter(a => a !== id) : [...(p.amenities ?? []), id],
+                              }))}
+                              className={`flex items-center gap-1.5 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all ${
+                                selected ? 'bg-accent/10 border-accent text-primary' : 'bg-white border-border-misrah text-muted-text hover:border-accent'
+                              }`}
+                            >
+                              {amenityLabel(id)}
+                              {selected && <Check size={12} className="text-accent" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (property.amenities ?? []).length === 0 ? (
+                      <p className="text-xs font-bold text-muted-text/60">No amenities listed</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {property.amenities!.map(id => (
+                          <span key={id} className="px-4 py-2 rounded-full bg-white border border-border-misrah text-[10px] font-black uppercase tracking-widest text-primary">
+                            {amenityLabel(id)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Self check-in */}
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="bg-surface rounded-3xl p-6 border border-border-misrah/50 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-black text-muted-text/50 uppercase tracking-[2px]">Self Check-in</p>
+                        {isEditing ? (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={!!formData.selfCheckIn}
+                            onClick={() => setFormData(p => ({ ...p, selfCheckIn: !p.selfCheckIn }))}
+                            className={`w-11 h-6 rounded-full relative shrink-0 transition-colors shadow-inner ${formData.selfCheckIn ? 'bg-success' : 'bg-border-misrah'}`}
+                          >
+                            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${formData.selfCheckIn ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        ) : (
+                          <Badge variant={property.selfCheckIn ? 'green' : 'gray'}>{property.selfCheckIn ? 'Available' : 'Not available'}</Badge>
+                        )}
+                      </div>
+                      {isEditing ? (
+                        formData.selfCheckIn && (
+                          <textarea
+                            value={formData.selfCheckInInstruction ?? ''}
+                            onChange={e => setFormData(p => ({ ...p, selfCheckInInstruction: e.target.value }))}
+                            rows={3}
+                            placeholder="e.g. Go to the lobby, input code 1234 on the smart lock."
+                            className="w-full bg-white border border-border-misrah rounded-xl px-4 py-3 text-xs font-medium text-primary outline-none focus:border-accent resize-none"
+                          />
+                        )
+                      ) : (
+                        property.selfCheckIn && property.selfCheckInInstruction && (
+                          <p className="text-xs font-medium text-primary/80 italic leading-relaxed">"{property.selfCheckInInstruction}"</p>
+                        )
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Availability window */}
             <div className="bg-surface rounded-3xl p-8 border border-border-misrah/50 shadow-sm space-y-5">
@@ -558,7 +843,6 @@ export const PropertyDetailView = ({
                       />
                     </label>
                   </div>
-                  {saveError && <p className="text-[11px] font-bold text-danger">{saveError}</p>}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-6">
@@ -680,7 +964,56 @@ export const PropertyDetailView = ({
                 </button>
                 */}
               </div>
-              {(property.documents ?? []).length === 0 ? (
+              {isEditing ? (
+                <div className="space-y-4">
+                  {(formData.documents ?? []).length === 0 ? (
+                    <p className="text-[10px] font-black text-muted-text/60 uppercase tracking-widest">No documents uploaded</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {formData.documents!.map(doc => (
+                        <div key={doc.id} className="p-4 rounded-2xl bg-white border border-border-misrah flex items-center gap-4 shadow-sm">
+                          <div className="w-10 h-10 rounded-xl bg-surface border border-border-misrah flex items-center justify-center text-primary shrink-0">
+                            <FileText size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-black text-primary uppercase tracking-tight truncate">{documentLabel(doc.type)}</div>
+                            {doc.url ? (
+                              <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-accent hover:underline">View file</a>
+                            ) : (
+                              <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest">
+                                {formatDocumentDate(doc.uploadedAt) ? `Uploaded ${formatDocumentDate(doc.uploadedAt)}` : 'Uploaded'}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeDocument(doc.id)}
+                            title="Remove document"
+                            className="w-8 h-8 rounded-lg text-muted-text hover:text-danger hover:bg-danger/10 flex items-center justify-center shrink-0"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="p-4 rounded-2xl bg-surface border border-dashed border-border-misrah flex flex-col sm:flex-row sm:items-center gap-3">
+                    <select
+                      value={newDocType}
+                      onChange={e => setNewDocType(e.target.value)}
+                      className="bg-white border border-border-misrah rounded-xl px-3 py-2.5 text-xs font-bold text-primary outline-none focus:border-accent"
+                    >
+                      {DOCUMENT_TYPE_OPTIONS.map(t => <option key={t} value={t}>{documentLabel(t)}</option>)}
+                    </select>
+                    <label className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider ${isUploadingDoc ? 'opacity-60 cursor-wait' : 'cursor-pointer hover:opacity-90'}`}>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" disabled={isUploadingDoc} onChange={handleDocumentUpload} />
+                      {isUploadingDoc ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                      {isUploadingDoc ? 'Uploading…' : 'Upload Document'}
+                    </label>
+                  </div>
+                  {docError && <p className="text-[11px] font-bold text-danger">{docError}</p>}
+                </div>
+              ) : (property.documents ?? []).length === 0 ? (
                 <div className="p-8 rounded-[28px] bg-surface border border-dashed border-border-misrah flex flex-col items-center gap-2 text-center">
                   <FileText size={22} className="text-[#D4C3B5]" />
                   <p className="text-[10px] font-black text-muted-text/60 uppercase tracking-widest">No documents uploaded</p>
@@ -732,7 +1065,8 @@ export const PropertyDetailView = ({
             </div>
           </div>
 
-          {/* Sidebar Info (1/3) */}
+          {/* Sidebar Info (1/3) — Partner Node + Network Reputation, admin only. */}
+          {isAdmin && (
           <div className="p-8 lg:p-12 space-y-12 bg-surface/30">
             {/* Host Section */}
             <div className="space-y-6">
@@ -758,17 +1092,6 @@ export const PropertyDetailView = ({
                     >
                       <UserCheck size={14} className="text-accent" />
                       <span>Verify Host Profile</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUplinkInitialTab('uplink');
-                        setShowIntelUplinkModal(true);
-                      }}
-                      className="w-full py-4 bg-white border border-border-misrah text-primary rounded-2xl text-[10px] font-black uppercase tracking-[4px] hover:bg-surface transition-all flex items-center justify-center gap-2.5 cursor-pointer group hover:border-accent hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                      <Radio size={14} className="text-accent group-hover:animate-pulse" />
-                      <span>Direct Intel Uplink</span>
                     </button>
                   </div>
                 </div>
@@ -830,6 +1153,7 @@ export const PropertyDetailView = ({
               </div>
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -843,15 +1167,6 @@ export const PropertyDetailView = ({
         property={property}
         user={user}
         initialDocId={selectedAuditDocId}
-      />
-
-      {/* Direct Intel Uplink Modal */}
-      <DirectIntelUplinkModal
-        isOpen={showIntelUplinkModal}
-        onClose={() => setShowIntelUplinkModal(false)}
-        property={property}
-        user={user}
-        initialTab={uplinkInitialTab}
       />
 
       {/* Node Profile Verification Modal */}

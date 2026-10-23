@@ -81,6 +81,7 @@ import {
   Clock as GuideClock,
 } from 'lucide-react';
 import { uploadFile } from '../../features/properties/api';
+import { PROFILE_PHOTO_UPDATED_EVENT } from '../../features/profile/api';
 import { UserRound, Loader2 as ProfileLoader } from 'lucide-react';
 import { AppearanceNodeView } from './Profile/AppearanceNodeView';
 import { SupportChannelsView } from './Profile/SupportChannelsView';
@@ -224,6 +225,7 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
       });
       // Show it right away even if the GET body names the URL differently.
       setProfile(prev => (prev ? { ...prev, profileImage: uploaded.url, profileImageId: uploaded.id } : prev));
+      window.dispatchEvent(new CustomEvent(PROFILE_PHOTO_UPDATED_EVENT, { detail: uploaded.url }));
       await loadProfile();
       setProfile(prev => (prev && !prev.profileImage ? { ...prev, profileImage: uploaded.url, profileImageId: uploaded.id } : prev));
       showToast(t('personal.photoUpdated'));

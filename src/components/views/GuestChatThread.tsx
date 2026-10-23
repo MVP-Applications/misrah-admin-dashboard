@@ -3,8 +3,10 @@ import { format, isToday, parseISO } from 'date-fns';
 import { ImagePlus, Loader2, MessageSquare, Paperclip, RotateCcw, Send, TriangleAlert, X } from 'lucide-react';
 import { uploadFile } from '../../features/properties/api';
 import { createConversation, listMessages, markConversationRead } from '../../features/chat/api';
+import type { ChatConversation } from '../../features/chat/types';
 import {
-  disconnectChatSocket,
+  releaseChatSocket,
+  retainChatSocket,
   joinConversation,
   leaveConversation,
   onConnectionChange,
@@ -43,9 +45,14 @@ interface GuestChatThreadProps {
   // Property (or experience's property) the booking is for — sent so the
   // conversation is tied to it, as the mobile app does.
   propertyId?: string;
+  // Opens a different conversation instead of the guest one — e.g. the
+  // Concierge panel's support chat (POST /chat/support/start).
+  startConversation?: () => Promise<ChatConversation>;
+  // Fill the parent's height (side panel) instead of the popup's fixed box.
+  fill?: boolean;
 }
 
-export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propertyId }: GuestChatThreadProps) => {
+export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propertyId, startConversation, fill }: GuestChatThreadProps) => {
   const [status, setStatus] = useState<'loading' | 'ready' | 'none' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -73,17 +80,19 @@ export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propert
   };
 
   const load = useCallback(async () => {
-    if (!guestUserId) {
+    if (!startConversation && !guestUserId) {
       setStatus('none');
       return;
     }
     setStatus('loading');
     setLoadError(null);
     try {
-      const conversation = await createConversation({
-        participantIds: [guestUserId, currentUserId],
-        ...(propertyId ? { propertyId } : {}),
-      });
+      const conversation = startConversation
+        ? await startConversation()
+        : await createConversation({
+            participantIds: [guestUserId!, currentUserId],
+            ...(propertyId ? { propertyId } : {}),
+          });
       conversationIdRef.current = conversation._id;
       setConversationId(conversation._id);
       joinConversation(conversation._id);
@@ -96,13 +105,14 @@ export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propert
       setLoadError(err instanceof Error ? err.message : 'Failed to load the conversation.');
       setStatus('error');
     }
-  }, [guestUserId, currentUserId, propertyId]);
+  }, [guestUserId, currentUserId, propertyId, startConversation]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Socket lifecycle — this popup only lives on the bookings page, so it
-  // closes the shared connection on unmount like the Messages page does.
+  // Socket lifecycle — holds the shared connection while open; it's closed
+  // only once no other screen (e.g. the Messages page) still uses it.
   useEffect(() => {
+    retainChatSocket();
     const offConnection = onConnectionChange(connected => {
       setIsConnected(connected);
       if (connected) setSocketError(null);
@@ -113,7 +123,7 @@ export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propert
       offError();
       Object.values(deliveryTimersRef.current).forEach(clearTimeout);
       if (conversationIdRef.current) leaveConversation(conversationIdRef.current);
-      disconnectChatSocket();
+      releaseChatSocket();
     };
   }, []);
 
@@ -291,7 +301,7 @@ export const GuestChatThread = ({ guestUserId, guestName, currentUserId, propert
     <>
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-3 p-4 bg-[#F8F9FA] rounded-2xl border border-border-misrah/70 min-h-[220px] max-h-[340px]"
+        className={`flex-1 overflow-y-auto space-y-3 p-4 bg-[#F8F9FA] rounded-2xl border border-border-misrah/70 ${fill ? 'min-h-0' : 'min-h-[220px] max-h-[340px]'}`}
       >
         {status === 'loading' && (
           <div className="h-full min-h-[180px] flex items-center justify-center">

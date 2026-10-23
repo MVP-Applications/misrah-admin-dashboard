@@ -35,6 +35,8 @@ export const en = {
 
   // --- Shell: top bar / page titles ---
   'top.search': 'Secure search...',
+  'concierge.title': 'Misrah Concierge',
+  'concierge.subtitle': 'Chat with the Misrah team',
   'page.dashboard': 'dashboard',
   'page.bookings': 'bookings',
   'page.listings': 'listings',
@@ -189,6 +191,8 @@ export const ar: Record<TranslationKey, string> = {
   'nav.signOut': 'تسجيل الخروج',
 
   'top.search': 'بحث آمن...',
+  'concierge.title': 'كونسيرج مسرح',
+  'concierge.subtitle': 'تحدث مع فريق مسرح',
   'page.dashboard': 'لوحة التحكم',
   'page.bookings': 'الحجوزات',
   'page.listings': 'العقارات',

@@ -34,6 +34,21 @@ export function disconnectChatSocket(): void {
   socket = null;
 }
 
+// Several screens can use the connection at once (Messages page, a booking's
+// message popup, the Concierge panel). Each retains it while mounted and
+// releases it on unmount; it's only closed when the last one lets go.
+let socketUsers = 0;
+
+export function retainChatSocket(): void {
+  socketUsers += 1;
+  getChatSocket();
+}
+
+export function releaseChatSocket(): void {
+  socketUsers = Math.max(0, socketUsers - 1);
+  if (socketUsers === 0) disconnectChatSocket();
+}
+
 export function joinConversation(conversationId: string): void {
   getChatSocket().emit('joinConversation', { conversationId });
 }

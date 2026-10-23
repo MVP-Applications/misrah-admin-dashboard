@@ -52,6 +52,8 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     active: doc.isActive ?? true,
     hostId: doc.owner?._id ?? doc.userId,
     hostName: doc.owner?.name !== undefined ? asText(doc.owner.name) : undefined,
+    hostEmail: doc.owner?.email || undefined,
+    hostPhone: doc.owner?.phoneNumber || undefined,
     description: asText(doc.description),
     isFeatured: false,
     // Case-insensitive — tolerate PENDING/APPROVED/REJECTED as well.
@@ -61,6 +63,25 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     availableForever: raw.availableForever === undefined ? undefined : raw.availableForever !== false,
     availabilityStart: typeof raw.startDate === 'string' ? raw.startDate.slice(0, 10) : null,
     availabilityEnd: typeof raw.endDate === 'string' ? raw.endDate.slice(0, 10) : null,
+    cityId: typeof raw.cityId === 'string' ? raw.cityId : raw.cityId?._id ?? doc.city?._id,
+    propertyType: doc.propertyType ? asText(doc.propertyType).toUpperCase() : undefined,
+    address: raw.address !== undefined && raw.address !== null ? asText(raw.address) : undefined,
+    bedrooms: raw.bedrooms !== undefined ? asNumber(raw.bedrooms) : undefined,
+    maxAdults: raw.maxAdults !== undefined ? asNumber(raw.maxAdults) : undefined,
+    maxChildren: raw.maxChildren !== undefined ? asNumber(raw.maxChildren) : undefined,
+    weekdayPrice: doc.pricing?.weekdayPrice !== undefined ? asNumber(doc.pricing.weekdayPrice) : undefined,
+    weekendPrice: doc.pricing?.weekendPrice !== undefined ? asNumber(doc.pricing.weekendPrice) : undefined,
+    amenities: Array.isArray(raw.amenities) ? raw.amenities.map((a: unknown) => asText(a)).filter(Boolean) : [],
+    selfCheckIn: raw.selfCheckInAvailable === true,
+    selfCheckInInstruction: typeof raw.selfCheckInInstruction === 'string' ? raw.selfCheckInInstruction : undefined,
+    latitude: typeof raw.latitude === 'number' ? raw.latitude : undefined,
+    longitude: typeof raw.longitude === 'number' ? raw.longitude : undefined,
+    // Images come back populated ({ _id, fullUrl }); a bare id has no URL.
+    gallery: Array.isArray(raw.images)
+      ? raw.images
+          .filter((img: any) => img && typeof img === 'object' && img._id && img.fullUrl)
+          .map((img: any) => ({ id: String(img._id), url: String(img.fullUrl) }))
+      : [],
     // fileId is normally a bare id, but tolerate a populated file document.
     documents: Array.isArray(raw.documents)
       ? raw.documents
@@ -81,12 +102,8 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
 
 // Reverse-maps the fields PropertyDetailView's edit form actually sends via
 // onUpdate(id, Partial<Property>) (handleSave sends the whole formData) — not
-// a full inverse of apiPropertyToViewModel. `city`/`type` are deliberately not
-// forwarded: PropertyDetailView's edit UI is a hardcoded Dubai/Abu Dhabi/RAK/
-// Sharjah + City/Beach/Desert/Mountain picker with no real cityId, and `type`
-// there is a mock-only "vibe" category with no backend equivalent (distinct
-// from the real `propertyType` enum) — out of scope to add a real city picker
-// there per the approved migration plan (only AddListingModal got one).
+// a full inverse of apiPropertyToViewModel. The display-only `city` name /
+// `type` aren't sent; the real cityId / propertyType are.
 export function viewModelPartialToUpdateRequest(updates: Partial<Property>): UpdatePropertyRequest {
   const payload: UpdatePropertyRequest = {};
   if (updates.name !== undefined) payload.title = updates.name;
@@ -97,13 +114,35 @@ export function viewModelPartialToUpdateRequest(updates: Partial<Property>): Upd
   if (updates.price !== undefined) {
     // The edited price is in the currency the property was shown in (the API
     // converts to the user's preferred currency) — send it so it's stored right.
+    // Weekday / weekend default to the base price when not set.
     payload.pricing = {
       basePrice: updates.price,
-      weekdayPrice: updates.price,
-      weekendPrice: updates.price,
+      weekdayPrice: updates.weekdayPrice && updates.weekdayPrice > 0 ? updates.weekdayPrice : updates.price,
+      weekendPrice: updates.weekendPrice && updates.weekendPrice > 0 ? updates.weekendPrice : updates.price,
       ...(updates.currency ? { currency: updates.currency } : {}),
     };
   }
+  if (updates.cityId) payload.cityId = updates.cityId;
+  if (updates.propertyType) payload.propertyType = updates.propertyType as UpdatePropertyRequest['propertyType'];
+  if (updates.address !== undefined) payload.address = updates.address;
+  if (updates.bedrooms !== undefined) payload.bedrooms = updates.bedrooms;
+  if (updates.maxAdults !== undefined) payload.maxAdults = updates.maxAdults;
+  if (updates.maxChildren !== undefined) payload.maxChildren = updates.maxChildren;
+  if (updates.amenities !== undefined) payload.amenities = updates.amenities;
+  if (updates.selfCheckIn !== undefined) payload.selfCheckInAvailable = updates.selfCheckIn;
+  if (updates.selfCheckIn && updates.selfCheckInInstruction !== undefined) {
+    payload.selfCheckInInstruction = updates.selfCheckInInstruction;
+  }
+  if (updates.latitude !== undefined && updates.longitude !== undefined) {
+    payload.latitude = updates.latitude;
+    payload.longitude = updates.longitude;
+  }
+  // Compliance documents — the full list ({ type, fileId }) replaces the old one.
+  if (updates.documents !== undefined) {
+    payload.documents = updates.documents.filter(d => d.fileId).map(d => ({ type: d.type, fileId: d.fileId }));
+  }
+  // Photos — file ids in display order (first = cover).
+  if (updates.gallery !== undefined) payload.images = updates.gallery.map(p => p.id);
   // Availability: "YYYY-MM-DD" → start / end of that UTC day. endDate is not
   // sent when availableForever is true (per the API).
   if (updates.availableForever !== undefined) payload.availableForever = updates.availableForever;

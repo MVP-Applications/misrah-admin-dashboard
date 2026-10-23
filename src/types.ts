@@ -99,6 +99,9 @@ export interface Property {
   // renders ("Managed by Admin" instead of a host profile).
   hostId?: string;
   hostName?: string;
+  // Owner contact from the property API's populated `owner`.
+  hostEmail?: string;
+  hostPhone?: string;
   description?: string;
   isFeatured: boolean;
   status?: 'Pending' | 'Approved' | 'Rejected';
@@ -114,6 +117,29 @@ export interface Property {
   // Uploaded compliance documents (API `documents`). `url` is only set when
   // the API returns the file populated with a link.
   documents?: PropertyDocument[];
+  // Editable listing details (detail page) — raw API values.
+  cityId?: string;
+  propertyType?: string; // VILLA | APARTMENT | STUDIO | PENTHOUSE
+  address?: string;
+  bedrooms?: number;
+  maxAdults?: number;
+  maxChildren?: number;
+  weekdayPrice?: number;
+  weekendPrice?: number;
+  amenities?: string[];
+  selfCheckIn?: boolean;
+  selfCheckInInstruction?: string;
+  // Map pin (address is its reverse-geocoded text).
+  latitude?: number;
+  longitude?: number;
+  // All photos, in order (the first is the cover `image`). `id` is the file
+  // id sent back in `images` on update.
+  gallery?: PropertyPhoto[];
+}
+
+export interface PropertyPhoto {
+  id: string;
+  url: string;
 }
 
 export interface PropertyDocument {

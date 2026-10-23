@@ -18,7 +18,6 @@ import {
   User,
   Settings,
   LogOut,
-  Search,
   Bell,
   Sparkles,
   Compass,
@@ -50,10 +49,12 @@ import { PropertiesView } from './components/views/Properties';
 import { PropertyDetailRoute } from './components/views/Properties/PropertyDetailRoute';
 import { EarningsView } from './components/views/EarningsView';
 import { MessagesView } from './components/views/MessagesView';
+import { GuestChatThread } from './components/views/GuestChatThread';
+import { startSupportConversation } from './features/chat/api';
 import { ReviewsView } from './components/views/ReviewsView';
 import { ExperiencesView } from './components/views/ExperiencesView';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { getMyProfile } from './features/profile/api';
+import { getMyProfile, PROFILE_PHOTO_UPDATED_EVENT } from './features/profile/api';
 import { setPreferredCurrencyCode } from './api/currency';
 import { useLanguage } from './i18n/LanguageContext';
 import type { TranslationKey } from './i18n/translations';
@@ -134,10 +135,22 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
 
   // Seed the preferred currency (applied to price APIs by apiClient) from
   // the profile once per session; keeps the stored value if it fails.
+  // Also the sidebar user card's photo — the auth `user` carries none.
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   useEffect(() => {
     getMyProfile()
-      .then(p => { if (p.currency) setPreferredCurrencyCode(p.currency); })
+      .then(p => {
+        if (p.currency) setPreferredCurrencyCode(p.currency);
+        setProfilePhoto(p.profileImage);
+      })
       .catch(() => undefined);
+  }, []);
+
+  // Profile page changed the photo → show it here right away.
+  useEffect(() => {
+    const onPhoto = (e: Event) => setProfilePhoto((e as CustomEvent<string | null>).detail ?? null);
+    window.addEventListener(PROFILE_PHOTO_UPDATED_EVENT, onPhoto);
+    return () => window.removeEventListener(PROFILE_PHOTO_UPDATED_EVENT, onPhoto);
   }, []);
 
   const isListingsActive = location.pathname === '/listings' || location.pathname.startsWith('/listings/');
@@ -170,6 +183,8 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={Home} label={t('nav.assetsQueue')} active={isHostingActive} onClick={() => navigate('/admin/hosting')} />
                 <SidebarItem icon={UserCog} label={t('nav.users')} active={location.pathname === '/admin/users'} onClick={() => navigate('/admin/users')} />
                 <SidebarItem icon={Handshake} label={t('nav.partnerLeads')} active={location.pathname === '/admin/partner-leads'} onClick={() => navigate('/admin/partner-leads')} />
+                {/* Support inbox — Misrah Concierge chats from hosts / travelers. */}
+                <SidebarItem icon={MessageSquare} label={t('nav.messages')} active={location.pathname === '/messages'} onClick={() => navigate('/messages')} />
               </section>
 
               <section className="space-y-1">
@@ -237,7 +252,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
             className="group relative flex items-center gap-4 p-3 rounded-2xl border border-white/5 hover:bg-white/5 hover:border-white/10 transition-all cursor-pointer"
           >
             <div className="relative">
-              <GuestAvatar url={user.avatar} name={user.name} className="w-10 h-10 rounded-xl border border-white/10 shadow-2xl" fallbackClassName="bg-white/5 text-white/50" iconSize={18} />
+              <GuestAvatar url={profilePhoto || user.avatar} name={user.name} className="w-10 h-10 rounded-xl border border-white/10 shadow-2xl" fallbackClassName="bg-white/5 text-white/50" iconSize={18} />
               <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-accent rounded-full border-2 border-[#1A1A2E] shadow-sm transform group-hover:scale-110 transition-transform" />
             </div>
 
@@ -273,15 +288,6 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
             </div>
           </div>
           <div className="flex items-center gap-6">
-            <div className="relative group hidden md:block">
-              <Search size={14} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
-              <input
-                type="text"
-                placeholder={t('top.search')}
-                className="pl-11 pr-5 rtl:pl-5 rtl:pr-11 py-2.5 bg-surface/50 border border-border-misrah rounded-2xl text-[10px] w-72 focus:outline-none focus:border-accent focus:bg-white transition-all font-black uppercase tracking-widest shadow-inner"
-              />
-            </div>
-            <div className="h-8 w-[1px] bg-border-misrah/50 mx-2"></div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate('/notifications')}
@@ -290,12 +296,16 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <Bell size={18} />
                 <span className="absolute top-3.5 right-3.5 w-2 h-2 bg-accent rounded-full border-2 border-white ring-4 ring-accent/10" />
               </button>
-              <button
-                onClick={() => setIsAiOpen(true)}
-                className="w-11 h-11 flex items-center justify-center bg-surface border border-border-misrah rounded-2xl hover:border-accent text-primary/60 transition-all shadow-sm group"
-              >
-                <Sparkles size={18} className="group-hover:text-accent transition-colors" />
-              </button>
+              {/* Misrah Concierge (support chat) — hosts only. */}
+              {user.role !== 'admin' && (
+                <button
+                  onClick={() => setIsAiOpen(true)}
+                  title="Misrah Concierge"
+                  className="w-11 h-11 flex items-center justify-center bg-surface border border-border-misrah rounded-2xl hover:border-accent text-primary/60 transition-all shadow-sm group"
+                >
+                  <Sparkles size={18} className="group-hover:text-accent transition-colors" />
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -316,9 +326,10 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
         </div>
       </main>
 
-      {/* AI Concierge Panel */}
+      {/* Misrah Concierge — host's support chat with the Misrah team
+          (POST /chat/support/start, then the usual chat socket). Hosts only. */}
       <AnimatePresence>
-        {isAiOpen && (
+        {isAiOpen && user.role !== 'admin' && (
           <>
             <motion.div
               initial={{ opacity: 0 }}
@@ -340,8 +351,8 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                     <Sparkles size={20} className="fill-current" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black uppercase tracking-widest italic">Concierge AI</h3>
-                    <p className="text-[9px] font-bold text-accent uppercase tracking-widest leading-none">Global Host Intelligence</p>
+                    <h3 className="text-sm font-black uppercase tracking-widest italic">{t('concierge.title')}</h3>
+                    <p className="text-[9px] font-bold text-accent uppercase tracking-widest leading-none">{t('concierge.subtitle')}</p>
                   </div>
                 </div>
                 <button
@@ -352,54 +363,13 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 </button>
               </div>
 
-              <div className="flex-1 p-8 overflow-y-auto space-y-6 scrollbar-hide">
-                <div className="bg-[#FCFAF8] rounded-3xl p-6 border border-[#F2E8DF] relative">
-                  <p className="text-xs font-bold text-[#1A2B47] leading-relaxed">
-                    Marhaba, {user.name.split(' ')[0]}! I've analyzed your portfolio for today. Your occupancy rate is up 12% compared to last week. Would you like me to optimize your weekend pricing?
-                  </p>
-                  <div className="absolute top-0 right-0 p-2 transform translate-x-1/3 -translate-y-1/3">
-                    <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-white shadow-lg">
-                      <TrendingUp size={14} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black uppercase tracking-[2px] text-[#D4C3B5]">Suggested Actions</h4>
-                  <div className="grid grid-cols-1 gap-3">
-                    {[
-                      { icon: Banknote, label: 'Review Dynamic Pricing', desc: 'Potential +AED 2,400 revenue' },
-                      { icon: MessageSquare, label: 'Reply to High-Priority', desc: '3 pending guest inquiries' },
-                      { icon: Star, label: 'Analyze Recent Reviews', desc: 'Maintain your Superhost status' },
-                    ].map((action, idx) => (
-                      <button
-                        key={idx}
-                        className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-[#F2E8DF] hover:border-accent hover:shadow-sm transition-all text-left"
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-[#F8F3F0] flex items-center justify-center text-[#1A2B47]">
-                          <action.icon size={18} />
-                        </div>
-                        <div>
-                          <div className="text-[11px] font-black uppercase text-[#1A2B47] tracking-tight">{action.label}</div>
-                          <div className="text-[9px] font-bold text-[#D4C3B5] uppercase tracking-wider">{action.desc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-8 border-t border-border-misrah bg-surface">
-                <div className="relative group">
-                  <input
-                    type="text"
-                    placeholder="Ask your concierge anything..."
-                    className="w-full bg-white border border-[#F2E8DF] rounded-2xl pl-6 pr-14 py-4 text-xs font-bold focus:outline-none focus:border-accent transition-all ring-accent/5 focus:ring-4"
-                  />
-                  <button className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl bg-[#1A2B47] text-accent flex items-center justify-center hover:scale-105 transition-transform">
-                    <ArrowUpRight size={16} />
-                  </button>
-                </div>
+              <div className="flex-1 min-h-0 p-6 flex flex-col gap-3">
+                <GuestChatThread
+                  fill
+                  startConversation={startSupportConversation}
+                  guestName="Misrah Concierge"
+                  currentUserId={user.id}
+                />
               </div>
             </motion.aside>
           </>
