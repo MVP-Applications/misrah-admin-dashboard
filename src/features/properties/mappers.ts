@@ -53,6 +53,8 @@ export function apiPropertyToViewModel(doc: ApiPropertyListItem): Property {
     hostId: doc.owner?._id ?? doc.userId,
     hostName: doc.owner?.name !== undefined ? asText(doc.owner.name) : undefined,
     hostEmail: doc.owner?.email || undefined,
+    hostReviews: doc.owner?.totalReviews ?? doc.owner?.reviewsCount,
+    hostRating: typeof doc.owner?.avgRating === 'number' ? doc.owner.avgRating : undefined,
     hostPhone: doc.owner?.phoneNumber || undefined,
     description: asText(doc.description),
     isFeatured: false,

@@ -1131,11 +1131,15 @@ export const PropertyDetailView = ({
               <div className="p-8 bg-white border border-border-misrah rounded-[40px] shadow-sm space-y-8">
                 <div className="flex flex-col items-center text-center">
                    <div className="text-[10px] font-black text-muted-text/50 uppercase tracking-[4px] mb-4">Host Quality Rating</div>
-                   <div className="text-6xl font-black italic text-primary mb-2 tracking-tighter">{property.rating || '0'}</div>
+                   {/* The host's own stats (owner.totalReviews / reviewsCount,
+                       owner.avgRating) — falls back to this property's when absent. */}
+                   <div className="text-6xl font-black italic text-primary mb-2 tracking-tighter">
+                     {Number((property.hostRating ?? property.rating ?? 0).toFixed(1))}
+                   </div>
                    <div className="flex text-accent gap-1">
                      {[...Array(5)].map((_, i) => <CheckCircle2 key={i} size={14} fill="currentColor" />)}
                    </div>
-                   <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-4">Calculated from {property.reviews || 0} reviews</div>
+                   <div className="text-[10px] font-bold text-muted-text uppercase tracking-widest mt-4">Calculated from {property.hostReviews ?? property.reviews ?? 0} review{(property.hostReviews ?? property.reviews ?? 0) === 1 ? '' : 's'}</div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 pt-8 border-t border-border-misrah">

@@ -102,6 +102,9 @@ export interface Property {
   // Owner contact from the property API's populated `owner`.
   hostEmail?: string;
   hostPhone?: string;
+  // Host-level review stats from `owner` (all their listings), if returned.
+  hostReviews?: number;
+  hostRating?: number;
   description?: string;
   isFeatured: boolean;
   status?: 'Pending' | 'Approved' | 'Rejected';

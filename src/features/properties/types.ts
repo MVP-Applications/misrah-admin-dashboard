@@ -51,7 +51,16 @@ export interface ApiPropertyListItem {
   rejectionReason?: string;
   avgRating?: number;
   reviewCount?: number;
-  owner?: { _id: string; name: string; email: string; phoneNumber?: string };
+  owner?: {
+    _id: string;
+    name: string;
+    email: string;
+    phoneNumber?: string;
+    // Host-level review stats (across all their listings).
+    reviewsCount?: number;
+    totalReviews?: number;
+    avgRating?: number;
+  };
   city?: { _id: string; name: string; country?: string; description?: string };
   images: Array<{ _id: string; fullUrl: string }>;
   createdAt: string;
