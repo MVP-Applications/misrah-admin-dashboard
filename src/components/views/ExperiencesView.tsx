@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
@@ -32,7 +32,6 @@ import {
   ImageOff
 } from 'lucide-react';
 import { User, ActivityExperience, PriceType, ActivityAddon } from '../../types';
-import { ACTIVITY_CATEGORIES } from '../../data/activityCategories';
 import { getSuggestedAddons } from '../../data/activityAddons';
 import { STANDARD_TIME_SLOT_PRESETS } from '../../data/activityTimeSlots';
 import { Badge } from '../ui/Badge';
@@ -213,8 +212,18 @@ export const ExperiencesView = ({
     setPage(1);
   }, [debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus]);
 
+  // Which tab / filters / page the shown cards belong to. On a switch it no
+  // longer matches, so the loader shows instead of the previous tab's cards
+  // (a refetch of the same view, e.g. after an edit, keeps them up).
+  const queryKey = JSON.stringify([debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus, page]);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  // Ignores responses for a view the user has already switched away from.
+  const latestExperiencesRequestRef = useRef(0);
+
   const fetchExperiences = useCallback(
     (pageToLoad: number) => {
+      const requestId = ++latestExperiencesRequestRef.current;
+      const key = JSON.stringify([debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus, pageToLoad]);
       setIsLoadingExperiences(true);
       setLoadError(null);
       // Host Hub: GET /experience/my with search/categoryId/propertyId/status/isActive.
@@ -239,15 +248,21 @@ export const ExperiencesView = ({
           });
       request
         .then((res) => {
+          if (requestId !== latestExperiencesRequestRef.current) return;
           setExperiences(res.data.map(apiExperienceToViewModel));
           setTotalPages(res.meta.totalPages || 1);
           setTotalCount(res.meta.total || 0);
+          setLoadedKey(key);
         })
         .catch((err) => {
+          if (requestId !== latestExperiencesRequestRef.current) return;
           setExperiences([]);
           setLoadError(err?.message || 'Failed to load experiences.');
+          setLoadedKey(key);
         })
-        .finally(() => setIsLoadingExperiences(false));
+        .finally(() => {
+          if (requestId === latestExperiencesRequestRef.current) setIsLoadingExperiences(false);
+        });
     },
     [debouncedSearch, selectedCategory, selectedPropertyFilter, approvalTab, selectedStatus, user.role],
   );
@@ -430,6 +445,11 @@ export const ExperiencesView = ({
   const activeExperiences = experiences.filter(e => e.status === 'Active').length;
   const totalBookings = experiences.reduce((acc, e) => acc + (e.bookingsCount || 0), 0);
   const totalRevenue = experiences.reduce((acc, e) => acc + ((e.bookingsCount || 0) * e.price), 0);
+  // Average over rated experiences, weighted by review count when known.
+  const rated = experiences.filter(e => e.rating > 0);
+  const ratingWeight = (e: { reviewsCount?: number }) => (e.reviewsCount && e.reviewsCount > 0 ? e.reviewsCount : 1);
+  const totalWeight = rated.reduce((acc, e) => acc + ratingWeight(e), 0);
+  const averageRating = totalWeight ? rated.reduce((acc, e) => acc + e.rating * ratingWeight(e), 0) / totalWeight : 0;
 
   const priceTypeLabels: Record<PriceType, { en: string; ar: string }> = {
     per_person: { en: '/ person', ar: 'لكل شخص' },
@@ -649,18 +669,22 @@ export const ExperiencesView = ({
       return;
     }
 
-    // ACTIVITY_CATEGORIES lookup is content-only (the cover photo
-    // fallback) — customForm.categoryId now holds a real experience
-    // category id, so this essentially always falls through to [0]; that's
-    // fine, it's just seeding generic defaults, not the submitted categoryId.
-    const cat = ACTIVITY_CATEGORIES.find(c => c.id === customForm.categoryId) || ACTIVITY_CATEGORIES[0];
+    if (!(Number(customForm.price) > 0)) {
+      alert('Please enter a price.');
+      return;
+    }
     // No predefined fallback — at least one slot must be added.
     const finalSlots = customForm.timeSlots || [];
     if (finalSlots.length === 0) {
       alert('Please add at least one time slot.');
       return;
     }
-    const coverPhoto = customForm.imageUrl || cat.coverImage;
+    // Only a photo the user actually uploaded — no stock fallback.
+    const coverPhoto = customForm.imageUrl?.trim() || '';
+    if (!coverPhoto) {
+      alert('Please upload a cover photo.');
+      return;
+    }
 
     setIsSubmittingExperience(true);
     setAddExperienceError(null);
@@ -670,7 +694,7 @@ export const ExperiencesView = ({
         titleAr: customForm.titleAr.trim() || customForm.title.trim(),
         categoryId: customForm.categoryId,
         propertyIds: [targetPropId],
-        price: Number(customForm.price) || 150,
+        price: Number(customForm.price),
         currency: 'AED',
         priceType: customForm.priceType,
         duration: parseDurationHours(customForm.duration || '2 Hours'),
@@ -1026,7 +1050,6 @@ export const ExperiencesView = ({
           <span className="text-[10px] font-black uppercase tracking-widest text-muted-text">Guest Bookings</span>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black italic text-primary">{totalBookings}</span>
-            <span className="text-xs font-bold text-accent">+18% MoM</span>
           </div>
         </div>
 
@@ -1040,7 +1063,7 @@ export const ExperiencesView = ({
         <div className="bg-white p-6 rounded-[28px] border border-border-misrah shadow-xs space-y-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-muted-text">Average Rating</span>
           <div className="flex items-center gap-2">
-            <span className="text-3xl font-black italic text-primary">4.95</span>
+            <span className="text-3xl font-black italic text-primary">{averageRating > 0 ? averageRating.toFixed(2) : '—'}</span>
             <div className="flex text-amber-500">
               <Star size={14} fill="currentColor" />
             </div>
@@ -1162,7 +1185,7 @@ export const ExperiencesView = ({
             Retry
           </button>
         </div>
-      ) : isLoadingExperiences && experiences.length === 0 ? (
+      ) : loadedKey !== queryKey || (isLoadingExperiences && experiences.length === 0) ? (
         <div className="p-16 bg-white rounded-[36px] border border-dashed border-border-misrah text-center space-y-3 shadow-xs">
           <Loader2 className="mx-auto text-accent animate-spin" size={28} />
           <p className="text-xs font-bold uppercase tracking-widest text-muted-text">Loading experiences…</p>
@@ -1197,11 +1220,15 @@ export const ExperiencesView = ({
               className="bg-white rounded-[32px] border border-border-misrah overflow-hidden shadow-xs hover:shadow-luxury hover:border-accent/40 transition-all flex flex-col group"
             >
               <div className="h-48 relative overflow-hidden bg-surface">
-                <img 
-                  src={exp.images?.[0] || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80'} 
-                  alt={exp.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-                />
+                {exp.images?.[0] ? (
+                  <img 
+                    src={exp.images[0]} 
+                    alt={exp.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[#D4C3B5]"><ImageOff size={28} /></div>
+                )}
                 <div className="absolute inset-0 bg-linear-to-t from-primary/80 via-transparent to-transparent" />
                 
                 {/* One row so the badges can't overlap: category left (truncates), status badges right. */}
@@ -1358,11 +1385,15 @@ export const ExperiencesView = ({
                   <tr key={exp.id} className="hover:bg-surface/50 transition-colors group">
                     <td className="p-4 pl-6">
                       <div className="flex items-center gap-3">
-                        <img 
-                          src={exp.images?.[0] || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80'} 
-                          alt={exp.title}
-                          className="w-12 h-12 rounded-xl object-cover shrink-0" 
-                        />
+                        {exp.images?.[0] ? (
+                          <img
+                            src={exp.images[0]}
+                            alt={exp.title}
+                            className="w-12 h-12 rounded-xl object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center text-[#D4C3B5] shrink-0"><ImageOff size={16} /></div>
+                        )}
                         <div>
                           <div className="font-black text-primary text-xs group-hover:text-accent transition-colors">{exp.title}</div>
                           <div className="text-[10px] text-muted-text font-bold">{exp.propertyName} • {exp.propertyCity}</div>

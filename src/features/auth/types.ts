@@ -12,6 +12,11 @@ export interface HostOtpSendRequest {
   phoneNumber: string;
 }
 
+export interface HostOtpLoginRequest {
+  phoneNumber: string;
+  otp: string;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }

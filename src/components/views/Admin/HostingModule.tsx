@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Calendar, MapPin, Plus, LayoutList, Home, FileText, ImageOff } from 'lucide-react';
+import { Check, Calendar, MapPin, Plus, LayoutList, Home, ImageOff } from 'lucide-react';
 import { LoadingSpinner } from '../../ui/LoadingSpinner';
 import { Property, User } from '../../../types';
 import { Badge } from '../../ui/Badge';
@@ -21,11 +21,14 @@ interface HostingModuleProps {
 
 export const HostingModule = ({ user }: HostingModuleProps) => {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected'>('Pending');
+  // Hosting Requests status — 'Drafts' shows the admin's saved creation
+  // drafts (/admin/properties/draft) in place of the property grid.
+  const [filter, setFilter] = useState<'Pending' | 'Approved' | 'Rejected' | 'Drafts'>('Pending');
+  const isDrafts = filter === 'Drafts';
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // 'requests' = hosting moderation queue, 'listings' = home page property
-  // listings, 'drafts' = admin's saved creation drafts (/admin/properties/draft).
-  const [activeTab, setActiveTab] = useState<'requests' | 'listings' | 'drafts'>('requests');
+  // 'requests' = hosting moderation queue (+ Drafts), 'listings' = home page
+  // property listings.
+  const [activeTab, setActiveTab] = useState<'requests' | 'listings'>('requests');
   const [resumeDraft, setResumeDraft] = useState<PropertyDraft | null>(null);
   const [draftsRefreshKey, setDraftsRefreshKey] = useState(0);
   const openCreate = () => { setResumeDraft(null); setIsModalOpen(true); };
@@ -39,15 +42,32 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
     ? filteredProperties
     : filteredProperties.filter(p => (activeFilter === 'Active' ? p.active : !p.active));
 
+  // Which status the shown list belongs to — on a tab switch it no longer
+  // matches, so the spinner shows instead of the previous tab's cards. A
+  // refetch on the same tab (e.g. after approving) keeps the cards up.
+  const [loadedFilter, setLoadedFilter] = useState<string | null>(null);
+  // Ignores responses for a tab the user has already switched away from.
+  const latestRequestRef = useRef(0);
+
   const refetch = useCallback(() => {
+    if (filter === 'Drafts') return;
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     listAdminProperties({ status: filter.toLowerCase() as 'pending' | 'approved' | 'rejected', limit: 100 })
-      .then(res => setFilteredProperties(res.data.map(apiPropertyToViewModel)))
+      .then(res => {
+        if (requestId !== latestRequestRef.current) return;
+        setFilteredProperties(res.data.map(apiPropertyToViewModel));
+        setLoadedFilter(filter);
+      })
       .catch(err => {
+        if (requestId !== latestRequestRef.current) return;
         console.error('[hosting] failed to load properties', err);
         setFilteredProperties([]);
+        setLoadedFilter(filter);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (requestId === latestRequestRef.current) setLoading(false);
+      });
   }, [filter]);
 
   useEffect(() => { refetch(); }, [refetch]);
@@ -76,20 +96,18 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-4xl font-sans font-black italic text-primary uppercase tracking-tighter leading-none">
-            {activeTab === 'requests' ? 'Hosting Requests' : activeTab === 'drafts' ? 'Drafts' : 'Property Listings'}
+            {activeTab === 'requests' ? (isDrafts ? 'Drafts' : 'Hosting Requests') : 'Property Listings'}
           </h1>
           <p className="text-muted-text text-[10px] font-black uppercase tracking-[3px] mt-2 opacity-60">
             {activeTab === 'requests'
-              ? 'Global Moderation Queue & Compliance Protocol'
-              : activeTab === 'drafts'
-                ? 'Unfinished properties saved during creation'
-                : 'Home Page Sections & Curated Collections'}
+              ? (isDrafts ? 'Unfinished properties saved during creation' : 'Global Moderation Queue & Compliance Protocol')
+              : 'Home Page Sections & Curated Collections'}
           </p>
         </div>
         {activeTab === 'requests' && (
         <div className="flex items-center gap-6">
           <div className="flex bg-white border border-border-misrah rounded-2xl p-1.5 shadow-sm">
-            {(['Pending', 'Approved', 'Rejected'] as const).map((status) => (
+            {(['Pending', 'Approved', 'Rejected', 'Drafts'] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setFilter(status)}
@@ -100,6 +118,8 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
               </button>
             ))}
           </div>
+          {/* Active/inactive only applies to real properties, not drafts. */}
+          {!isDrafts && (
           <select
             value={activeFilter}
             onChange={e => setActiveFilter(e.target.value as 'All' | 'Active' | 'Inactive')}
@@ -109,6 +129,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </select>
+          )}
           <button 
             onClick={openCreate}
             className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
@@ -117,18 +138,10 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
           </button>
         </div>
         )}
-        {activeTab === 'drafts' && (
-          <button
-            onClick={openCreate}
-            className="bg-primary text-accent px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[3px] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 group"
-          >
-            <Plus size={16} className="group-hover:rotate-90 transition-transform" /> Add Hosting
-          </button>
-        )}
       </header>
 
       {/* Tab Switcher: Hosting Requests vs Property Listings */}
-      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-xl">
+      <div className="bg-surface p-1.5 rounded-2xl border border-border-misrah flex max-w-md">
         <button
           type="button"
           onClick={() => setActiveTab('requests')}
@@ -149,21 +162,11 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
           <LayoutList size={14} />
           <span>Property Listings</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('drafts')}
-          className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeTab === 'drafts' ? 'bg-primary text-accent shadow-md' : 'text-muted-text hover:text-primary'
-          }`}
-        >
-          <FileText size={14} />
-          <span>Drafts</span>
-        </button>
       </div>
 
       {activeTab === 'listings' && <AssetListingsTab />}
 
-      {activeTab === 'drafts' && (
+      {activeTab === 'requests' && isDrafts && (
         <PropertyDraftsTab
           scope="admin"
           refreshKey={draftsRefreshKey}
@@ -171,7 +174,7 @@ export const HostingModule = ({ user }: HostingModuleProps) => {
         />
       )}
 
-      {activeTab === 'requests' && (loading && filteredProperties.length === 0 ? (
+      {activeTab === 'requests' && !isDrafts && ((loadedFilter !== filter || (loading && filteredProperties.length === 0)) ? (
         <div className="bg-white rounded-[48px] border border-border-misrah p-32 text-center shadow-sm">
           <LoadingSpinner className="mx-auto" />
         </div>

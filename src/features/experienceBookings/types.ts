@@ -117,6 +117,8 @@ export interface ExperienceBookingReschedule {
 
 export interface ExperienceBookingListItem {
   _id: string;
+  // Human-readable reference shown to users; _id stays the API key.
+  bookingCode?: string;
   userId?: string;
   experienceId?: string;
   hostId?: string;

@@ -30,7 +30,6 @@ import { listActiveCities, uploadFile } from '../../../features/properties/api';
 import { LocationPicker } from './LocationPicker';
 import { documentLabel, formatDocumentDate } from '../../../features/properties/documents';
 import { ReassignHostModal } from './ReassignHostModal';
-import { AuditDocsModal } from './AuditDocsModal';
 import { NodeProfileVerificationModal } from './NodeProfileVerificationModal';
 import { displayCurrency } from '../../../utils/money';
 import { addPropertiesToCategory, listCategories, removePropertiesFromCategory } from '../../../features/categories/api';
@@ -95,8 +94,6 @@ export const PropertyDetailView = ({
   const [formData, setFormData] = useState({ ...property });
   const [showSecondaryMenu, setShowSecondaryMenu] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
-  const [showAuditModal, setShowAuditModal] = useState(false);
-  const [selectedAuditDocId, setSelectedAuditDocId] = useState<string | null>(null);
   const [showNodeVerificationModal, setShowNodeVerificationModal] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -949,20 +946,6 @@ export const PropertyDetailView = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h4 className="text-[11px] font-black uppercase tracking-[4px] text-muted-text">Legal Compliance Archive</h4>
-                {/* Audit All Docs hidden — AuditDocsModal still shows static sample
-                    documents, not this property's real `documents`.
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedAuditDocId(null);
-                    setShowAuditModal(true);
-                  }}
-                  className="text-[10px] font-black text-accent uppercase tracking-widest hover:underline transition-all flex items-center gap-1.5 group cursor-pointer"
-                >
-                  <ShieldCheck size={13} className="text-accent group-hover:scale-110 transition-transform" />
-                  <span>Audit All Docs</span>
-                </button>
-                */}
               </div>
               {isEditing ? (
                 <div className="space-y-4">
@@ -1160,18 +1143,6 @@ export const PropertyDetailView = ({
           )}
         </div>
       </div>
-
-      {/* Compliance Audit Modal */}
-      <AuditDocsModal
-        isOpen={showAuditModal}
-        onClose={() => {
-          setShowAuditModal(false);
-          setSelectedAuditDocId(null);
-        }}
-        property={property}
-        user={user}
-        initialDocId={selectedAuditDocId}
-      />
 
       {/* Node Profile Verification Modal */}
       <NodeProfileVerificationModal

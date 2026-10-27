@@ -227,7 +227,15 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   // Displayed phase number for a step (hosts skip the ownership step).
   const phaseNo = (s: number) => String(isHost ? s : s + 1).padStart(2, '0');
   const draftScope: PropertyDraftScope = isHost ? 'host' : 'admin';
-  const initialStep = (d?: PropertyDraft | null) => (d ? Math.min(Math.max(d.step ?? firstStep, firstStep), 6) : firstStep);
+  // Drafts store `step` as the displayed phase number (1-based: hosts 1–6,
+  // admins 1–7) — a raw 0 for the admin's first (ownership) step was coming
+  // back as 1, reopening the draft a step late. Convert to the step index.
+  const totalPhases = isHost ? 6 : 7;
+  const initialStep = (d?: PropertyDraft | null) => {
+    if (!d) return firstStep;
+    const phase = Math.min(Math.max(Math.round(Number(d.step) || 1), 1), totalPhases);
+    return isHost ? phase : phase - 1;
+  };
   // Seeded from the draft on mount too (not only in the reset effect below):
   // HostAssignmentPicker reads its value once when it mounts, and the admin
   // page mounts this modal already open.
@@ -302,6 +310,13 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   const [draftError, setDraftError] = useState<string | null>(null);
   const [uploadedImageId, setUploadedImageId] = useState<string | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<Partial<Record<VerificationField, string>>>({});
+  // Per document: a URL to preview / open it — a local object URL for a just
+  // picked file, or the uploaded file's URL (after a draft save / from a draft).
+  const [docUrls, setDocUrls] = useState<Partial<Record<VerificationField, string>>>({});
+  const docUrlsRef = useRef(docUrls);
+  docUrlsRef.current = docUrls;
+  const revokeIfLocal = (url?: string) => { if (url?.startsWith('blob:')) URL.revokeObjectURL(url); };
+  useEffect(() => () => Object.values(docUrlsRef.current).forEach(revokeIfLocal), []);
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   // Which end of the availability range the next calendar click sets.
@@ -325,6 +340,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
             .filter(([, id]) => !!id),
         ) as Partial<Record<VerificationField, string>>,
       );
+      Object.values(docUrlsRef.current).forEach(revokeIfLocal);
+      setDocUrls(
+        Object.fromEntries(
+          (draft?.documents ?? [])
+            .map(d => [d.type, typeof d.fileId === 'object' ? d.fileId?.fullUrl ?? d.fileId?.url : undefined] as const)
+            .filter(([, url]) => !!url),
+        ) as Partial<Record<VerificationField, string>>,
+      );
       setCurrentMonth(new Date());
       setRangeField('start');
       // Admin drafts keep the picked property categories (ids or populated).
@@ -337,6 +360,11 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       if (!isHost) loadPropertyCategories();
     }
   }, [isOpen, user, draft]);
+
+  // A submit error describes the form as it was — drop it as soon as the
+  // form (or the owner choice) is edited, e.g. after going back to add the
+  // missing title. Step changes alone keep it, so it can guide the fix.
+  useEffect(() => { setSubmitError(null); }, [formData, ownerSelection]);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const propertyDocRef = useRef<HTMLInputElement>(null);
@@ -375,7 +403,12 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
     await Promise.all(
       (Object.entries(verificationFiles) as Array<[VerificationField, File | undefined]>)
         .filter((entry): entry is [VerificationField, File] => Boolean(entry[1]))
-        .map(async ([type, file]) => { docs[type] = (await uploadFile(file)).id; }),
+        .map(async ([type, file]) => {
+          const res = await uploadFile(file);
+          docs[type] = res.id;
+          // Swap the local preview for the uploaded file's URL.
+          if (res.url) setDocUrls(prev => { revokeIfLocal(prev[type]); return { ...prev, [type]: res.url }; });
+        }),
     );
     setUploadedDocs(docs);
     setVerificationFiles({});
@@ -398,7 +431,8 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       delete ownerFields.password;
       const payload: PropertyDraftRequest = {
         ...ownerFields,
-        step,
+        // Displayed phase number (≥ 1), not the step index — see initialStep.
+        step: Number(phaseNo(step)),
         ...(!isHost ? { categoryIds: selectedCategoryIds } : {}),
         ...(formData.name.trim() ? { title: formData.name.trim() } : {}),
         ...(formData.description.trim() ? { description: formData.description.trim() } : {}),
@@ -537,6 +571,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
   const handleFileSelect = (field: VerificationField, file: File) => {
     setVerificationFiles(prev => ({ ...prev, [field]: file }));
     setUploadedDocs(prev => { const next = { ...prev }; delete next[field]; return next; });
+    setDocUrls(prev => { revokeIfLocal(prev[field]); return { ...prev, [field]: URL.createObjectURL(file) }; });
     setFormData(prev => ({
       ...prev,
       verifications: {
@@ -544,6 +579,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
         [field]: file.name
       }
     }));
+  };
+
+  // Remove a picked / uploaded verification document.
+  const handleFileRemove = (field: VerificationField) => {
+    setVerificationFiles(prev => { const next = { ...prev }; delete next[field]; return next; });
+    setUploadedDocs(prev => { const next = { ...prev }; delete next[field]; return next; });
+    setDocUrls(prev => { revokeIfLocal(prev[field]); const next = { ...prev }; delete next[field]; return next; });
+    setFormData(prev => ({ ...prev, verifications: { ...prev.verifications, [field]: null } }));
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -608,6 +651,69 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
       </div>
     </div>
   );
+
+  // A verification document card: empty → click to upload; filled → file
+  // name, preview (images) and View / Replace / Remove.
+  const renderDocCard = (
+    field: VerificationField,
+    title: string,
+    subtitle: string,
+    inputRef: React.RefObject<HTMLInputElement | null>,
+    optional = false,
+  ) => {
+    const name = formData.verifications[field];
+    const file = verificationFiles[field];
+    const url = docUrls[field];
+    const isImage = file ? file.type.startsWith('image/') : !!url && /\.(png|jpe?g|gif|webp|avif|heic|bmp)(\?|#|$)/i.test(url);
+    if (!name) {
+      return (
+        <div
+          onClick={() => inputRef.current?.click()}
+          className="p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer bg-surface border-border-misrah hover:border-accent"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase tracking-[1px]">{title}</span>
+            {optional
+              ? <span className="text-[8px] font-black text-muted-text uppercase tracking-[1px] bg-white px-2 py-0.5 rounded border">Optional</span>
+              : <Upload size={14} className="text-muted-text" />}
+          </div>
+          <p className="text-[9px] font-bold text-muted-text uppercase tracking-[1px]">{subtitle}</p>
+        </div>
+      );
+    }
+    return (
+      <div className="p-5 rounded-[32px] border bg-success/5 border-success/20 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-black uppercase tracking-[1px]">{title}</span>
+          <Check size={14} className="text-success" />
+        </div>
+        <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-white border border-border-misrah">
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface border border-border-misrah flex items-center justify-center shrink-0">
+            {isImage && url ? <img src={url} alt={name} className="w-full h-full object-cover" /> : <FileText size={18} className="text-primary" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-primary truncate" title={name}>{name}</p>
+            <p className="text-[9px] font-bold text-muted-text uppercase tracking-wider">
+              {file ? `${(file.size / 1024 / 1024).toFixed(file.size < 1024 * 1024 ? 2 : 1)} MB · Ready to upload` : 'Uploaded'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-wider">
+          {url && (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-accent flex items-center gap-1">
+              <ArrowUpRight size={12} /> View
+            </a>
+          )}
+          <button type="button" onClick={() => inputRef.current?.click()} className="text-primary hover:text-accent flex items-center gap-1">
+            <Upload size={12} /> Replace
+          </button>
+          <button type="button" onClick={() => handleFileRemove(field)} className="text-danger/80 hover:text-danger flex items-center gap-1 ml-auto">
+            <X size={12} /> Remove
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -830,6 +936,10 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
             {/* Step 3: Availability Calendar */}
             {step === 3 && (
               <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div>
+                  <h2 className="text-3xl font-black italic text-primary uppercase leading-tight">When is it<br />available?</h2>
+                  <p className="text-muted-text text-xs mt-2">Pick the start date, then an end date — or keep it available forever.</p>
+                </div>
                 {(() => {
                   const startDate = formData.availabilityDate ? new Date(formData.availabilityDate) : null;
                   const endDate = formData.availabilityEndDate ? new Date(formData.availabilityEndDate) : null;
@@ -1216,17 +1326,7 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
                       <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Identity Verification</h4>
-                      <div
-                        onClick={() => idRef.current?.click()}
-                        className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
-                          ${formData.verifications.emiratesId ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-black uppercase tracking-[1px]">Passport / Emirates ID</span>
-                          {formData.verifications.emiratesId ? <Check size={14} className="text-success" /> : <Upload size={14} className="text-muted-text" />}
-                        </div>
-                        <p className="text-[9px] font-bold text-muted-text uppercase tracking-[1px]">Passport photo page or Emirates ID front & back</p>
-                      </div>
+                      {renderDocCard('emiratesId', 'Passport / Emirates ID', 'Passport photo page or Emirates ID front & back', idRef)}
 
                       <div className="flex gap-3">
                          <div className="flex-1 p-4 bg-surface rounded-2xl border border-border-misrah flex flex-col gap-1">
@@ -1246,35 +1346,14 @@ export const AddListingModal = ({ isOpen, onClose, onAdd, user, draft, onDraftsC
 
                     <div className="space-y-4">
                       <h4 className="text-[10px] font-black uppercase tracking-[2px] text-accent">Property Authentication</h4>
-                      <div
-                        onClick={() => propertyDocRef.current?.click()}
-                        className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
-                          ${formData.verifications.propertyDoc ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-black uppercase tracking-[1px]">Title Deed / Ejari</span>
-                          {formData.verifications.propertyDoc ? <Check size={14} className="text-success" /> : <Upload size={14} className="text-muted-text" />}
-                        </div>
-                        <p className="text-[9px] font-bold text-muted-text uppercase tracking-[1px]">Or Management Authorization</p>
-                      </div>
-
-                      <div
-                        onClick={() => licenseRef.current?.click()}
-                        className={`p-6 rounded-[32px] border transition-all flex flex-col gap-2 cursor-pointer
-                          ${formData.verifications.tradeLicense ? 'bg-success/5 border-success/20' : 'bg-surface border-border-misrah hover:border-accent'}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-black uppercase tracking-[1px]">Trade License</span>
-                          <span className="text-[8px] font-black text-muted-text uppercase tracking-[1px] bg-white px-2 py-0.5 rounded border">Optional</span>
-                        </div>
-                        <p className="text-[9px] font-bold text-muted-text uppercase tracking-[1px]">Required for corporate nodes</p>
-                      </div>
+                      {renderDocCard('propertyDoc', 'Title Deed / Ejari', 'Or Management Authorization', propertyDocRef)}
+                      {renderDocCard('tradeLicense', 'Trade License', 'Required for corporate nodes', licenseRef, true)}
                     </div>
                   </div>
 
-                  <input ref={idRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('emiratesId', f); }} />
-                  <input ref={propertyDocRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('propertyDoc', f); }} />
-                  <input ref={licenseRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect('tradeLicense', f); }} />
+                  <input ref={idRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFileSelect('emiratesId', f); }} />
+                  <input ref={propertyDocRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFileSelect('propertyDoc', f); }} />
+                  <input ref={licenseRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFileSelect('tradeLicense', f); }} />
 
                   {user.verificationStatus === 'Rejected' && user.rejectionReason && (
                     <div className="p-6 bg-danger/5 border border-danger/20 rounded-[32px] flex items-start gap-4">

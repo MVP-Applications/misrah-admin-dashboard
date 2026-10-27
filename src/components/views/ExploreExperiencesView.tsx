@@ -26,6 +26,7 @@ import {
   TriangleAlert,
   ChevronLeft,
   Minus,
+  ImageOff,
   Plus
 } from 'lucide-react';
 import { Property, PriceType } from '../../types';
@@ -221,11 +222,15 @@ export const ExploreExperiencesView = ({
             >
               {/* Photo & Category Badge */}
               <div className="h-52 relative overflow-hidden bg-surface">
-                <img 
-                  src={exp.images?.[0] || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80'} 
-                  alt={exp.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
-                />
+                {exp.images?.[0] ? (
+                  <img
+                    src={exp.images[0]}
+                    alt={exp.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[#D4C3B5]"><ImageOff size={28} /></div>
+                )}
                 <div className="absolute inset-0 bg-linear-to-t from-primary/80 via-transparent to-transparent" />
 
                 <div className="absolute top-4 left-4 flex items-center gap-2">
@@ -237,7 +242,8 @@ export const ExploreExperiencesView = ({
 
                 <div className="absolute top-4 right-4 px-2.5 py-1 rounded-xl bg-accent text-primary text-[10px] font-black shadow-sm flex items-center gap-1">
                   <Star size={12} fill="currentColor" />
-                  <span>5.0</span>
+                  <span>{exp.rating > 0 ? exp.rating.toFixed(1) : 'New'}</span>
+                  {exp.reviewsCount > 0 && <span className="opacity-70">({exp.reviewsCount})</span>}
                 </div>
 
                 <div className="absolute bottom-3 left-4 right-4 text-white">

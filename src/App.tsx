@@ -29,12 +29,9 @@ import {
 } from 'lucide-react';
 
 // Types
-import { User as UserType, UserRole, Property, Booking } from './types';
+import { User as UserType, UserRole, Booking } from './types';
 import type { AdminUser } from './features/auth/types';
 
-// Experiences mock data (standalone — ported from misrah-retreats-admin,
-// no backend endpoints exist for this feature yet)
-import { INITIAL_EXPERIENCE_PROPERTIES } from './data/experienceProperties';
 
 // Auth
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
@@ -220,7 +217,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                 <SidebarItem icon={LayoutDashboard} label={t('nav.overview')} active={location.pathname === '/dashboard'} onClick={() => navigate('/dashboard')} />
                 <SidebarItem icon={Home} label={t('nav.myListings')} active={isListingsActive} onClick={() => navigate('/listings')} />
                   <SidebarItem icon={Sparkles} label={t('nav.myExperiences')} active={location.pathname === '/experiences'} onClick={() => navigate('/experiences')} />
-                <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} badge="3" />
+                <SidebarItem icon={Calendar} label={t('nav.bookings')} active={location.pathname === '/bookings'} onClick={() => navigate('/bookings')} />
                 <SidebarItem icon={Banknote} label={t('nav.earnings')} active={location.pathname === '/earnings'} onClick={() => navigate('/earnings')} />
                 <SidebarItem icon={HandCoins} label={t('nav.settlements')} active={location.pathname === '/settlements'} onClick={() => navigate('/settlements')} />
               </section>
@@ -230,7 +227,7 @@ const AppShell = ({ user, onLogout }: AppShellProps) => {
                   {t('nav.section.directLines')}
                 </h4>
                 <SidebarItem icon={Compass} label={t('nav.guestExplore')} active={location.pathname === '/explore-experiences'} onClick={() => navigate('/explore-experiences')} />
-                <SidebarItem icon={MessageSquare} label={t('nav.messages')} active={location.pathname === '/messages'} onClick={() => navigate('/messages')} badge="1" />
+                <SidebarItem icon={MessageSquare} label={t('nav.messages')} active={location.pathname === '/messages'} onClick={() => navigate('/messages')} />
                 <SidebarItem icon={Star} label={t('nav.reviews')} active={location.pathname === '/reviews'} onClick={() => navigate('/reviews')} />
               </section>
             </>
@@ -411,12 +408,6 @@ const BootstrappingScreen = () => (
 
 function AppRoutes() {
   const { status, user, portalRole, logout } = useAuth();
-
-  // Standalone mock state backing the still-unmigrated Guest Explore preview
-  // (ExploreExperiencesView) — ExperiencesView itself is now fully backed by
-  // the real /admin/experiences API (see features/experiences/), so this no
-  // longer needs a mutator for it.
-  const [experienceProperties] = useState<Property[]>(INITIAL_EXPERIENCE_PROPERTIES);
 
   if (status === 'bootstrapping') {
     return <BootstrappingScreen />;
