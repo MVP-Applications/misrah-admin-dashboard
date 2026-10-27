@@ -8,9 +8,6 @@ import {
   Star, 
   CheckCircle2, 
   ShieldCheck, 
-  Mail, 
-  Smartphone, 
-  Bell, 
   Sparkles, 
   Clock, 
   Check, 
@@ -61,7 +58,8 @@ export const PrivateReplyModal = ({
   onSendReply
 }: PrivateReplyModalProps) => {
   const [message, setMessage] = useState('');
-  const [channel, setChannel] = useState<'In-App Message' | 'Direct SMS / WhatsApp' | 'VIP Email'>('In-App Message');
+  // No channel picker in the UI any more — replies always go in-app.
+  const [channel] = useState<'In-App Message' | 'Direct SMS / WhatsApp' | 'VIP Email'>('In-App Message');
   const [isSending, setIsSending] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -259,37 +257,6 @@ export const PrivateReplyModal = ({
 
           {/* Reply Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Delivery Channel Selector */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-muted-text block">
-                Direct Communication Channel:
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {[
-                  { id: 'In-App Message' as const, label: 'In-App Message', icon: Bell },
-                  { id: 'Direct SMS / WhatsApp' as const, label: 'SMS / WhatsApp', icon: Smartphone },
-                  { id: 'VIP Email' as const, label: 'VIP Email', icon: Mail }
-                ].map((ch) => {
-                  const Icon = ch.icon;
-                  const isSelected = channel === ch.id;
-                  return (
-                    <button
-                      key={ch.id}
-                      type="button"
-                      onClick={() => setChannel(ch.id)}
-                      className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer
-                        ${isSelected
-                          ? 'bg-primary text-white border-primary shadow-sm'
-                          : 'bg-white text-muted-text border-border-misrah hover:text-primary hover:border-accent'}`}
-                    >
-                      <Icon size={14} className={isSelected ? 'text-accent' : ''} />
-                      <span className="text-[11px] font-black uppercase">{ch.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Quick Template Presets */}
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-widest text-muted-text block">

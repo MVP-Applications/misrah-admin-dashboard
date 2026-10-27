@@ -13,7 +13,6 @@ export interface ExperienceRow extends ActivityExperience {
   durationHours: number;
 }
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80';
 
 // Defensive coercion for fields the UI renders directly. Some records (seen
 // on the Approved tab) can carry populated objects where the list normally
@@ -102,7 +101,7 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     propertyId: toId(item.propertyIds?.[0]),
     propertyName: toText(primaryProperty?.title, 'Unassigned Property'),
     propertyCity: toText(primaryProperty?.city, '—'),
-    propertyImage: toText(primaryProperty?.images?.[0]?.fullUrl) || toText(item.coverPhoto) || FALLBACK_IMAGE,
+    propertyImage: toText(primaryProperty?.images?.[0]?.fullUrl) || toText(item.coverPhoto),
     hostId: toId(item.hostId),
     title: toText(item.title, 'Untitled Experience'),
     titleAr: toText(item.titleAr) || undefined,
@@ -111,7 +110,7 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     categoryNameAr: toText(item.categoryNameAr) || catalogCategory?.nameAr,
     categoryEmoji: toText(item.categoryEmoji) || catalogCategory?.emoji || '✨',
     description: toText(item.description),
-    images: toTextList(item.images).length ? toTextList(item.images) : [toText(item.coverPhoto) || FALLBACK_IMAGE],
+    images: toTextList(item.images).length ? toTextList(item.images) : (toText(item.coverPhoto) ? [toText(item.coverPhoto)] : []),
     price: toNumber(item.price),
     priceType: item.priceType,
     // Backend stores duration in numeric hours — formatted here for the
@@ -135,7 +134,9 @@ export function apiExperienceToViewModel(item: ApiExperienceListItem): Experienc
     whatToBring: toTextList(item.whatToBring),
     addons,
     bookingsCount: toNumber(item.bookingsCount),
-    rating: toNumber(item.rating, 5) || 5,
-    reviewsCount: toNumber(item.reviewsCount),
+    // Explore/list responses may use either naming (rating/reviewsCount or
+    // avgRating/reviewCount); 0 means not rated yet.
+    rating: toNumber(item.rating ?? item.avgRating),
+    reviewsCount: toNumber(item.reviewsCount ?? item.reviewCount),
   };
 }

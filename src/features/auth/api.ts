@@ -3,7 +3,7 @@ import { assertResponseShape } from '../../api/assertShape';
 import { API_ENDPOINTS } from '../../api/endpoints';
 import type { ApiSuccessEnvelope } from '../../api/types';
 import type { UserRole } from '../../types';
-import type { AutologinResponse, HostOtpSendRequest, LoginRequest, LoginResponse, LogoutRequest } from './types';
+import type { AutologinResponse, HostOtpLoginRequest, HostOtpSendRequest, LoginRequest, LoginResponse, LogoutRequest } from './types';
 
 // Confirmed live: every success response is wrapped in { success, message,
 // data, timestamp, responseTime } — unwrap .data before validating the inner
@@ -40,6 +40,13 @@ export async function autologin(): Promise<AutologinResponse> {
 // response body isn't relied on (shape unconfirmed), success is the 2xx.
 export async function sendHostLoginOtp(payload: HostOtpSendRequest): Promise<void> {
   await apiClient.post(API_ENDPOINTS.host.auth.otpSend, payload);
+}
+
+// POST /host/auth/otp/login — redeems the SMS code for a Host Hub session.
+// Returns the same tokens + user as the password login.
+export async function loginHostWithOtp(payload: HostOtpLoginRequest): Promise<LoginResponse> {
+  const { data } = await apiClient.post<ApiSuccessEnvelope<LoginResponse>>(API_ENDPOINTS.host.auth.otpLogin, payload);
+  return assertResponseShape('otp login', data.data, ['access_token', 'refresh_token', 'user']);
 }
 
 // Password reset via recovery code (host → /host/auth/*, admin → /admin/auth/*):

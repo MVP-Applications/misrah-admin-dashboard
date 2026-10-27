@@ -28,7 +28,7 @@ import { StatCard } from '../ui/StatCard';
 import { User, Booking, Property } from '../../types';
 import { listAdminProperties, listMyProperties } from '../../features/properties/api';
 import { apiPropertyToViewModel } from '../../features/properties/mappers';
-import { listBookings } from '../../features/bookings/api';
+import { listBookings, listHostBookings } from '../../features/bookings/api';
 import { toLegacyBooking } from '../../features/bookings/mappers';
 import { getAdminDashboard, getHostDashboardOverview } from '../../features/dashboard/api';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -87,9 +87,7 @@ interface GeoHubConfig {
   img: string;
   occupancy: number;
   description: string;
-  latency: string;
   coordinates: string;
-  topAreas: string[];
   // From the overview API's geoHubs.regions — when present these override the
   // static config / client-side fallbacks in the cards and hub inspector.
   propertyCount?: number;
@@ -154,6 +152,10 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
     if (c === 'abu dhabi') return 'Abu Dhabi';
     if (c === 'sharjah') return 'Sharjah';
     if (c === 'dubai') return 'Dubai';
+    if (c === 'ajman') return 'Ajman';
+    if (c.replace(/[-\s]+/g, ' ') === 'al ain') return 'Al Ain';
+    if (c === 'fujairah' || c === 'al fujairah') return 'Fujairah';
+    if (c === 'uaq' || c.replace(/[-\s]+/g, ' ') === 'umm al quwain') return 'Umm Al Quwain';
     return city;
   };
 
@@ -175,46 +177,63 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
     setIsFleetModalOpen(false);
   };
 
-  const GEO_HUBS: GeoHubConfig[] = [
+  // Imagery/copy only — occupancy and status always come from the API.
+  const GEO_HUBS: Pick<GeoHubConfig, 'name' | 'tag' | 'img' | 'description' | 'coordinates'>[] = [
     {
       name: 'Dubai',
       tag: 'Top Tier Node',
       img: '/asets/Dubai-1512.webp',
-      occupancy: 94,
       description: 'Premier luxury metropolitan core featuring Downtown Burj Khalifa, Palm Jumeirah waterfront villas, and Dubai Marina duplexes.',
-      latency: '12ms',
-      coordinates: '25.2048° N, 55.2708° E',
-      topAreas: ['Downtown Burj Khalifa', 'Palm Jumeirah', 'Dubai Marina', 'DIFC Luxury Core']
+      coordinates: '25.2048° N, 55.2708° E'
     },
     {
       name: 'Abu Dhabi',
       tag: 'Capital Flagship',
       img: '/asets/AdobeStock_46380625.webp',
-      occupancy: 88,
       description: 'Federal capital sanctuaries spanning Saadiyat Island cultural retreats, Yas Island beachfront residences, and royal desert estates.',
-      latency: '15ms',
-      coordinates: '24.4539° N, 54.3773° E',
-      topAreas: ['Saadiyat Cultural District', 'Yas Marina', 'Al Bateen Waterfront']
+      coordinates: '24.4539° N, 54.3773° E'
     },
     {
       name: 'Sharjah',
       tag: 'Culture & Coast',
       img: '/asets/Al_Qasba.jpg',
-      occupancy: 82,
       description: 'The UNESCO Cultural Capital of the UAE with Al Qasba waterfront residences, historic arts quarters, and serene coastal views.',
-      latency: '18ms',
-      coordinates: '25.3463° N, 55.4209° E',
-      topAreas: ['Al Qasba Waterfront', 'Arts & Heritage District', 'Al Majaz Canal']
+      coordinates: '25.3463° N, 55.4209° E'
     },
     {
       name: 'Ras Al Khaimah',
       tag: 'Mountain & Island',
       img: '/asets/al-marjan-island-1.webp',
-      occupancy: 91,
       description: 'Ultra-luxury coastal retreats on Al Marjan Island integrated with adventure sanctuaries at the peak of Jebel Jais.',
-      latency: '21ms',
-      coordinates: '25.6741° N, 55.9804° E',
-      topAreas: ['Al Marjan Island', 'Jebel Jais Peak', 'Al Hamra Lagoon']
+      coordinates: '25.6741° N, 55.9804° E'
+    },
+    {
+      name: 'Ajman',
+      tag: 'Coastal Retreat',
+      img: '/asets/Ajman.webp',
+      description: 'Relaxed beachfront living along the Ajman Corniche with marina residences and quiet coastal escapes.',
+      coordinates: '25.4052° N, 55.5136° E'
+    },
+    {
+      name: 'Fujairah',
+      tag: 'East Coast',
+      img: '/asets/fujairah.jpg',
+      description: 'East coast retreats between the Hajar Mountains and the Gulf of Oman, with secluded beaches and dive sites.',
+      coordinates: '25.1288° N, 56.3265° E'
+    },
+    {
+      name: 'Umm Al Quwain',
+      tag: 'Lagoon & Mangroves',
+      img: '/asets/ummalquwain.webp',
+      description: 'Tranquil lagoon-side stays among mangroves and islands, with heritage sites and calm waterfront escapes.',
+      coordinates: '25.5647° N, 55.5552° E'
+    },
+    {
+      name: 'Al Ain',
+      tag: 'Garden City',
+      img: '/asets/alain.jpeg',
+      description: 'Inland oasis retreats in the Garden City, framed by palm groves, heritage forts and the slopes of Jebel Hafeet.',
+      coordinates: '24.2075° N, 55.7447° E'
     }
   ];
 
@@ -228,11 +247,9 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           name,
           tag: region.categoryTag || known?.tag || 'Regional Node',
           img: region.imageUrl || known?.img || '',
-          occupancy: region.occupancyRate ?? known?.occupancy ?? 0,
+          occupancy: region.occupancyRate ?? 0,
           description: region.description || known?.description || `Misrah retreats and experiences across ${name}.`,
-          latency: known?.latency ?? '—',
           coordinates: region.formattedCoordinates || known?.coordinates || '—',
-          topAreas: known?.topAreas ?? [],
           propertyCount: region.propertyCount,
           cityId: region.cityId,
           country: region.country,
@@ -245,19 +262,38 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           formattedLiveBookingsAmount: region.formattedLiveBookingsAmount,
         };
       })
-    : GEO_HUBS;
-  const activeNodesCount = dashboard ? dashboard.geoHubs.activeNodesCount : hubs.length;
+    : [];
+  const activeNodesCount = dashboard ? dashboard.geoHubs.activeNodesCount : 0;
 
   useEffect(() => {
+    // Hosts must stay off the /admin/* endpoints — they read their own
+    // properties (/property/my) and bookings (/booking/host) instead.
+    if (user.role === 'manager') {
+      listMyProperties({ page: 1, limit: 100 })
+        .then(r => {
+          const count = (status: string) => r.data.filter(p => String(p.status ?? '').toLowerCase() === status).length;
+          setPendingCount(count('pending'));
+          setApprovedCount(count('approved'));
+          setProperties(r.data.map(apiPropertyToViewModel));
+        })
+        .catch(() => setProperties([]));
+      listHostBookings({ page: 1, limit: 100 })
+        .then(r => {
+          const bookings = r.data.map(toLegacyBooking);
+          setHubBookings(bookings);
+          setRecentBookings(bookings.slice(0, 4));
+        })
+        .catch(() => {});
+      return;
+    }
     listAdminProperties({ status: 'pending', limit: 1 }).then(r => setPendingCount(r.meta.total));
     listAdminProperties({ status: 'approved', limit: 1 }).then(r => setApprovedCount(r.meta.total));
     listBookings({ page: 1, limit: 4 }).then(r => setRecentBookings(r.data.map(toLegacyBooking)));
-    // Hub inspector's property list — host reads its own (/property/my).
-    (user.role === 'manager' ? listMyProperties({ page: 1, limit: 100 }) : listAdminProperties({ limit: 100 }))
+    listAdminProperties({ limit: 100 })
       .then(r => setProperties(r.data.map(apiPropertyToViewModel)))
       .catch(() => setProperties([]));
     listBookings({ page: 1, limit: 100 }).then(r => setHubBookings(r.data.map(toLegacyBooking)));
-  }, []);
+  }, [user.role]);
 
   return (
     <div className="space-y-8">
@@ -274,16 +310,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex -space-x-2">
-            {[1, 2, 3].map(i => (
-              <div key={i} aria-label="Active User" className="w-8 h-8 rounded-full border-2 border-white shadow-sm bg-surface flex items-center justify-center text-muted-text/60"><UserRound size={14} /></div>
-            ))}
-            <div className="w-8 h-8 rounded-full border-2 border-white bg-surface flex items-center justify-center text-[10px] font-black text-muted-text shadow-sm">
-              +{dashboard?.header ? dashboard.header.liveInRegionCount : 12}
-            </div>
-          </div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-primary/40 ml-1">{t('dash.liveInRegion')}</p>
-          <div className="flex items-center gap-2 ml-3">
+          <div className="flex items-center gap-2">
             <select
               value={dashMonth}
               onChange={e => setDashMonth(Number(e.target.value))}
@@ -482,20 +509,11 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                      <span className="text-xs font-black text-primary">{c.percentage}% <span className="text-muted-text/50 font-bold">({c.count})</span></span>
                    </div>
                  ))
-               ) : [
-                 { label: 'Beachside', val: '35%', color: 'bg-accent' },
-                 { label: 'Skyline', val: '30%', color: 'bg-primary' },
-                 { label: 'Desert', val: '20%', color: 'bg-muted-text' },
-                 { label: 'Mountain', val: '15%', color: 'bg-accent-light' },
-               ].map(t => (
-                 <div key={t.label} className="flex items-center justify-between">
-                   <div className="flex items-center gap-3">
-                     <div className={`w-2.5 h-2.5 rounded-full ${t.color} shadow-sm`} />
-                     <span className="text-[11px] font-black uppercase tracking-widest text-primary/60">{t.label}</span>
-                   </div>
-                   <span className="text-xs font-black text-primary">{t.val}</span>
-                 </div>
-               ))}
+               ) : (
+                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50 text-center">
+                   {isDashboardLoading ? 'Loading…' : 'No data available'}
+                 </p>
+               )}
              </div>
            </div>
         </div>
@@ -543,6 +561,11 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
           </button>
         </div>
         
+        {hubs.length === 0 && (
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-text/50 py-10 text-center">
+            {isDashboardLoading ? 'Loading regions…' : 'No region data available'}
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {hubs.map(city => {
             const cityProps = getCityProperties(city.name);
@@ -638,10 +661,12 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                       <span className="px-3 py-1 rounded-full bg-accent/20 backdrop-blur-md border border-accent/40 text-[10px] font-black text-accent uppercase tracking-widest">
                         {selectedHub.tag}
                       </span>
-                      <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-success" />
-                        {selectedHub.nodeStatus || selectedHub.latency}
-                      </span>
+                      {selectedHub.nodeStatus && (
+                        <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-success" />
+                          {selectedHub.nodeStatus}
+                        </span>
+                      )}
                     </div>
                     <button 
                       onClick={() => setSelectedHub(null)}
@@ -773,7 +798,7 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                               <span>·</span>
                               <span>{prop.beds} Beds</span>
                               <span>·</span>
-                              <span>★ {prop.rating > 0 ? prop.rating : '5.0'}</span>
+                              <span>★ {prop.rating > 0 ? prop.rating.toFixed(1) : 'New'}</span>
                             </div>
                           </div>
                         </div>
@@ -878,10 +903,12 @@ export const DashboardView = ({ user }: DashboardViewProps) => {
                           <span className="text-[9px] font-black text-accent uppercase tracking-widest bg-accent/10 px-2.5 py-0.5 rounded-full">
                             {hub.tag}
                           </span>
-                          <span className="text-[9px] font-black text-success uppercase tracking-widest flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                            {hub.nodeStatus || hub.latency}
-                          </span>
+                          {hub.nodeStatus && (
+                            <span className="text-[9px] font-black text-success uppercase tracking-widest flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                              {hub.nodeStatus}
+                            </span>
+                          )}
                         </div>
                         <h4 className="text-lg font-black italic text-primary uppercase tracking-tight">
                           {hub.name}

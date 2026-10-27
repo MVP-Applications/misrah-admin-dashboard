@@ -3,7 +3,7 @@ import { getRefreshedAccessToken, setOnSessionExpired } from '../../api/client';
 import type { UserRole } from '../../types';
 import * as authApi from './api';
 import * as tokenStorage from './tokenStorage';
-import type { AdminUser, LoginRequest } from './types';
+import type { AdminUser, LoginRequest, LoginResponse } from './types';
 
 type AuthStatus = 'bootstrapping' | 'authenticated' | 'unauthenticated';
 
@@ -25,6 +25,8 @@ interface AuthContextValue {
    * `email`, anything else as `phoneNumber` (see toLoginRequest()).
    */
   login: (identifier: string, password: string, role?: UserRole) => Promise<void>;
+  /** Host Hub only — signs in with the SMS code from POST /host/auth/otp/send. */
+  loginWithOtp: (phoneNumber: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -113,8 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const login = useCallback(async (identifier: string, password: string, role: UserRole = 'admin') => {
-    const response = await authApi.login(toLoginRequest(identifier, password), role);
+  const startSession = useCallback((response: LoginResponse, role: UserRole) => {
     tokenStorage.setAccessToken(response.access_token);
     tokenStorage.setRefreshToken(response.refresh_token);
     // Persisted (not just kept in this component's state) so a later silent
@@ -127,6 +128,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPortalRole(role);
     setStatus('authenticated');
   }, []);
+
+  const login = useCallback(async (identifier: string, password: string, role: UserRole = 'admin') => {
+    startSession(await authApi.login(toLoginRequest(identifier, password), role), role);
+  }, [startSession]);
+
+  const loginWithOtp = useCallback(async (phoneNumber: string, otp: string) => {
+    startSession(await authApi.loginHostWithOtp({ phoneNumber, otp }), 'manager');
+  }, [startSession]);
 
   const logout = useCallback(async () => {
     const storedRefreshToken = tokenStorage.getRefreshToken();
@@ -150,8 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, portalRole, login, logout }),
-    [status, user, portalRole, login, logout],
+    () => ({ status, user, portalRole, login, loginWithOtp, logout }),
+    [status, user, portalRole, login, loginWithOtp, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

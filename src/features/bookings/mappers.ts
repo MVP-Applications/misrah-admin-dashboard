@@ -24,6 +24,13 @@ export function deriveDisplayStatus(status: string, checkInDate: string, checkOu
   return 'Pending';
 }
 
+// Reference shown for a booking: its bookingCode, or (older bookings
+// without one) the last 8 characters of its id. Display only — API calls
+// always use _id.
+export function bookingReference(booking: { _id: string; bookingCode?: string }): string {
+  return booking.bookingCode?.trim() || booking._id.slice(-8).toUpperCase();
+}
+
 export function formatBookingDate(iso: string): string {
   try {
     return format(parseISO(iso), 'MMM d, yyyy');

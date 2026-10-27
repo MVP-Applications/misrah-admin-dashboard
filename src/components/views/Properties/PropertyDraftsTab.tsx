@@ -50,7 +50,6 @@ interface PropertyDraftsTabProps {
 
 export const PropertyDraftsTab = ({ scope, onContinue, refreshKey }: PropertyDraftsTabProps) => {
   const isAdmin = scope === 'admin';
-  const firstStep = isAdmin ? 0 : 1;
   const totalPhases = isAdmin ? 7 : 6;
   const [drafts, setDrafts] = useState<PropertyDraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,9 +146,10 @@ export const PropertyDraftsTab = ({ scope, onContinue, refreshKey }: PropertyDra
             {drafts.map(draft => {
               const image = draftImage(draft);
               const city = draftCity(draft);
-              const step = Math.min(Math.max(draft.step ?? firstStep, firstStep), 6);
+              // `step` is saved as the displayed phase number (1-based).
+              const phase = Math.min(Math.max(Math.round(Number(draft.step) || 1), 1), totalPhases);
+              const step = isAdmin ? phase - 1 : phase;
               // Displayed phase, matching the modal's own numbering.
-              const phase = isAdmin ? step + 1 : step;
               const owner = isAdmin ? draftOwner(draft) : null;
               const updated = draft.updatedAt ?? draft.createdAt;
               return (

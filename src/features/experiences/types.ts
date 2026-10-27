@@ -96,6 +96,8 @@ export interface ApiExperienceListItem {
   bookingsCount?: number;
   rating?: number;
   reviewsCount?: number;
+  avgRating?: number;
+  reviewCount?: number;
   createdAt: string;
   updatedAt: string;
 }

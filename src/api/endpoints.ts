@@ -98,7 +98,8 @@ export const API_ENDPOINTS = {
       login: '/admin/auth/login',
       refresh: '/admin/auth/refresh',
       logout: '/admin/auth/logout',
-      // TODO: not wired up yet — see API_INTEGRATION.md → "Known Gaps".
+      // Password reset: forgot-password → verify-otp → reset-password
+      // (login screen's "Forgot password" and Profile → Update Password).
       forgotPassword: '/admin/auth/forgot-password',
       verifyOtp: '/admin/auth/verify-otp',
       resetPassword: '/admin/auth/reset-password',
@@ -118,9 +119,11 @@ export const API_ENDPOINTS = {
       login: '/host/auth/login',
       refresh: '/host/auth/refresh',
       // Confirmed live, returns 201. Sends an SMS sign-in code to a host's
-      // phone — there is no admin equivalent. Verifying the code isn't wired
-      // up yet (no verify endpoint confirmed).
+      // phone — there is no admin equivalent.
       otpSend: '/host/auth/otp/send',
+      // POST { phoneNumber, otp } → same body as login. Path mirrors the
+      // traveller app's /consumer/auth/otp/login (not yet confirmed live).
+      otpLogin: '/host/auth/otp/login',
       // Profile → Update Password: POST { email } emails a reset token, then
       // POST { token, newPassword } with that token.
       forgotPassword: '/host/auth/forgot-password',

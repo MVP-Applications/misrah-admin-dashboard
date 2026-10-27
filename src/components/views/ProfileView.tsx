@@ -29,10 +29,7 @@ import {
   MessageSquare,
   Check,
   CheckCircle2,
-  Copy,
-  QrCode,
   Smartphone,
-  Fingerprint,
   KeyRound,
   Mail,
   AlertCircle
@@ -341,14 +338,6 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordStrengthEnforced, setPasswordStrengthEnforced] = useState(true);
 
-  // 2FA & Authenticator State
-  const [isTwoFactorEnabled, setIsTwoFactorEnabled] = useState(true);
-  const [twoFactorType, setTwoFactorType] = useState<'authenticator' | 'biometric'>('authenticator');
-  const [isAuthenticatorModalOpen, setIsAuthenticatorModalOpen] = useState(false);
-  const [totpCode, setTotpCode] = useState('');
-  const [totpError, setTotpError] = useState('');
-  const [copiedSecret, setCopiedSecret] = useState(false);
-  const authenticatorSecret = 'JBSWY3DPEHPK3PXP';
 
 
   // Language state
@@ -403,20 +392,6 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
     }
   };
 
-  // Authenticator verification submit
-  const handleVerifyTotp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (totpCode.trim().length !== 6) {
-      setTotpError('Please enter a valid 6-digit authentication code.');
-      return;
-    }
-    setTotpError('');
-    setIsTwoFactorEnabled(true);
-    setTwoFactorType('authenticator');
-    setIsAuthenticatorModalOpen(false);
-    setTotpCode('');
-    showToast('Authenticator app configured & 2FA enabled successfully!');
-  };
 
   const menuItems = [
     { id: 'personal', label: t('profile.menu.personal'), icon: User, desc: t('profile.menu.personalDesc'), color: 'bg-info/10 text-info' },
@@ -881,88 +856,6 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
                      Update
                    </button>
                  </div>
-                 {/* 2FA / Authenticator Box */}
-                 <div className={`p-7 rounded-[32px] border transition-all space-y-3 ${isTwoFactorEnabled ? 'bg-success/5 border-success/15' : 'bg-surface/60 border-border-misrah'}`}>
-                   <div className="flex items-center justify-between">
-                     <div className="flex items-center gap-3.5">
-                       <Shield className={isTwoFactorEnabled ? 'text-success' : 'text-muted-text'} size={24} />
-                       <div>
-                         <div className="flex items-center gap-2">
-                           <p className={`text-xs font-black uppercase italic ${isTwoFactorEnabled ? 'text-success' : 'text-muted-text'}`}>
-                             {isTwoFactorEnabled 
-                               ? (twoFactorType === 'authenticator' ? '2FA Enabled (Authenticator)' : '2FA Enabled (Biometric)') 
-                               : '2FA Disabled'}
-                           </p>
-                           <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${isTwoFactorEnabled ? 'bg-success/15 text-success' : 'bg-muted-text/15 text-muted-text'}`}>
-                             {isTwoFactorEnabled ? 'Active' : 'Off'}
-                           </span>
-                         </div>
-                         <p className="text-[10px] font-medium text-muted-text mt-0.5 leading-tight">
-                           {isTwoFactorEnabled 
-                             ? (twoFactorType === 'authenticator' 
-                                 ? 'Your account is secured with Google Authenticator / TOTP codes.' 
-                                 : 'Your account is secured with biometric verification nodes.')
-                             : 'Add Authenticator app or biometric nodes for secondary verification.'}
-                         </p>
-                       </div>
-                     </div>
-
-                     {/* Quick Toggle / Setup Action */}
-                     <div className="flex items-center gap-2">
-                       <button
-                         type="button"
-                         onClick={() => setIsAuthenticatorModalOpen(true)}
-                         className="text-[9px] font-black text-accent uppercase tracking-widest hover:underline cursor-pointer px-2.5 py-1.5 rounded-xl border border-accent/20 bg-white hover:bg-accent hover:text-white transition-all shadow-xs"
-                         title="Setup or Reconfigure Authenticator"
-                       >
-                         Configure Authenticator
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* Sub Action row */}
-                   <div className="pt-2 border-t border-border-misrah/40 flex items-center justify-between text-[9px] font-bold">
-                     <div className="flex items-center gap-3">
-                       <button
-                         type="button"
-                         onClick={() => {
-                           setTwoFactorType('authenticator');
-                           setIsTwoFactorEnabled(true);
-                           showToast('Switched to Authenticator App verification.');
-                         }}
-                         className={`cursor-pointer hover:underline flex items-center gap-1 ${twoFactorType === 'authenticator' && isTwoFactorEnabled ? 'text-success font-black' : 'text-muted-text'}`}
-                       >
-                         <Smartphone size={11} />
-                         <span>Authenticator App</span>
-                       </button>
-                       <span className="text-muted-text/40">·</span>
-                       <button
-                         type="button"
-                         onClick={() => {
-                           setTwoFactorType('biometric');
-                           setIsTwoFactorEnabled(true);
-                           showToast('Switched to Biometric Passkey verification.');
-                         }}
-                         className={`cursor-pointer hover:underline flex items-center gap-1 ${twoFactorType === 'biometric' && isTwoFactorEnabled ? 'text-success font-black' : 'text-muted-text'}`}
-                       >
-                         <Fingerprint size={11} />
-                         <span>Biometric Passkey</span>
-                       </button>
-                     </div>
-
-                     <button
-                       type="button"
-                       onClick={() => {
-                         const next = !isTwoFactorEnabled;
-                         setIsTwoFactorEnabled(next);
-                         showToast(next ? 'Two-Factor Authentication enabled.' : 'Two-Factor Authentication disabled.', next ? 'success' : 'info');
-                       }}
-                       className={`uppercase tracking-wider cursor-pointer hover:underline ${isTwoFactorEnabled ? 'text-danger' : 'text-success font-black'}`}
-                     >
-                       {isTwoFactorEnabled ? 'Disable 2FA' : 'Enable 2FA'}
-                     </button>
-                   </div>
-                 </div>
               </div>
            </div>
 
@@ -1075,108 +968,6 @@ export const ProfileView = ({ user, onLogout }: ProfileViewProps) => {
              </div>
            </div>
         </div>
-
-        {/* AUTHENTICATOR SETUP MODAL */}
-        <AnimatePresence>
-          {isAuthenticatorModalOpen && (
-            <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-primary/70 backdrop-blur-sm">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white rounded-[36px] border border-border-misrah p-8 md:p-10 max-w-md w-full shadow-2xl space-y-6 relative overflow-hidden"
-              >
-                <div className="flex items-center justify-between border-b border-border-misrah pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-accent/15 text-accent flex items-center justify-center">
-                      <QrCode size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-black italic text-primary uppercase">Authenticator Setup</h3>
-                      <p className="text-[9px] font-bold text-muted-text uppercase tracking-widest">
-                        Google Authenticator / 1Password / Authy
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsAuthenticatorModalOpen(false)}
-                    className="w-8 h-8 rounded-full bg-surface flex items-center justify-center text-muted-text hover:text-primary transition-colors cursor-pointer"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* QR Code Mock Preview */}
-                <div className="text-center space-y-3">
-                  <div className="w-44 h-44 mx-auto p-3 bg-white rounded-2xl border-2 border-dashed border-border-misrah shadow-inner flex flex-col items-center justify-center space-y-2">
-                    <QrCode size={110} className="text-primary" />
-                    <span className="text-[8px] font-mono text-muted-text uppercase tracking-widest">Scan in Authenticator</span>
-                  </div>
-                  <p className="text-[11px] text-muted-text leading-tight px-4">
-                    Scan this QR code with your authenticator app, or manually enter the key below:
-                  </p>
-                </div>
-
-                {/* Secret Key with Copy */}
-                <div className="p-3 bg-surface rounded-2xl border border-border-misrah flex items-center justify-between">
-                  <div className="font-mono text-xs font-bold text-primary tracking-widest">
-                    {authenticatorSecret}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(authenticatorSecret);
-                      setCopiedSecret(true);
-                      setTimeout(() => setCopiedSecret(false), 2000);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-white border border-border-misrah text-[9px] font-black uppercase tracking-wider text-primary hover:border-accent flex items-center gap-1 cursor-pointer transition-all"
-                  >
-                    {copiedSecret ? <Check size={12} className="text-success" /> : <Copy size={12} className="text-accent" />}
-                    <span>{copiedSecret ? 'Copied' : 'Copy'}</span>
-                  </button>
-                </div>
-
-                {/* Verification Code Form */}
-                <form onSubmit={handleVerifyTotp} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-text block">
-                      Enter 6-digit Code from Authenticator:
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={totpCode}
-                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456"
-                      className="w-full bg-[#FCFAF8] border border-border-misrah rounded-2xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-primary outline-none focus:border-accent"
-                    />
-                    {totpError && (
-                      <p className="text-[10px] font-bold text-danger">{totpError}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-end gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsAuthenticatorModalOpen(false)}
-                      className="px-5 py-2.5 rounded-xl border border-border-misrah text-muted-text text-[10px] font-black uppercase tracking-wider hover:bg-surface cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 rounded-xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Check size={13} />
-                      <span>Activate Authenticator</span>
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
 
         {/* LOGOUT ALL MODAL */}
         <AnimatePresence>

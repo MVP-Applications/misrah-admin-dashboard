@@ -24,7 +24,7 @@ import { refreshClientLocation } from '../../api/deviceInfo';
 import { UserRole } from '../../types';
 
 export const LoginView = () => {
-  const { login } = useAuth();
+  const { login, loginWithOtp } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
   // Which portal the person is signing into — passed through to
@@ -39,8 +39,8 @@ export const LoginView = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
-  // Optional OTP flow if user prefers SMS code — UI only, the API has no
-  // SMS-auth endpoint yet, so this never actually signs anyone in.
+  // SMS sign-in (Host Hub only): POST /host/auth/otp/send, then
+  // POST /host/auth/otp/login { phoneNumber, otp }.
   const [useOtp, setUseOtp] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -89,9 +89,8 @@ export const LoginView = () => {
     setError(null);
 
     if (selectedRole !== 'manager') {
-      // Admin HQ has no SMS endpoint — nothing is actually sent.
-      setOtpSent(true);
-      setOtpCode('');
+      // Admin HQ has no SMS endpoint.
+      setError('SMS sign-in is only available for Host Hub — please use your password.');
       return;
     }
 
@@ -121,13 +120,32 @@ export const LoginView = () => {
 
     const inputVal = emailOrPhone.trim();
     if (!inputVal) {
-      setError('Please enter your email address or phone number');
+      setError(selectedRole === 'admin' ? 'Please enter your email address' : 'Please enter your email address or phone number');
       return;
     }
 
     if (useOtp) {
-      // UI only — no SMS-auth endpoint on the API yet.
-      setError('SMS sign-in is coming soon — please use your password for now.');
+      if (selectedRole !== 'manager') {
+        setError('SMS sign-in is only available for Host Hub — please use your password.');
+        return;
+      }
+      if (!otpSent) {
+        setError('Tap “Send Code” to get your SMS code first');
+        return;
+      }
+      const code = otpCode.trim();
+      if (!code) {
+        setError('Please enter the code sent to your phone');
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        await loginWithOtp(inputVal.replace(/[\s\-.()]/g, ''), code);
+      } catch (err) {
+        setError(errorMessage(err, 'Invalid or expired code. Please try again.'));
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -542,7 +560,7 @@ export const LoginView = () => {
                 {/* Admin Portal */}
                 <button
                   type="button"
-                  onClick={() => { setSelectedRole('admin'); setOtpSent(false); setOtpCode(''); }}
+                  onClick={() => { setSelectedRole('admin'); setUseOtp(false); setOtpSent(false); setOtpCode(''); setError(null); }}
                   className={`p-3.5 rounded-2xl border text-left transition-all relative ${
                     selectedRole === 'admin'
                       ? 'bg-accent/15 border-accent text-white shadow-md'
@@ -593,14 +611,14 @@ export const LoginView = () => {
               {/* Single Unified Identifier Field */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-wider text-white/60 block px-1">
-                  {t('login.identifier')}
+                  {selectedRole === 'admin' ? t('login.email') : t('login.identifier')}
                 </label>
                 <div className="relative">
                   <UserCheck size={16} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-white/40" />
                   <input
-                    type="text"
+                    type={selectedRole === 'admin' ? 'email' : 'text'}
                     required
-                    placeholder="name@misrah.ae or +971 50 123 4567"
+                    placeholder={selectedRole === 'admin' ? 'name@misrah.ae' : 'name@misrah.ae or +971 50 123 4567'}
                     value={emailOrPhone}
                     onChange={(e) => setEmailOrPhone(e.target.value)}
                     disabled={isSubmitting}
@@ -638,7 +656,7 @@ export const LoginView = () => {
                   </div>
                 </div>
               ) : (
-                /* SMS Verification Code Field (UI only — no SMS-auth endpoint yet) */
+                /* SMS Verification Code Field (Host Hub sign-in) */
                 <div className="space-y-2 p-3.5 bg-white/5 border border-white/10 rounded-2xl">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase text-white/70 flex items-center gap-1.5">
@@ -686,16 +704,19 @@ export const LoginView = () => {
 
               {/* Toggle Between Password & SMS OTP Mode */}
               <div className="flex items-center justify-between text-[11px] px-1 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseOtp(!useOtp);
-                    setError(null);
-                  }}
-                  className="text-white/60 hover:text-accent font-bold transition-colors"
-                >
-                  {useOtp ? t('login.usePassword') : t('login.useSms')}
-                </button>
+                {/* SMS sign-in exists for Host Hub only. */}
+                {selectedRole === 'manager' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseOtp(!useOtp);
+                      setError(null);
+                    }}
+                    className="text-white/60 hover:text-accent font-bold transition-colors"
+                  >
+                    {useOtp ? t('login.usePassword') : t('login.useSms')}
+                  </button>
+                ) : <span />}
 
                 {!useOtp && (
                   <button

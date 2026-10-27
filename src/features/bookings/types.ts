@@ -83,6 +83,8 @@ export interface ListBookingsResponse {
 // ---------------------------------------------------------------------------
 export interface BookingDetail {
   _id: string;
+  // Human-readable reference shown to users (e.g. "MSR-…"); _id stays the API key.
+  bookingCode?: string;
   propertyId: string;
   checkInDate: string;
   checkOutDate: string;

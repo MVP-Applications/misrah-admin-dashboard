@@ -49,7 +49,7 @@ import {
   rescheduleHostBooking,
   updateBookingStatus,
 } from '../../features/bookings/api';
-import { toLegacyBooking, formatBookingDate, deriveDisplayStatus } from '../../features/bookings/mappers';
+import { toLegacyBooking, formatBookingDate, deriveDisplayStatus, bookingReference } from '../../features/bookings/mappers';
 import type { BookingDetail } from '../../features/bookings/types';
 import {
   cancelExperienceBooking,
@@ -1024,7 +1024,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               name: guestName,
               phone: guestPhone,
               avatar: guestAvatar,
-              subtitle: `${detail.experienceSnapshot.title} · Ref: ${detail._id.slice(-8).toUpperCase()}`,
+              subtitle: `${detail.experienceSnapshot.title} · Ref: ${bookingReference(detail)}`,
               userId: detail.traveler?._id,
               propertyId: detail.propertyId,
             }}
@@ -1058,7 +1058,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               <h1 className="text-xl font-black italic text-primary uppercase tracking-tight">Booking Details</h1>
               {bookingDetail && (
                 <p className="text-[10px] font-bold text-muted-text uppercase tracking-widest">
-                  Ref: {bookingDetail._id.slice(-8).toUpperCase()}
+                  Ref: {bookingReference(bookingDetail)}
                 </p>
               )}
             </div>
@@ -1338,7 +1338,7 @@ export const BookingsView = ({ user }: BookingsViewProps) => {
               name: guestName,
               phone: bookingDetail.traveler?.phoneNumber ?? bookingDetail.contact?.phone,
               avatar: toDetailAvatar(bookingDetail),
-              subtitle: `${bookingDetail.propertySnapshot.title} · Ref: ${bookingDetail._id.slice(-8).toUpperCase()}`,
+              subtitle: `${bookingDetail.propertySnapshot.title} · Ref: ${bookingReference(bookingDetail)}`,
               userId: bookingDetail.traveler?._id,
               propertyId: bookingDetail.propertyId,
             }}

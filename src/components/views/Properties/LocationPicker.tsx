@@ -1,11 +1,16 @@
-/// <reference types="google.maps" />
 import React, { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Search, Crosshair, Loader2, MapPin, X, TriangleAlert } from 'lucide-react';
-import { env } from '../../../config/env';
 
-// Map pin picker for property creation — Google Maps (Maps JavaScript API)
-// with the Geocoding API for address search and the pin's address. Click the
-// map or drag the pin to set the location. Needs VITE_GOOGLE_MAPS_API_KEY.
+// Map pin picker for property create / edit — Esri World Street Map tiles
+// (English labels) via Leaflet, with OpenStreetMap's Nominatim
+// (accept-language=en) for address search, recentering on
+// the city and the pin's address. Click the map or drag the pin to set the
+// location. No API key needed.
+//
+// Nominatim's usage policy asks for light, user-driven traffic (≤ 1 request
+// a second): search runs only on submit and reverse lookups are debounced.
 
 export interface LatLng {
   lat: number;
@@ -22,58 +27,36 @@ interface LocationPickerProps {
 }
 
 const DEFAULT_CENTER: LatLng = { lat: 25.2048, lng: 55.2708 }; // Dubai
+const NOMINATIM = 'https://nominatim.openstreetmap.org';
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
-// Loads the Maps JavaScript API once per page.
-let mapsLoader: Promise<void> | null = null;
-function loadGoogleMaps(apiKey: string): Promise<void> {
-  if (typeof window !== 'undefined' && window.google?.maps?.Map) return Promise.resolve();
-  if (mapsLoader) return mapsLoader;
-  mapsLoader = new Promise<void>((resolve, reject) => {
-    const callbackName = '__misrahGoogleMapsReady';
-    (window as unknown as Record<string, unknown>)[callbackName] = () => resolve();
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&callback=${callbackName}`;
-    script.async = true;
-    script.onerror = () => {
-      mapsLoader = null;
-      script.remove();
-      reject(new Error('Google Maps failed to load. Check your network connection and the API key.'));
-    };
-    document.head.appendChild(script);
-  });
-  return mapsLoader;
+// A CSS pin (no image assets — Leaflet's default marker images don't resolve
+// through the bundler).
+const PIN_ICON = L.divIcon({
+  className: '',
+  html: `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;background:#0F1D33;border:3px solid #D4C3B5;transform:rotate(-45deg);box-shadow:0 4px 10px rgba(0,0,0,.3)"></div>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
+});
+
+interface NominatimPlace {
+  display_name: string;
+  lat: string;
+  lon: string;
 }
 
-// Geocoder call that always returns a real promise and never throws
-// synchronously. Uses the callback form: when the key is rejected or the
-// Geocoding API isn't enabled, google's geocode() can return undefined
-// instead of a promise, which crashed `.then()` callers.
-function geocodeSafe(
-  geocoder: google.maps.Geocoder | null,
-  request: google.maps.GeocoderRequest,
-): Promise<google.maps.GeocoderResult[]> {
-  return new Promise((resolve, reject) => {
-    if (!geocoder) {
-      reject({ code: 'UNAVAILABLE' });
-      return;
-    }
-    try {
-      const maybePromise = geocoder.geocode(request, (results, status) => {
-        if (status === 'OK') resolve(results ?? []);
-        else if (status === 'ZERO_RESULTS') resolve([]);
-        else reject({ code: status });
-      }) as unknown;
-      // Newer API versions also return a promise — silence its rejection,
-      // the callback above already reports the outcome.
-      if (maybePromise && typeof (maybePromise as Promise<unknown>).catch === 'function') {
-        (maybePromise as Promise<unknown>).catch(() => {});
-      }
-    } catch (err) {
-      reject({ code: 'ERROR', error: err });
-    }
-  });
+async function nominatimSearch(q: string, limit: number): Promise<NominatimPlace[]> {
+  const res = await fetch(`${NOMINATIM}/search?format=json&limit=${limit}&accept-language=en&q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  return res.json();
+}
+
+async function nominatimReverse(point: LatLng): Promise<string> {
+  const res = await fetch(`${NOMINATIM}/reverse?format=json&accept-language=en&lat=${point.lat}&lon=${point.lng}`);
+  if (!res.ok) throw new Error(`Reverse lookup failed (${res.status})`);
+  const body = (await res.json()) as { display_name?: string };
+  return body.display_name ?? '';
 }
 
 interface SearchResult {
@@ -82,11 +65,9 @@ interface SearchResult {
 }
 
 export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }: LocationPickerProps) => {
-  const apiKey = env.GOOGLE_MAPS_API_KEY;
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markerRef = useRef<google.maps.Marker | null>(null);
-  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onAddressRef = useRef(onAddressResolved);
@@ -104,79 +85,72 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
 
   const setPin = (point: LatLng) => onChangeRef.current({ lat: round6(point.lat), lng: round6(point.lng) });
 
-  // Load the API and create the map once.
+  // Create the map once.
   useEffect(() => {
-    if (!apiKey) return;
-    let cancelled = false;
-    // Google calls this when the key is rejected (invalid, API not enabled, referrer blocked).
-    (window as unknown as Record<string, unknown>).gm_authFailure = () =>
-      setLoadError('Google Maps rejected the API key. Check that it is valid, the Maps JavaScript API is enabled, and this domain is allowed.');
-
-    loadGoogleMaps(apiKey)
-      .then(() => {
-        if (cancelled || !containerRef.current) return;
-        const start = value ?? DEFAULT_CENTER;
-        const map = new google.maps.Map(containerRef.current, {
-          center: start,
-          zoom: value ? 16 : 11,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: true,
-          clickableIcons: false,
-        });
-        map.addListener('click', (e: google.maps.MapMouseEvent) => {
-          if (e.latLng) setPin({ lat: e.latLng.lat(), lng: e.latLng.lng() });
-        });
-        mapRef.current = map;
-        geocoderRef.current = new google.maps.Geocoder();
-        setMapReady(true);
-      })
-      .catch(err => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Google Maps failed to load.');
+    if (!containerRef.current) return;
+    try {
+      const start = value ?? DEFAULT_CENTER;
+      const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true }).setView(
+        [start.lat, start.lng],
+        value ? 16 : 11,
+      );
+      // Esri World Street Map — the standard OSM tiles label places in the
+      // local language (Arabic across the UAE); this street map labels in English.
+      const tiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, and the GIS user community',
       });
-
-    return () => {
-      cancelled = true;
-      markerRef.current?.setMap(null);
-      markerRef.current = null;
-      mapRef.current = null;
-    };
+      tiles.on('tileerror', () => setLoadError('Map tiles failed to load. Check your network connection.'));
+      tiles.on('load', () => setLoadError(null));
+      tiles.addTo(map);
+      map.on('click', (e: L.LeafletMouseEvent) => setPin({ lat: e.latlng.lat, lng: e.latlng.lng }));
+      mapRef.current = map;
+      setMapReady(true);
+      // The container may still be animating into place (modal / tab) —
+      // re-measure once it has settled so tiles fill it.
+      const t = window.setTimeout(() => map.invalidateSize(), 250);
+      return () => {
+        window.clearTimeout(t);
+        map.remove();
+        mapRef.current = null;
+        markerRef.current = null;
+      };
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'The map failed to load.');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey]);
+  }, []);
 
   // Keep the marker in sync with `value`.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (!value) {
-      markerRef.current?.setMap(null);
+      markerRef.current?.remove();
       markerRef.current = null;
       return;
     }
     if (!markerRef.current) {
-      const marker = new google.maps.Marker({ position: value, map, draggable: true });
-      marker.addListener('dragend', () => {
-        const pos = marker.getPosition();
-        if (pos) setPin({ lat: pos.lat(), lng: pos.lng() });
+      const marker = L.marker([value.lat, value.lng], { draggable: true, icon: PIN_ICON }).addTo(map);
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        setPin({ lat: pos.lat, lng: pos.lng });
       });
       markerRef.current = marker;
     } else {
-      markerRef.current.setPosition(value);
+      markerRef.current.setLatLng([value.lat, value.lng]);
     }
-    if (!map.getBounds()?.contains(value)) map.panTo(value);
+    if (!map.getBounds().contains([value.lat, value.lng])) map.panTo([value.lat, value.lng]);
   }, [value, mapReady]);
 
   // Recenter on the selected city while no pin has been placed.
   useEffect(() => {
-    if (!mapReady || !cityQuery || value || !geocoderRef.current) return;
+    if (!mapReady || !cityQuery || value) return;
     let cancelled = false;
-    geocodeSafe(geocoderRef.current, { address: cityQuery })
+    nominatimSearch(cityQuery, 1)
       .then(found => {
-        const loc = found[0]?.geometry.location;
-        if (!cancelled && loc && mapRef.current) {
-          mapRef.current.setCenter(loc);
-          mapRef.current.setZoom(12);
-        }
+        const place = found[0];
+        if (!cancelled && place && mapRef.current) mapRef.current.setView([Number(place.lat), Number(place.lon)], 12);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -191,14 +165,12 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
       onAddressRef.current?.('');
       return;
     }
-    if (!mapReady || !geocoderRef.current) return;
     let cancelled = false;
     setResolvingAddress(true);
     const t = window.setTimeout(() => {
-      geocodeSafe(geocoderRef.current, { location: value })
-        .then(found => {
+      nominatimReverse(value)
+        .then(address => {
           if (cancelled) return;
-          const address = found[0]?.formatted_address ?? '';
           setResolvedAddress(address || null);
           onAddressRef.current?.(address);
         })
@@ -206,35 +178,27 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
           if (!cancelled) setResolvedAddress(null);
         })
         .finally(() => { if (!cancelled) setResolvingAddress(false); });
-    }, 400);
+    }, 600);
     return () => {
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [value?.lat, value?.lng, mapReady]);
+  }, [value?.lat, value?.lng]);
 
   const runSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const q = query.trim();
-    if (!q || !geocoderRef.current) return;
+    if (!q) return;
     setSearching(true);
     setSearchError(null);
     try {
-      const found = await geocodeSafe(geocoderRef.current, { address: q, region: 'ae' });
-      const list = found.slice(0, 5).map(r => ({
-        address: r.formatted_address,
-        location: { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() },
-      }));
+      const found = await nominatimSearch(q, 5);
+      const list = found.map(r => ({ address: r.display_name, location: { lat: Number(r.lat), lng: Number(r.lon) } }));
       setResults(list);
       if (list.length === 0) setSearchError('No places found for that search.');
-    } catch (err) {
-      const code = (err as { code?: string })?.code;
+    } catch {
       setResults([]);
-      setSearchError(
-        code === 'REQUEST_DENIED'
-          ? 'Location search is unavailable — enable the Geocoding API for this Google key. You can still click the map to place the pin.'
-          : 'Location search failed. Make sure the Geocoding API is enabled for this key, or click the map to place the pin.',
-      );
+      setSearchError('Location search failed. You can still click the map to place the pin.');
     } finally {
       setSearching(false);
     }
@@ -242,8 +206,7 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
 
   const pickResult = (r: SearchResult) => {
     setPin(r.location);
-    mapRef.current?.setCenter(r.location);
-    mapRef.current?.setZoom(17);
+    mapRef.current?.setView([r.location.lat, r.location.lng], 17);
     setResults([]);
     setQuery(r.address);
   };
@@ -259,8 +222,7 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
       pos => {
         const point = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setPin(point);
-        mapRef.current?.setCenter(point);
-        mapRef.current?.setZoom(17);
+        mapRef.current?.setView([point.lat, point.lng], 17);
         setLocating(false);
       },
       () => {
@@ -278,10 +240,8 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
     if (key === 'lng' && Math.abs(n) > 180) return;
     const next = { ...(value ?? DEFAULT_CENTER), [key]: n };
     setPin(next);
-    mapRef.current?.panTo(next);
+    mapRef.current?.panTo([next.lat, next.lng]);
   };
-
-  const mapUnavailable = !apiKey || !!loadError;
 
   return (
     <div className="space-y-3">
@@ -294,36 +254,34 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
         )}
       </div>
 
-      {!mapUnavailable && (
-        <form onSubmit={runSearch} className="flex gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search a building, street or area…"
-              className="w-full bg-surface border border-border-misrah rounded-2xl pl-10 pr-4 rtl:pl-4 rtl:pr-10 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={searching || !query.trim() || !mapReady}
-            className="px-5 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider disabled:opacity-50 flex items-center gap-2"
-          >
-            {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            Search
-          </button>
-          <button
-            type="button"
-            onClick={useMyLocation}
-            disabled={locating || !mapReady}
-            title="Use my current location"
-            className="w-12 rounded-2xl border border-border-misrah bg-white flex items-center justify-center text-primary hover:border-accent disabled:opacity-50"
-          >
-            {locating ? <Loader2 size={14} className="animate-spin" /> : <Crosshair size={16} />}
-          </button>
-        </form>
-      )}
+      <form onSubmit={runSearch} className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-4 rtl:left-auto rtl:right-4 top-1/2 -translate-y-1/2 text-muted-text/50" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search a building, street or area…"
+            className="w-full bg-surface border border-border-misrah rounded-2xl pl-10 pr-4 rtl:pl-4 rtl:pr-10 py-3 text-xs font-bold text-primary outline-none focus:border-accent"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={searching || !query.trim()}
+          className="px-5 rounded-2xl bg-primary text-accent text-[10px] font-black uppercase tracking-wider disabled:opacity-50 flex items-center gap-2"
+        >
+          {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+          Search
+        </button>
+        <button
+          type="button"
+          onClick={useMyLocation}
+          disabled={locating || !mapReady}
+          title="Use my current location"
+          className="w-12 rounded-2xl border border-border-misrah bg-white flex items-center justify-center text-primary hover:border-accent disabled:opacity-50"
+        >
+          {locating ? <Loader2 size={14} className="animate-spin" /> : <Crosshair size={16} />}
+        </button>
+      </form>
 
       {results.length > 0 && (
         <div className="rounded-2xl border border-border-misrah bg-white divide-y divide-border-misrah/60 overflow-hidden">
@@ -342,24 +300,15 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
       )}
       {searchError && <p className="text-[10px] font-bold text-danger px-1">{searchError}</p>}
 
+      {/* `isolate` keeps Leaflet's high z-index panes inside this box, below modals. */}
       <div className="relative isolate rounded-[28px] overflow-hidden border border-border-misrah bg-surface">
-        <div ref={containerRef} className={`h-72 w-full ${mapUnavailable ? 'hidden' : ''}`} />
-        {mapUnavailable ? (
-          <div className="h-72 w-full flex flex-col items-center justify-center gap-2 px-8 text-center">
-            <TriangleAlert size={22} className="text-amber-500" />
-            <p className="text-xs font-black text-primary uppercase tracking-wider">Map unavailable</p>
-            <p className="text-[11px] text-muted-text leading-relaxed max-w-sm">
-              {!apiKey
-                ? 'Add VITE_GOOGLE_MAPS_API_KEY to the .env file and restart the dev server to enable Google Maps. You can still enter latitude and longitude below.'
-                : loadError}
-            </p>
-          </div>
-        ) : !mapReady ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-muted-text text-[10px] font-black uppercase tracking-widest">
-            <Loader2 size={14} className="animate-spin" /> Loading Google Maps…
+        <div ref={containerRef} className="h-72 w-full z-0" />
+        {loadError ? (
+          <div className="pointer-events-none absolute inset-x-0 top-3 mx-auto w-fit max-w-[90%] px-4 py-2 rounded-full bg-white/95 border border-amber-300 text-amber-700 text-[10px] font-bold flex items-center gap-2 shadow z-[1000]">
+            <TriangleAlert size={13} /> {loadError}
           </div>
         ) : !value ? (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-primary/90 text-accent text-[10px] font-black uppercase tracking-wider shadow-lg">
+          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-primary/90 text-accent text-[10px] font-black uppercase tracking-wider shadow-lg z-[1000]">
             Click the map to drop a pin
           </div>
         ) : null}
@@ -388,11 +337,9 @@ export const LocationPicker = ({ value, onChange, cityQuery, onAddressResolved }
           <div className="min-w-0">
             <p className="text-[9px] font-black uppercase tracking-[2px] text-muted-text">Pinned Address</p>
             <p className="text-[11px] font-medium text-primary/80 leading-relaxed mt-0.5">
-              {!mapReady
-                ? 'Address lookup needs Google Maps — coordinates will still be saved.'
-                : resolvingAddress
-                  ? 'Finding address…'
-                  : resolvedAddress ?? 'Address not found for this point — coordinates will still be saved.'}
+              {resolvingAddress
+                ? 'Finding address…'
+                : resolvedAddress ?? 'Address not found for this point — coordinates will still be saved.'}
             </p>
           </div>
         </div>

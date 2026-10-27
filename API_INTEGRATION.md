@@ -581,10 +581,11 @@ exact misconfiguration produced zero diagnostic output in the actual broken depl
   yet deployed to `misra-test`) — see "Bookings" above for exactly what changed and why.
   Until deployed, clicking "Manage" → "Save" in the Bookings detail view will fail with a
   404, not a bug in the frontend code.
-- **Forgot/reset password is not implemented.** Paths are registered in
-  `api/endpoints.ts` (`forgotPassword`, `resetPassword`) and DTOs exist
-  (`ForgotPasswordDto { email }`, `ResetPasswordDto { token, newPassword }`) but nothing
-  calls them. The login screen shows a "coming soon" note instead of a real flow.
+- **Forgot/reset password** is wired for both portals (`forgot-password` → `verify-otp`
+  → `reset-password`, see `features/auth/api.ts`), used by the login screen and
+  Profile → Update Password.
+- **Host SMS sign-in** uses `POST /host/auth/otp/login { phoneNumber, otp }` — the path
+  mirrors the traveller app's `/consumer/auth/otp/login` and isn't confirmed live yet.
 - **Role model is a placeholder.** The backend has a real DB-driven roles system
   (`GET/POST/PATCH/DELETE /admin/roles`, `roleIds` on admin users, plus a `userMode` field
   seen on the logged-in user that looks consumer/host-mode-related, not yet understood
